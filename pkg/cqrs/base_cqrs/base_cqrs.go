@@ -45,12 +45,6 @@ type BaseCQRSOptions struct {
 	// PostgresURI declares the postgres connection to connect to a postgres database
 	PostgresURI string
 
-	// AzureAuth enables Azure Workload Identity authentication for PostgreSQL.
-	// When true, the connection is established using Azure AD tokens instead of
-	// a password-based connection string. Requires AZURE_POSTGRESQL_HOST,
-	// AZURE_POSTGRESQL_DATABASE, and AZURE_POSTGRESQL_USER environment variables.
-	AzureAuth bool
-
 	// The path at which the SQLite database should be stored.
 	Directory string
 }
@@ -58,11 +52,13 @@ type BaseCQRSOptions struct {
 func New(opts BaseCQRSOptions) (*sql.DB, error) {
 	var err error
 
-	if opts.AzureAuth && opts.PostgresURI != "" {
-		return nil, fmt.Errorf("cannot use both AzureAuth and PostgresURI; choose one authentication method")
+	azureAuth := azure.IsAzureAuthEnabled()
+
+	if azureAuth && opts.PostgresURI != "" {
+		return nil, fmt.Errorf("cannot use both Azure Workload Identity (AZURE_POSTGRESQL_HOST) and PostgresURI; choose one authentication method")
 	}
 
-	if opts.AzureAuth {
+	if azureAuth {
 		// Azure Workload Identity authentication: build connection from
 		// individual env vars and use a BeforeConnect hook to inject tokens.
 		if opts.ForTest {
@@ -201,7 +197,7 @@ func up(db *sql.DB, opts BaseCQRSOptions) error {
 	)
 
 	// Grab the migration driver.
-	if opts.PostgresURI != "" || opts.AzureAuth {
+	if opts.PostgresURI != "" || azure.IsAzureAuthEnabled() {
 		src, err = iofs.New(FS, path.Join("migrations", "postgres"))
 		if err != nil {
 			return err
@@ -216,7 +212,7 @@ func up(db *sql.DB, opts BaseCQRSOptions) error {
 			if parsedURL.Path != "" && parsedURL.Path != "/" {
 				dbName = parsedURL.Path[1:]
 			}
-		} else if opts.AzureAuth {
+		} else if azure.IsAzureAuthEnabled() {
 			azCfg, cfgErr := azure.LoadAzurePostgresConfig()
 			if cfgErr != nil {
 				return fmt.Errorf("error loading Azure PostgreSQL config for migration DB name: %w", cfgErr)

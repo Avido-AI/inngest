@@ -9,7 +9,6 @@ import (
 
 	localconfig "github.com/inngest/inngest/cmd/internal/config"
 	"github.com/inngest/inngest/pkg/authn"
-	"github.com/inngest/inngest/pkg/azure"
 	"github.com/inngest/inngest/pkg/config"
 	connectConfig "github.com/inngest/inngest/pkg/config/connect"
 	connectgrpc "github.com/inngest/inngest/pkg/connect/grpc"
@@ -118,12 +117,6 @@ func action(ctx context.Context, cmd *cli.Command) error {
 	redisURI := localconfig.GetValue(cmd, "redis-uri", "")
 	sqliteDir := localconfig.GetValue(cmd, "sqlite-dir", "")
 
-	// Azure Workload Identity: auto-detect from AZURE_POSTGRESQL_HOST env var,
-	// or explicitly enable via --azure-auth flag / INNGEST_AZURE_AUTH env var.
-	azureAuth := localconfig.GetBoolValue(cmd, "azure-auth", false)
-	if !azureAuth {
-		azureAuth = azure.IsAzureAuthEnabled()
-	}
 	sdkURLs := localconfig.GetStringSlice(cmd, "sdk-url")
 
 	connectGatewayPort := localconfig.GetIntValue(cmd, "connect-gateway-port", devserver.DefaultConnectGatewayPort)
@@ -143,7 +136,6 @@ func action(ctx context.Context, cmd *cli.Command) error {
 		PostgresMaxIdleConns:    postgresMaxIdleConns,
 		PostgresMaxOpenConns:    postgresMaxOpenConns,
 		PostgresURI:             postgresURI,
-		AzureAuth:               azureAuth,
 		QueueWorkers:            localconfig.GetIntValue(cmd, "queue-workers", devserver.DefaultQueueWorkers),
 		RedisURI:                redisURI,
 		RequireKeys:             true,

@@ -83,12 +83,6 @@ func Command() *cli.Command {
 				Usage:    "Sets the maximum amount of time, in minutes, a PostgreSQL connection may be reused.",
 				Value:    30,
 			},
-			&cli.BoolFlag{
-				Category: "Persistence",
-				Name:     "azure-auth",
-				Usage:    "Enable Azure Workload Identity authentication for PostgreSQL. Connection parameters are read from AZURE_POSTGRESQL_* env vars.",
-			},
-
 			// Advanced flags
 			&cli.IntFlag{
 				Category: "Advanced",

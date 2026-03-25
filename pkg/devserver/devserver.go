@@ -20,6 +20,7 @@ import (
 	apiv2 "github.com/inngest/inngest/pkg/api/v2"
 	"github.com/inngest/inngest/pkg/api/v2/apiv2base"
 	"github.com/inngest/inngest/pkg/authn"
+	"github.com/inngest/inngest/pkg/azure"
 	"github.com/inngest/inngest/pkg/backoff"
 	"github.com/inngest/inngest/pkg/config"
 	connectConfig "github.com/inngest/inngest/pkg/config/connect"
@@ -148,11 +149,6 @@ type StartOpts struct {
 	PostgresConnMaxIdleTime int    `json:"postgres-conn-max-idle-time"`
 	PostgresConnMaxLifetime int    `json:"postgres-conn-max-lifetime"`
 
-	// AzureAuth enables Azure Workload Identity authentication for PostgreSQL.
-	// When true, connection parameters are read from AZURE_POSTGRESQL_* env vars
-	// and Azure AD tokens are used instead of password-based authentication.
-	AzureAuth bool `json:"azure-auth"`
-
 	// SQLiteDir specifies where SQLite files should be stored
 	SQLiteDir string `json:"sqlite_dir"`
 
@@ -187,7 +183,6 @@ func start(ctx context.Context, opts StartOpts) error {
 	db, err := base_cqrs.New(base_cqrs.BaseCQRSOptions{
 		Persist:     opts.Persist,
 		PostgresURI: opts.PostgresURI,
-		AzureAuth:   opts.AzureAuth,
 		Directory:   opts.SQLiteDir,
 	})
 	if err != nil {
@@ -200,7 +195,7 @@ func start(ctx context.Context, opts StartOpts) error {
 
 	// Initialize the devserver
 	dbDriver := "sqlite"
-	if opts.PostgresURI != "" || opts.AzureAuth {
+	if opts.PostgresURI != "" || azure.IsAzureAuthEnabled() {
 		dbDriver = "postgres"
 	}
 	dbcqrs := base_cqrs.NewCQRS(db, dbDriver, sqlc_postgres.NewNormalizedOpts{
