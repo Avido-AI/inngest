@@ -237,21 +237,10 @@ func start(ctx context.Context, opts StartOpts) error {
 			azureOpt.DisableCache = true
 			azureOpt.BlockingPoolSize = consts.RedisBlockingPoolSize
 
-				shardedRc, err = rueidis.NewClient(azureOpt)
-				if err != nil {
-					return fmt.Errorf("error creating sharded redis client: %w", err)
-				}
-				unshardedRc, err = rueidis.NewClient(azureOpt)
-				if err != nil {
-					shardedRc.Close()
-					return fmt.Errorf("error creating unsharded redis client: %w", err)
-				}
-				connectRc, err = rueidis.NewClient(azureOpt)
-				if err != nil {
-					shardedRc.Close()
-					unshardedRc.Close()
-					return fmt.Errorf("error creating connect redis client: %w", err)
-				}
+			shardedRc, unshardedRc, connectRc, err = createRedisClients(azureOpt)
+			if err != nil {
+				return err
+			}
 		} else {
 			// Use external Redis via URI
 			// Mask Redis URI credentials before logging
@@ -1053,6 +1042,27 @@ func PartitionConstraintConfigGetter(dbcqrs cqrs.Manager) queue.PartitionConstra
 
 		return constraints
 	}
+}
+
+// createRedisClients creates three rueidis clients (sharded, unsharded, connect)
+// from the given option, cleaning up already-opened clients on partial failure.
+func createRedisClients(opt rueidis.ClientOption) (sharded, unsharded, connect rueidis.Client, err error) {
+	sharded, err = rueidis.NewClient(opt)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("error creating sharded redis client: %w", err)
+	}
+	unsharded, err = rueidis.NewClient(opt)
+	if err != nil {
+		sharded.Close()
+		return nil, nil, nil, fmt.Errorf("error creating unsharded redis client: %w", err)
+	}
+	connect, err = rueidis.NewClient(opt)
+	if err != nil {
+		sharded.Close()
+		unsharded.Close()
+		return nil, nil, nil, fmt.Errorf("error creating connect redis client: %w", err)
+	}
+	return sharded, unsharded, connect, nil
 }
 
 func connectToOrCreateRedis(redisURI string) (rueidis.Client, error) {
