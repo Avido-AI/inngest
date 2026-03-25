@@ -221,9 +221,9 @@ func up(db *sql.DB, opts BaseCQRSOptions) error {
 			if cfgErr != nil {
 				return fmt.Errorf("error loading Azure PostgreSQL config for migration DB name: %w", cfgErr)
 			}
-			if azCfg.Database != "" {
-				dbName = azCfg.Database
-			}
+			// Database is guaranteed non-empty here because
+			// LoadAzurePostgresConfig validates it as a required field.
+			dbName = azCfg.Database
 		}
 
 		driver, err = postgres.WithInstance(db, &postgres.Config{
