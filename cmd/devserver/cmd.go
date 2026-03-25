@@ -132,6 +132,7 @@ func Command() *cli.Command {
 				Value:    30,
 				Hidden:   true,
 			},
+
 			// Internal
 			&cli.IntFlag{
 				Name:   "debug-api-port",

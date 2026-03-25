@@ -116,7 +116,6 @@ func action(ctx context.Context, cmd *cli.Command) error {
 	postgresURI := localconfig.GetValue(cmd, "postgres-uri", "")
 	redisURI := localconfig.GetValue(cmd, "redis-uri", "")
 	sqliteDir := localconfig.GetValue(cmd, "sqlite-dir", "")
-
 	sdkURLs := localconfig.GetStringSlice(cmd, "sdk-url")
 
 	connectGatewayPort := localconfig.GetIntValue(cmd, "connect-gateway-port", devserver.DefaultConnectGatewayPort)

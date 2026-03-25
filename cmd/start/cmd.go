@@ -83,6 +83,7 @@ func Command() *cli.Command {
 				Usage:    "Sets the maximum amount of time, in minutes, a PostgreSQL connection may be reused.",
 				Value:    30,
 			},
+
 			// Advanced flags
 			&cli.IntFlag{
 				Category: "Advanced",
