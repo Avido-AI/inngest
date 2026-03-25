@@ -250,19 +250,11 @@ func start(ctx context.Context, opts StartOpts) error {
 			}
 			l.Info("using external redis", "url", loggedURI)
 
-			shardedRc, err = connectToOrCreateRedis(opts.RedisURI)
+			uriOpt, err := connectToOrCreateRedisOption(opts.RedisURI)
 			if err != nil {
 				return err
 			}
-			unshardedRc, err = connectToOrCreateRedis(opts.RedisURI)
-			if err != nil {
-				return err
-			}
-			connectRcOpt, err := connectToOrCreateRedisOption(opts.RedisURI)
-			if err != nil {
-				return err
-			}
-			connectRc, err = rueidis.NewClient(connectRcOpt)
+			shardedRc, unshardedRc, connectRc, err = createRedisClients(uriOpt)
 			if err != nil {
 				return err
 			}
@@ -1063,20 +1055,6 @@ func createRedisClients(opt rueidis.ClientOption) (sharded, unsharded, connect r
 		return nil, nil, nil, fmt.Errorf("error creating connect redis client: %w", err)
 	}
 	return sharded, unsharded, connect, nil
-}
-
-func connectToOrCreateRedis(redisURI string) (rueidis.Client, error) {
-	opt, err := connectToOrCreateRedisOption(redisURI)
-	if err != nil {
-		return nil, fmt.Errorf("could not create redis options: %w", err)
-	}
-
-	rc, err := rueidis.NewClient(opt)
-	if err != nil {
-		return nil, fmt.Errorf("error creating redis client: %w", err)
-	}
-
-	return rc, nil
 }
 
 func connectToOrCreateRedisOption(redisURI string) (rueidis.ClientOption, error) {
