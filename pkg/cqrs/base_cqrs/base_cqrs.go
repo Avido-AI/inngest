@@ -218,7 +218,10 @@ func up(db *sql.DB, opts BaseCQRSOptions) error {
 			}
 		} else if opts.AzureAuth {
 			azCfg, cfgErr := azure.LoadAzurePostgresConfig()
-			if cfgErr == nil && azCfg.Database != "" {
+			if cfgErr != nil {
+				return fmt.Errorf("error loading Azure PostgreSQL config for migration DB name: %w", cfgErr)
+			}
+			if azCfg.Database != "" {
 				dbName = azCfg.Database
 			}
 		}

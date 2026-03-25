@@ -132,6 +132,10 @@ func Command() *cli.Command {
 				Value:    30,
 				Hidden:   true,
 			},
+			// Hidden in devserver because Azure WI is primarily used in
+			// production (cmd/start). The flag is still available for local
+			// testing against an Azure-hosted database but is not shown in
+			// --help to avoid confusing local-only dev server users.
 			&cli.BoolFlag{
 				Category: "Persistence",
 				Name:     "azure-auth",

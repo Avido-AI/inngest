@@ -43,6 +43,9 @@ func LoadAzurePostgresConfig() (AzurePostgresConfig, error) {
 			return AzurePostgresConfig{}, fmt.Errorf("invalid AZURE_POSTGRESQL_PORT %q: %w", p, err)
 		}
 		port = uint16(v)
+		if port == 0 {
+			return AzurePostgresConfig{}, fmt.Errorf("invalid AZURE_POSTGRESQL_PORT: port 0 is not allowed")
+		}
 	}
 
 	cfg := AzurePostgresConfig{
