@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -26,6 +27,7 @@ func IsAzureAuthEnabled() bool {
 // when using Workload Identity authentication.
 type AzurePostgresConfig struct {
 	Host     string
+	Port     uint16
 	Database string
 	User     string
 	Schema   string
@@ -34,8 +36,18 @@ type AzurePostgresConfig struct {
 // LoadAzurePostgresConfig reads Azure PostgreSQL connection parameters from
 // environment variables and validates that all required values are present.
 func LoadAzurePostgresConfig() (AzurePostgresConfig, error) {
+	port := uint16(5432)
+	if p := os.Getenv("AZURE_POSTGRESQL_PORT"); p != "" {
+		v, err := strconv.ParseUint(p, 10, 16)
+		if err != nil {
+			return AzurePostgresConfig{}, fmt.Errorf("invalid AZURE_POSTGRESQL_PORT %q: %w", p, err)
+		}
+		port = uint16(v)
+	}
+
 	cfg := AzurePostgresConfig{
 		Host:     os.Getenv("AZURE_POSTGRESQL_HOST"),
+		Port:     port,
 		Database: os.Getenv("AZURE_POSTGRESQL_DATABASE"),
 		User:     os.Getenv("AZURE_POSTGRESQL_USER"),
 		Schema:   os.Getenv("AZURE_POSTGRESQL_SCHEMA"),

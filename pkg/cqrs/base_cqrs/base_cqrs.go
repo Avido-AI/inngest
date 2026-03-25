@@ -156,18 +156,18 @@ func openAzurePostgres() (*sql.DB, error) {
 		return nil, err
 	}
 
-	connConfig, err := pgx.ParseConfig(fmt.Sprintf(
-		"host='%s' dbname='%s' user='%s' sslmode=verify-full",
-		cfg.Host, cfg.Database, cfg.User,
-	))
+	// Build pgx ConnConfig by assigning struct fields directly instead of
+	// interpolating into a DSN string, avoiding escaping issues with special
+	// characters in host/database/user values.
+	connConfig, err := pgx.ParseConfig("")
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse Azure PostgreSQL config: %w", err)
+		return nil, fmt.Errorf("failed to create base pgx config: %w", err)
 	}
-
-	// Ensure TLS is configured for Azure PostgreSQL
-	if connConfig.TLSConfig == nil {
-		connConfig.TLSConfig = &tls.Config{ServerName: cfg.Host}
-	}
+	connConfig.Host = cfg.Host
+	connConfig.Port = cfg.Port
+	connConfig.Database = cfg.Database
+	connConfig.User = cfg.User
+	connConfig.TLSConfig = &tls.Config{ServerName: cfg.Host}
 
 	// Set search_path if schema is specified
 	if cfg.Schema != "" {
