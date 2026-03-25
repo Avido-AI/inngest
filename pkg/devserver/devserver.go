@@ -237,18 +237,21 @@ func start(ctx context.Context, opts StartOpts) error {
 			azureOpt.DisableCache = true
 			azureOpt.BlockingPoolSize = consts.RedisBlockingPoolSize
 
-			shardedRc, err = rueidis.NewClient(azureOpt)
-			if err != nil {
-				return fmt.Errorf("error creating sharded redis client: %w", err)
-			}
-			unshardedRc, err = rueidis.NewClient(azureOpt)
-			if err != nil {
-				return fmt.Errorf("error creating unsharded redis client: %w", err)
-			}
-			connectRc, err = rueidis.NewClient(azureOpt)
-			if err != nil {
-				return fmt.Errorf("error creating connect redis client: %w", err)
-			}
+				shardedRc, err = rueidis.NewClient(azureOpt)
+				if err != nil {
+					return fmt.Errorf("error creating sharded redis client: %w", err)
+				}
+				unshardedRc, err = rueidis.NewClient(azureOpt)
+				if err != nil {
+					shardedRc.Close()
+					return fmt.Errorf("error creating unsharded redis client: %w", err)
+				}
+				connectRc, err = rueidis.NewClient(azureOpt)
+				if err != nil {
+					shardedRc.Close()
+					unshardedRc.Close()
+					return fmt.Errorf("error creating connect redis client: %w", err)
+				}
 		} else {
 			// Use external Redis via URI
 			// Mask Redis URI credentials before logging
