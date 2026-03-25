@@ -219,30 +219,61 @@ func start(ctx context.Context, opts StartOpts) error {
 	var shardedRc, unshardedRc, connectRc rueidis.Client
 	var shardedCluster, unshardedCluster, connectCluster *miniredis.Miniredis
 
-	if opts.RedisURI != "" {
-		// Use external Redis
-		// Mask Redis URI credentials before logging
-		loggedURI := ""
-		if u, parseErr := url.Parse(opts.RedisURI); parseErr == nil {
-			loggedURI = " " + u.Redacted()
-		}
-		l.Info("using external redis", "url", loggedURI)
+	azureRedisAuth := azure.IsAzureRedisAuthEnabled()
 
-		shardedRc, err = connectToOrCreateRedis(opts.RedisURI)
-		if err != nil {
-			return err
-		}
-		unshardedRc, err = connectToOrCreateRedis(opts.RedisURI)
-		if err != nil {
-			return err
-		}
-		connectRcOpt, err := connectToOrCreateRedisOption(opts.RedisURI)
-		if err != nil {
-			return err
-		}
-		connectRc, err = rueidis.NewClient(connectRcOpt)
-		if err != nil {
-			return err
+	if azureRedisAuth && opts.RedisURI != "" {
+		return fmt.Errorf("cannot use both Azure Workload Identity (AZURE_REDIS_HOST) and RedisURI; choose one authentication method")
+	}
+
+	if opts.RedisURI != "" || azureRedisAuth {
+		if azureRedisAuth {
+			// Use Azure Workload Identity for Redis authentication
+			l.Info("using azure workload identity for redis")
+
+			azureOpt, err := azure.NewRedisClientOption()
+			if err != nil {
+				return fmt.Errorf("failed to create Azure Redis client option: %w", err)
+			}
+			azureOpt.DisableCache = true
+			azureOpt.BlockingPoolSize = consts.RedisBlockingPoolSize
+
+			shardedRc, err = rueidis.NewClient(azureOpt)
+			if err != nil {
+				return fmt.Errorf("error creating sharded redis client: %w", err)
+			}
+			unshardedRc, err = rueidis.NewClient(azureOpt)
+			if err != nil {
+				return fmt.Errorf("error creating unsharded redis client: %w", err)
+			}
+			connectRc, err = rueidis.NewClient(azureOpt)
+			if err != nil {
+				return fmt.Errorf("error creating connect redis client: %w", err)
+			}
+		} else {
+			// Use external Redis via URI
+			// Mask Redis URI credentials before logging
+			loggedURI := ""
+			if u, parseErr := url.Parse(opts.RedisURI); parseErr == nil {
+				loggedURI = " " + u.Redacted()
+			}
+			l.Info("using external redis", "url", loggedURI)
+
+			shardedRc, err = connectToOrCreateRedis(opts.RedisURI)
+			if err != nil {
+				return err
+			}
+			unshardedRc, err = connectToOrCreateRedis(opts.RedisURI)
+			if err != nil {
+				return err
+			}
+			connectRcOpt, err := connectToOrCreateRedisOption(opts.RedisURI)
+			if err != nil {
+				return err
+			}
+			connectRc, err = rueidis.NewClient(connectRcOpt)
+			if err != nil {
+				return err
+			}
 		}
 	} else {
 		// Use in-memory Redis
