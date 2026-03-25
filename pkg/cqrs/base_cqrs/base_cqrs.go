@@ -65,9 +65,13 @@ func New(opts BaseCQRSOptions) (*sql.DB, error) {
 	if opts.AzureAuth {
 		// Azure Workload Identity authentication: build connection from
 		// individual env vars and use a BeforeConnect hook to inject tokens.
-		o.Do(func() {
+		if opts.ForTest {
 			db, err = openAzurePostgres()
-		})
+		} else {
+			o.Do(func() {
+				db, err = openAzurePostgres()
+			})
+		}
 	} else if opts.PostgresURI != "" {
 		if !strings.HasPrefix(opts.PostgresURI, "postgres://") && !strings.HasPrefix(opts.PostgresURI, "postgresql://") {
 			if u, parseErr := url.Parse(opts.PostgresURI); parseErr == nil {
@@ -203,7 +207,10 @@ func up(db *sql.DB, opts BaseCQRSOptions) error {
 		dbName = "postgres"
 		if opts.PostgresURI != "" {
 			parsedURL, parseErr := url.Parse(opts.PostgresURI)
-			if parseErr == nil && parsedURL.Path != "" && parsedURL.Path != "/" {
+			if parseErr != nil {
+				return fmt.Errorf("error parsing postgres URI to retrieve DB name: invalid format")
+			}
+			if parsedURL.Path != "" && parsedURL.Path != "/" {
 				dbName = parsedURL.Path[1:]
 			}
 		} else if opts.AzureAuth {
