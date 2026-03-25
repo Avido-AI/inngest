@@ -2,6 +2,7 @@ package base_cqrs
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -18,8 +19,10 @@ import (
 	"github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/inngest/inngest/pkg/azure"
 	"github.com/inngest/inngest/pkg/consts"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/oklog/ulid/v2"
 	_ "modernc.org/sqlite"
 )
@@ -42,6 +45,12 @@ type BaseCQRSOptions struct {
 	// PostgresURI declares the postgres connection to connect to a postgres database
 	PostgresURI string
 
+	// AzureAuth enables Azure Workload Identity authentication for PostgreSQL.
+	// When true, the connection is established using Azure AD tokens instead of
+	// a password-based connection string. Requires AZURE_POSTGRESQL_HOST,
+	// AZURE_POSTGRESQL_DATABASE, and AZURE_POSTGRESQL_USER environment variables.
+	AzureAuth bool
+
 	// The path at which the SQLite database should be stored.
 	Directory string
 }
@@ -49,7 +58,13 @@ type BaseCQRSOptions struct {
 func New(opts BaseCQRSOptions) (*sql.DB, error) {
 	var err error
 
-	if opts.PostgresURI != "" {
+	if opts.AzureAuth {
+		// Azure Workload Identity authentication: build connection from
+		// individual env vars and use a BeforeConnect hook to inject tokens.
+		o.Do(func() {
+			db, err = openAzurePostgres()
+		})
+	} else if opts.PostgresURI != "" {
 		if !strings.HasPrefix(opts.PostgresURI, "postgres://") && !strings.HasPrefix(opts.PostgresURI, "postgresql://") {
 			if u, parseErr := url.Parse(opts.PostgresURI); parseErr == nil {
 				return nil, fmt.Errorf("unsupported database URL: %s", u.Redacted())
@@ -128,6 +143,44 @@ func New(opts BaseCQRSOptions) (*sql.DB, error) {
 //go:embed **/**/*.sql
 var FS embed.FS
 
+// openAzurePostgres creates a *sql.DB using Azure Workload Identity authentication.
+// It reads connection parameters from AZURE_POSTGRESQL_* env vars and uses the
+// pgx stdlib OpenDB with a BeforeConnect hook that injects Azure AD tokens.
+func openAzurePostgres() (*sql.DB, error) {
+	cfg, err := azure.LoadAzurePostgresConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	connConfig, err := pgx.ParseConfig(fmt.Sprintf(
+		"host=%s dbname=%s user=%s sslmode=verify-full",
+		cfg.Host, cfg.Database, cfg.User,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Azure PostgreSQL config: %w", err)
+	}
+
+	// Ensure TLS is configured for Azure PostgreSQL
+	if connConfig.TLSConfig == nil {
+		connConfig.TLSConfig = &tls.Config{ServerName: cfg.Host}
+	}
+
+	// Set search_path if schema is specified
+	if cfg.Schema != "" {
+		if connConfig.RuntimeParams == nil {
+			connConfig.RuntimeParams = make(map[string]string)
+		}
+		connConfig.RuntimeParams["search_path"] = cfg.Schema
+	}
+
+	beforeConnect, err := azure.NewBeforeConnectHook()
+	if err != nil {
+		return nil, err
+	}
+
+	return stdlib.OpenDB(*connConfig, stdlib.OptionBeforeConnect(beforeConnect)), nil
+}
+
 func up(db *sql.DB, opts BaseCQRSOptions) error {
 	var (
 		err    error
@@ -137,21 +190,22 @@ func up(db *sql.DB, opts BaseCQRSOptions) error {
 	)
 
 	// Grab the migration driver.
-	if opts.PostgresURI != "" {
+	if opts.PostgresURI != "" || opts.AzureAuth {
 		src, err = iofs.New(FS, path.Join("migrations", "postgres"))
 		if err != nil {
 			return err
 		}
 
 		dbName = "postgres"
-		parsedURL, err := url.Parse(opts.PostgresURI)
-		if err != nil {
-			return fmt.Errorf("error parsing postgres URI to retrieve DB name: invalid format")
-		}
-
-		if parsedURL.Path != "" && parsedURL.Path != "/" {
-			// Remove the leading slash
-			dbName = parsedURL.Path[1:]
+		if opts.PostgresURI != "" {
+			parsedURL, parseErr := url.Parse(opts.PostgresURI)
+			if parseErr == nil && parsedURL.Path != "" && parsedURL.Path != "/" {
+				dbName = parsedURL.Path[1:]
+			}
+		} else if opts.AzureAuth {
+			if azDB := os.Getenv("AZURE_POSTGRESQL_DATABASE"); azDB != "" {
+				dbName = azDB
+			}
 		}
 
 		driver, err = postgres.WithInstance(db, &postgres.Config{

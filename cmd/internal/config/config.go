@@ -46,6 +46,10 @@ type Config struct {
 	PostgresConnMaxLifetime int    `koanf:"postgres-conn-max-lifetime"`
 	SqliteDir               string `koanf:"sqlite-dir"`
 
+	// AzureAuth enables Azure Workload Identity authentication for PostgreSQL.
+	// When enabled, connection parameters are read from AZURE_POSTGRESQL_* env vars.
+	AzureAuth bool `koanf:"azure-auth"`
+
 	// Tracing
 	SystemTraceEndpoint string `koanf:"system-trace-endpoint"`
 	SystemTraceURLPath  string `koanf:"system-trace-url-path"`

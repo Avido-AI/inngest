@@ -84,6 +84,13 @@ func action(ctx context.Context, cmd *cli.Command) error {
 	postgresConnMaxIdleTime := localconfig.GetIntValue(cmd, "postgres-conn-max-idle-time", 5)
 	postgresConnMaxLifetime := localconfig.GetIntValue(cmd, "postgres-conn-max-lifetime", 30)
 
+	// Azure Workload Identity: auto-detect from AZURE_POSTGRESQL_HOST env var,
+	// or explicitly enable via --azure-auth flag / INNGEST_AZURE_AUTH env var.
+	azureAuth := localconfig.GetBoolValue(cmd, "azure-auth", false)
+	if !azureAuth && os.Getenv("AZURE_POSTGRESQL_HOST") != "" {
+		azureAuth = true
+	}
+
 	conf.ServerKind = headers.ServerKindDev
 
 	opts := devserver.StartOpts{
@@ -109,6 +116,7 @@ func action(ctx context.Context, cmd *cli.Command) error {
 		PostgresMaxOpenConns:    postgresMaxOpenConns,
 		PostgresConnMaxIdleTime: postgresConnMaxIdleTime,
 		PostgresConnMaxLifetime: postgresConnMaxLifetime,
+		AzureAuth:               azureAuth,
 		DebugAPIPort:            debugAPIPort,
 	}
 
