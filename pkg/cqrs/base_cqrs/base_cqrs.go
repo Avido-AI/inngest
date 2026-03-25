@@ -171,7 +171,10 @@ func openAzurePostgres() (*sql.DB, error) {
 	connConfig.Port = cfg.Port
 	connConfig.Database = cfg.Database
 	connConfig.User = cfg.User
-	connConfig.TLSConfig = &tls.Config{ServerName: cfg.Host}
+	connConfig.TLSConfig = &tls.Config{
+		ServerName: cfg.Host,
+		MinVersion: tls.VersionTLS12,
+	}
 
 	// Set search_path if schema is specified
 	if cfg.Schema != "" {
@@ -214,8 +217,9 @@ func up(db *sql.DB, opts BaseCQRSOptions) error {
 				dbName = parsedURL.Path[1:]
 			}
 		} else if opts.AzureAuth {
-			if azDB := os.Getenv("AZURE_POSTGRESQL_DATABASE"); azDB != "" {
-				dbName = azDB
+			azCfg, cfgErr := azure.LoadAzurePostgresConfig()
+			if cfgErr == nil && azCfg.Database != "" {
+				dbName = azCfg.Database
 			}
 		}
 
