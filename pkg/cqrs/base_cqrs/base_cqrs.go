@@ -58,6 +58,10 @@ type BaseCQRSOptions struct {
 func New(opts BaseCQRSOptions) (*sql.DB, error) {
 	var err error
 
+	if opts.AzureAuth && opts.PostgresURI != "" {
+		return nil, fmt.Errorf("cannot use both AzureAuth and PostgresURI; choose one authentication method")
+	}
+
 	if opts.AzureAuth {
 		// Azure Workload Identity authentication: build connection from
 		// individual env vars and use a BeforeConnect hook to inject tokens.
@@ -153,7 +157,7 @@ func openAzurePostgres() (*sql.DB, error) {
 	}
 
 	connConfig, err := pgx.ParseConfig(fmt.Sprintf(
-		"host=%s dbname=%s user=%s sslmode=verify-full",
+		"host='%s' dbname='%s' user='%s' sslmode=verify-full",
 		cfg.Host, cfg.Database, cfg.User,
 	))
 	if err != nil {

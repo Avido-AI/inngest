@@ -10,6 +10,7 @@ import (
 	"time"
 
 	localconfig "github.com/inngest/inngest/cmd/internal/config"
+	"github.com/inngest/inngest/pkg/azure"
 	"github.com/inngest/inngest/pkg/config"
 	connectConfig "github.com/inngest/inngest/pkg/config/connect"
 	connectgrpc "github.com/inngest/inngest/pkg/connect/grpc"
@@ -87,8 +88,8 @@ func action(ctx context.Context, cmd *cli.Command) error {
 	// Azure Workload Identity: auto-detect from AZURE_POSTGRESQL_HOST env var,
 	// or explicitly enable via --azure-auth flag / INNGEST_AZURE_AUTH env var.
 	azureAuth := localconfig.GetBoolValue(cmd, "azure-auth", false)
-	if !azureAuth && os.Getenv("AZURE_POSTGRESQL_HOST") != "" {
-		azureAuth = true
+	if !azureAuth {
+		azureAuth = azure.IsAzureAuthEnabled()
 	}
 
 	conf.ServerKind = headers.ServerKindDev

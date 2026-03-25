@@ -125,7 +125,7 @@ func Command() *cli.Command {
 				Value:    5,
 				Hidden:   true,
 			},
-				&cli.IntFlag{
+			&cli.IntFlag{
 				Category: "Persistence",
 				Name:     "postgres-conn-max-lifetime",
 				Usage:    "Sets the maximum amount of time, in minutes, a PostgreSQL connection may be reused.",

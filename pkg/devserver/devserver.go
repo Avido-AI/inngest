@@ -151,7 +151,7 @@ type StartOpts struct {
 	// AzureAuth enables Azure Workload Identity authentication for PostgreSQL.
 	// When true, connection parameters are read from AZURE_POSTGRESQL_* env vars
 	// and Azure AD tokens are used instead of password-based authentication.
-	AzureAuth bool `json:"azure_auth"`
+	AzureAuth bool `json:"azure-auth"`
 
 	// SQLiteDir specifies where SQLite files should be stored
 	SQLiteDir string `json:"sqlite_dir"`
