@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -162,7 +163,9 @@ func NewRedisClientOption() (rueidis.ClientOption, error) {
 			MinVersion: tls.VersionTLS12,
 		},
 		AuthCredentialsFn: func(_ rueidis.AuthCredentialsContext) (rueidis.AuthCredentials, error) {
-			token, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			token, err := cred.GetToken(ctx, policy.TokenRequestOptions{
 				Scopes: []string{AzureRedisScope},
 			})
 			if err != nil {
