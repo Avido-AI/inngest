@@ -25,7 +25,6 @@ import {
   type VercelApp,
 } from '@/queries/server/integrations/vercel';
 import useOnboardingStep from './useOnboardingStep';
-import { useOnboardingTracking } from './useOnboardingTracking';
 import { getNextStepName } from './utils';
 import {
   getVercelSyncs,
@@ -43,8 +42,6 @@ export default function SyncApp() {
   const [app, setApp] = useState<string | null>();
   const { updateCompletedSteps } = useOnboardingStep();
   const navigate = useNavigate();
-  const tracking = useOnboardingTracking();
-
   const search = useSearch({ strict: false });
   const fromNonVercel =
     'nonVercel' in search ? search.nonVercel === 'true' : false;
@@ -213,13 +210,6 @@ export default function SyncApp() {
                 loading={isLoading}
                 label="Sync app here"
                 onClick={() => {
-                  tracking?.trackOnboardingAction(currentStepName, {
-                    metadata: {
-                      type: 'btn-click',
-                      label: 'sync',
-                      syncMethod: 'manual',
-                    },
-                  });
                   handleSyncAppManually();
                 }}
               />
@@ -232,9 +222,6 @@ export default function SyncApp() {
                       completionSource: 'manual',
                     },
                   });
-                  tracking?.trackOnboardingAction(currentStepName, {
-                    metadata: { type: 'btn-click', label: 'skip' },
-                  });
                   navigate({
                     to: pathCreator.onboardingSteps({ step: nextStepName }),
                   });
@@ -246,13 +233,6 @@ export default function SyncApp() {
             <Button
               label="Next"
               onClick={() => {
-                tracking?.trackOnboardingAction(currentStepName, {
-                  metadata: {
-                    type: 'btn-click',
-                    label: 'next',
-                    syncMethod: 'manual',
-                  },
-                });
                 navigate({
                   to: pathCreator.onboardingSteps({ step: nextStepName }),
                 });
@@ -274,15 +254,6 @@ export default function SyncApp() {
               label="Manage Vercel integration"
               href={pathCreator.vercel()}
               size="small"
-              onClick={() =>
-                tracking?.trackOnboardingAction(currentStepName, {
-                  metadata: {
-                    type: 'btn-click',
-                    label: 'view-integration',
-                    syncMethod: 'vercel',
-                  },
-                })
-              }
             />
           </div>
           <p className="mb-4 text-sm">
@@ -346,13 +317,6 @@ export default function SyncApp() {
               updateCompletedSteps(currentStepName, {
                 metadata: {
                   completionSource: 'manual',
-                  syncMethod: 'vercel',
-                },
-              });
-              tracking?.trackOnboardingAction(currentStepName, {
-                metadata: {
-                  type: 'btn-click',
-                  label: 'next',
                   syncMethod: 'vercel',
                 },
               });

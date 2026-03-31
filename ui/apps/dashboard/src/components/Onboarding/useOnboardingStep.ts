@@ -6,7 +6,6 @@ import {
   type OnboardingSteps,
   type TotalStepsCompleted,
 } from './types';
-import { useOnboardingStepCompletedTracking } from './useOnboardingTracking';
 
 const getHighestStep = (steps: OnboardingStep[]): OnboardingStep | null => {
   return steps.length > 0
@@ -23,8 +22,6 @@ export default function useOnboardingStep() {
   const [completedSteps, setCompletedSteps] = useState<OnboardingStep[] | []>(
     [],
   );
-
-  const tracking = useOnboardingStepCompletedTracking();
 
   useEffect(() => {
     const storedSteps = localStorage.getItem('onboardingCompletedSteps');
@@ -129,14 +126,6 @@ export default function useOnboardingStep() {
           }),
         );
 
-        // Tracking for the previous steps marked with automatic completion
-        stepsToAdd.forEach((s) => {
-          tracking?.trackOnboardingStepCompleted(s, {
-            metadata: { completionSource: 'automatic' },
-          });
-        });
-
-        tracking?.trackOnboardingStepCompleted(step, metadata);
       }
     }
   };

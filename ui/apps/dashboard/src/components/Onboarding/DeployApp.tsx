@@ -17,7 +17,6 @@ import { pathCreator } from '@/utils/urls';
 import { useEnvironment } from '../Environments/environment-context';
 import { OnboardingSteps } from './types';
 import useOnboardingStep from './useOnboardingStep';
-import { useOnboardingTracking } from './useOnboardingTracking';
 import { getNextStepName } from './utils';
 import { useVercelIntegration } from '@/queries/useVercelIntegration';
 
@@ -29,7 +28,6 @@ export default function DeployApp() {
   const env = useEnvironment();
   const res = useDefaultEventKey({ envID: env.id });
   const defaultEventKey = res.data?.defaultKey.presharedKey || 'Unknown key';
-  const tracking = useOnboardingTracking();
   const [, setInstallingVercelFromOnboarding] = useLocalStorage(
     'installingVercelFromOnboarding',
     false,
@@ -126,20 +124,6 @@ export default function DeployApp() {
                   hostingProvider: 'all',
                 },
               });
-              tracking?.trackOnboardingAction(currentStepName, {
-                metadata: {
-                  type: 'btn-click',
-                  label: 'skip',
-                  hostingProvider: 'all',
-                },
-              });
-              tracking?.trackOnboardingAction(currentStepName, {
-                metadata: {
-                  type: 'btn-click',
-                  label: 'next',
-                  hostingProvider: 'all',
-                },
-              });
               navigate({
                 to: pathCreator.onboardingSteps({ step: nextStepName }),
                 search: { nonVercel: 'true' },
@@ -160,13 +144,6 @@ export default function DeployApp() {
               kind="secondary"
               appearance="outlined"
               onClick={() => {
-                tracking?.trackOnboardingAction(currentStepName, {
-                  metadata: {
-                    type: 'btn-click',
-                    label: 'view-integration',
-                    hostingProvider: 'vercel',
-                  },
-                });
                 navigate({ to: pathCreator.vercel() });
               }}
             />
@@ -199,13 +176,6 @@ export default function DeployApp() {
               <Button
                 label="Connect Inngest to Vercel"
                 onClick={() => {
-                  tracking?.trackOnboardingAction(currentStepName, {
-                    metadata: {
-                      type: 'btn-click',
-                      label: 'connect',
-                      hostingProvider: 'vercel',
-                    },
-                  });
                   setInstallingVercelFromOnboarding(true);
                   window.open(
                     `https://vercel.com/integrations/inngest/new`,
@@ -240,13 +210,6 @@ export default function DeployApp() {
                 updateCompletedSteps(currentStepName, {
                   metadata: {
                     completionSource: 'manual',
-                    hostingProvider: 'vercel',
-                  },
-                });
-                tracking?.trackOnboardingAction(currentStepName, {
-                  metadata: {
-                    type: 'btn-click',
-                    label: 'next',
                     hostingProvider: 'vercel',
                   },
                 });
@@ -290,13 +253,6 @@ export default function DeployApp() {
               updateCompletedSteps(currentStepName, {
                 metadata: {
                   completionSource: 'manual',
-                  hostingProvider: 'cloudflare',
-                },
-              });
-              tracking?.trackOnboardingAction(currentStepName, {
-                metadata: {
-                  type: 'btn-click',
-                  label: 'next',
                   hostingProvider: 'cloudflare',
                 },
               });
@@ -344,13 +300,6 @@ export default function DeployApp() {
               updateCompletedSteps(currentStepName, {
                 metadata: {
                   completionSource: 'manual',
-                  hostingProvider: 'flyio',
-                },
-              });
-              tracking?.trackOnboardingAction(currentStepName, {
-                metadata: {
-                  type: 'btn-click',
-                  label: 'next',
                   hostingProvider: 'flyio',
                 },
               });
