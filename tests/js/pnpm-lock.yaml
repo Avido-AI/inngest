@@ -19,7 +19,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       inngest:
         specifier: 3.11.1-pr-411.4
-        version: 3.11.1-pr-411.4(typescript@4.9.5)
+        version: 3.11.1-pr-411.4(typescript@5.9.3)
       next:
         specifier: 16.2.1
         version: 16.2.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -30,8 +30,8 @@ importers:
         specifier: 19.2.4
         version: 19.2.4(react@19.2.4)
       typescript:
-        specifier: 4.9.5
-        version: 4.9.5
+        specifier: 5.9.3
+        version: 5.9.3
 
 packages:
 
@@ -495,9 +495,9 @@ packages:
   type-plus@5.6.0:
     resolution: {integrity: sha512-LAIvZzs6mKXYHzwRfGeOuWKsE5jHndwWlLheulMl6eWDSGa1bfZCd0aLQSMgP3HZTbazx/P2UumCqtOz5AMctA==}
 
-  typescript@4.9.5:
-    resolution: {integrity: sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==}
-    engines: {node: '>=4.2.0'}
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
     hasBin: true
 
   ufo@1.3.2:
@@ -742,7 +742,7 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  inngest@3.11.1-pr-411.4(typescript@4.9.5):
+  inngest@3.11.1-pr-411.4(typescript@5.9.3):
     dependencies:
       '@types/debug': 4.1.12
       canonicalize: 1.0.8
@@ -757,7 +757,7 @@ snapshots:
       strip-ansi: 5.2.0
       type-fest: 3.13.1
       type-plus: 5.6.0
-      typescript: 4.9.5
+      typescript: 5.9.3
       zod: 3.22.4
     transitivePeerDependencies:
       - encoding
@@ -899,7 +899,7 @@ snapshots:
       tersify: 3.12.1
       unpartial: 1.0.5
 
-  typescript@4.9.5: {}
+  typescript@5.9.3: {}
 
   ufo@1.3.2: {}
 

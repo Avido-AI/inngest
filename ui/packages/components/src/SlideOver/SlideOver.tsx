@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { cn } from '@inngest/components/utils/classNames';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AnimatePresence, motion, type HTMLMotionProps } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
 type SlideOverProps = {
   children?: React.ReactNode;
@@ -45,7 +45,7 @@ export function SlideOver({ children, onClose, size = 'large' }: SlideOverProps)
           <Dialog.Portal forceMount>
             <Dialog.Overlay asChild>
               <motion.div
-                {...{ className: 'fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] transition-opacity dark:bg-[#04060C]/90' } as HTMLMotionProps<'div'>}
+                className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] transition-opacity dark:bg-[#04060C]/90"
                 aria-hidden="true"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -59,7 +59,7 @@ export function SlideOver({ children, onClose, size = 'large' }: SlideOverProps)
             {/* Content container */}
             <div className={cn(size === 'small' ? 'w-2/5' : 'w-4/5', 'fixed inset-0 z-50')}>
               <motion.div
-                {...{ className: 'flex h-full w-screen items-center justify-end' } as HTMLMotionProps<'div'>}
+                className="flex h-full w-screen items-center justify-end"
                 initial={{ x: '100%' }}
                 animate={{ x: 0 }}
                 exit={{ x: '100%' }}

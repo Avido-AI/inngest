@@ -2,7 +2,7 @@ import { type ComponentProps } from 'react';
 import { Button } from '@inngest/components/Button';
 import { cn } from '@inngest/components/utils/classNames';
 import { RiArrowDownLine } from '@remixicon/react';
-import { AnimatePresence, motion, type HTMLMotionProps } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
 import { useStickToBottom } from './hooks/use-stick-to-bottom';
 
@@ -24,7 +24,7 @@ export const Conversation = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            {...{ className: 'absolute bottom-2 left-1/2 -translate-x-1/2' } as HTMLMotionProps<'div'>}
+            className="absolute bottom-2 left-1/2 -translate-x-1/2"
           >
             <ConversationScrollButton onClick={scrollToBottom} />
           </motion.div>

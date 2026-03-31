@@ -39,7 +39,7 @@ const StoredQueriesContext = createContext<
 
 interface StoredQueriesProviderProps {
   children: ReactNode;
-  tabManagerActionsRef: React.MutableRefObject<TabManagerActions>;
+  tabManagerActionsRef: React.RefObject<TabManagerActions>;
 }
 
 export function StoredQueriesProvider({
