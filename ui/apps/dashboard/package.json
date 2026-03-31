@@ -82,7 +82,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.0.0",
     "react-use": "^17.6.0",
-    "recharts": "^2.4.3",
+    "recharts": "^3.0.0",
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.0",
     "sql-formatter": "^15.7.1",
