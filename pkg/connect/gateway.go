@@ -91,6 +91,11 @@ type connectionHandler struct {
 	// Once set, heartbeats must not reset the connection status to READY.
 	draining atomic.Bool
 
+	// cancelRunLoop holds the cancel function for the run loop context.
+	// It is set once the run loop starts and can be called by the drain
+	// goroutine to break the blocking read when the peer is unresponsive.
+	cancelRunLoop atomic.Pointer[context.CancelFunc]
+
 	lastHeartbeatLock       sync.Mutex
 	lastHeartbeatReceivedAt time.Time
 }
@@ -301,13 +306,29 @@ func (c *connectGatewaySvc) Handler() http.Handler {
 				return
 			}
 
-			select {
+				select {
 			case <-workerDrainedCtx.Done():
 				ch.log.Debug("worker closed connection")
 			case <-time.After(5 * time.Second):
 				ch.log.Debug("reached timeout waiting for worker to close connection")
-				// On timeout, the gateway forcefully closes the connection
-				c.closeDraining(ws)
+				// On timeout, attempt a graceful close (sends StatusGoingAway frame).
+				// If the close handshake doesn't complete promptly (e.g. the peer
+				// is not reading), cancel the run loop to force the handler to
+				// clean up without waiting for the heartbeat detector.
+				gracefulDone := make(chan struct{})
+				go func() {
+					c.closeDraining(ws)
+					close(gracefulDone)
+				}()
+				select {
+				case <-gracefulDone:
+					// Graceful close handshake completed
+				case <-time.After(2 * time.Second):
+					// Peer is not reading; cancel the run loop to force cleanup
+					if cancel := ch.cancelRunLoop.Load(); cancel != nil {
+						(*cancel)()
+					}
+				}
 			}
 		}()
 
@@ -422,6 +443,7 @@ func (c *connectGatewaySvc) Handler() http.Handler {
 
 		// Run loop
 		runLoopCtx, cancelRunLoopContext := context.WithCancel(context.Background())
+		ch.cancelRunLoop.Store(&cancelRunLoopContext)
 		defer cancelRunLoopContext()
 
 		eg := errgroup.Group{}
