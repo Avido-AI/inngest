@@ -252,8 +252,8 @@ importers:
         specifier: 0.8.15
         version: 0.8.15
       type-fest:
-        specifier: ^3.7.2
-        version: 3.7.2
+        specifier: ^5.0.0
+        version: 5.3.1
       ulid:
         specifier: ^2.3.0
         version: 2.3.0
@@ -21055,7 +21055,7 @@ snapshots:
   '@ts-morph/common@0.11.1':
     dependencies:
       fast-glob: 3.3.3
-      minimatch: 10.1.2
+      minimatch: 10.2.4
       mkdirp: 1.0.4
       path-browserify: 1.0.1
     optional: true
@@ -21657,7 +21657,7 @@ snapshots:
       glob: 10.5.0
       graceful-fs: 4.2.11
       node-gyp-build: 4.6.0
-      picomatch: 4.0.3
+      picomatch: 4.0.4
       resolve-from: 5.0.0
     transitivePeerDependencies:
       - encoding
@@ -29375,7 +29375,8 @@ snapshots:
 
   type-fest@2.19.0: {}
 
-  type-fest@3.7.2: {}
+  type-fest@3.7.2:
+    optional: true
 
   type-fest@5.3.1:
     dependencies:
