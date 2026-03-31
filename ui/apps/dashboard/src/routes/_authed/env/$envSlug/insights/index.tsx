@@ -2,7 +2,7 @@ import { GetAccountEntitlementsDocument } from '@/gql/graphql';
 import { useQuery } from 'urql';
 
 import { createFileRoute } from '@tanstack/react-router';
-import { useRef, useState } from 'react';
+import { useRef, useState, type JSX } from 'react';
 import {
   useInsightsTabManager,
   type TabManagerActions,
@@ -82,7 +82,7 @@ interface InsightsWithTabManagerProps {
   isQueryHelperPanelVisible: boolean;
   onToggleQueryHelperPanelVisibility: () => void;
   deepLinkQueryId?: string;
-  actionsRef: React.MutableRefObject<TabManagerActions>;
+  actionsRef: React.RefObject<TabManagerActions>;
 }
 
 function InsightsWithTabManager({

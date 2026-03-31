@@ -1,6 +1,6 @@
 import { cn } from '@inngest/components/utils/classNames';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, type HTMLMotionProps } from 'framer-motion';
 
 import { Button, type ButtonKind } from '../Button';
 
@@ -51,7 +51,7 @@ export function AlertModal({
           {/* Full-screen container to center the panel */}
           <div className="fixed inset-0 z-[100] overflow-y-auto">
             <motion.div
-              className="flex min-h-full w-full items-center justify-center p-6"
+              {...{ className: 'flex min-h-full w-full items-center justify-center p-6' } as HTMLMotionProps<'div'>}
               initial={{ y: -20, opacity: 0.2 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{

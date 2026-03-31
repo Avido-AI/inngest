@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { cn } from '@inngest/components/utils/classNames';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, type HTMLMotionProps } from 'framer-motion';
 
 type ModalProps = {
   children?: React.ReactNode;
@@ -21,7 +21,7 @@ type ModalProps = {
   alignTop?: boolean;
 
   /** Ref to the element to focus when the modal opens */
-  initialFocus?: React.RefObject<HTMLElement>;
+  initialFocus?: React.RefObject<HTMLElement | null>;
 };
 
 export function Modal({
@@ -56,10 +56,10 @@ export function Modal({
             {/* Full-screen container to center the panel */}
             <div className="fixed inset-0 z-[100]">
               <motion.div
-                className={cn(
+                {...{ className: cn(
                   alignTop ? 'items-baseline' : 'items-center',
                   'flex h-full w-full justify-center p-6'
-                )}
+                ) } as HTMLMotionProps<'div'>}
                 initial={{ y: -20, opacity: 0.2 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{
