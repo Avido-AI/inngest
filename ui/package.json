@@ -13,7 +13,7 @@
     "husky": "9.1.7",
     "lint-staged": "15.5.0",
     "postcss-nesting": "13.0.2",
-    "prettier": "2.8.8",
+    "prettier": "3.8.1",
     "prettier-plugin-tailwindcss": "0.2.7",
     "turbo": "2.0.1"
   },
@@ -83,7 +83,7 @@
       "minimatch@<5.0.0": ">=5.0.0",
       "nodemon": ">=3.0.0",
       "nodemon>minimatch": "10.2.4",
-      "nodemon>brace-expansion": "1.1.11"
+      "nodemon>brace-expansion": "5.0.5"
     },
     "onlyBuiltDependencies": [
       "@sentry/cli",
