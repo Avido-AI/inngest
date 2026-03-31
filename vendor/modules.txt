@@ -921,7 +921,7 @@ github.com/jstemmer/go-junit-report/v2/parser/gotest/internal/reader
 # github.com/karlseguin/ccache/v2 v2.0.8
 ## explicit; go 1.13
 github.com/karlseguin/ccache/v2
-# github.com/karlseguin/ccache/v3 v3.0.6
+# github.com/karlseguin/ccache/v3 v3.0.8
 ## explicit; go 1.19
 github.com/karlseguin/ccache/v3
 # github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51

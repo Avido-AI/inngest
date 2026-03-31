@@ -52,7 +52,7 @@ require (
 	github.com/jinzhu/copier v0.3.5
 	github.com/jonboulle/clockwork v0.4.0
 	github.com/karlseguin/ccache/v2 v2.0.8
-	github.com/karlseguin/ccache/v3 v3.0.6
+	github.com/karlseguin/ccache/v3 v3.0.8
 	github.com/knadh/koanf/parsers/json v1.0.0
 	github.com/knadh/koanf/parsers/yaml v1.1.0
 	github.com/knadh/koanf/providers/env v1.1.0
