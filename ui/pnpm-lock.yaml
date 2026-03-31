@@ -255,8 +255,8 @@ importers:
         specifier: ^5.0.0
         version: 5.3.1
       ulid:
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: ^3.0.0
+        version: 3.0.2
       urql:
         specifier: ^4.0.5
         version: 4.0.5(graphql@16.8.1)(react@18.2.0)
@@ -421,8 +421,8 @@ importers:
         specifier: 0.8.15
         version: 0.8.15
       ulid:
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: ^3.0.0
+        version: 3.0.2
       zod:
         specifier: ^3.22.4
         version: 3.22.4
@@ -831,8 +831,8 @@ importers:
         specifier: ^1.10.0
         version: 1.10.0
       ulid:
-        specifier: ^2.3.0
-        version: 2.3.0
+        specifier: ^3.0.0
+        version: 3.0.2
       zod:
         specifier: ^3.22.4
         version: 3.22.4
@@ -12412,6 +12412,10 @@ packages:
     resolution: {integrity: sha512-keqHubrlpvT6G2wH0OEfSW4mquYRcbe/J8NMmveoQOjUqmo+hXtO+ORCpWhdbZ7k72UtY61BL7haGxW6enBnjw==}
     hasBin: true
 
+  ulid@3.0.2:
+    resolution: {integrity: sha512-yu26mwteFYzBAot7KVMqFGCVpsF6g8wXfJzQUHvu1no3+rRRSFcSV2nKeYvNPLD2J4b08jYBDhHUjeH0ygIl9w==}
+    hasBin: true
+
   ultrahtml@1.6.0:
     resolution: {integrity: sha512-R9fBn90VTJrqqLDwyMph+HGne8eqY1iPfYhPzZrvKpIfwkWZbcYlfpsb8B9dTvBfpy1/hqAD7Wi8EKfP9e8zdw==}
 
@@ -23009,7 +23013,7 @@ snapshots:
     optionalDependencies:
       crossws: 0.4.1(srvx@0.8.15)
 
-  h3@2.0.1-rc.5(crossws@0.4.1(srvx@0.9.7)):
+  h3@2.0.1-rc.5(crossws@0.4.1(srvx@0.8.15)):
     dependencies:
       rou3: 0.7.9
       srvx: 0.9.7
@@ -24660,7 +24664,7 @@ snapshots:
       consola: 3.4.2
       crossws: 0.4.1(srvx@0.9.7)
       db0: 0.3.4
-      h3: 2.0.1-rc.5(crossws@0.4.1(srvx@0.9.7))
+      h3: 2.0.1-rc.5(crossws@0.4.1(srvx@0.8.15))
       jiti: 2.6.1
       nf3: 0.1.12
       ofetch: 2.0.0-alpha.3
@@ -27309,6 +27313,8 @@ snapshots:
   ufo@1.6.3: {}
 
   ulid@2.3.0: {}
+
+  ulid@3.0.2: {}
 
   ultrahtml@1.6.0: {}
 
