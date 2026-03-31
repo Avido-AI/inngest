@@ -59,7 +59,7 @@ overrides:
   minimatch@<5.0.0: '>=5.0.0'
   nodemon: '>=3.0.0'
   nodemon>minimatch: 10.2.4
-  nodemon>brace-expansion: 1.1.11
+  nodemon>brace-expansion: 5.0.5
 
 importers:
 
@@ -23009,7 +23009,7 @@ snapshots:
     optionalDependencies:
       crossws: 0.4.1(srvx@0.8.15)
 
-  h3@2.0.1-rc.5(crossws@0.4.1(srvx@0.9.7)):
+  h3@2.0.1-rc.5(crossws@0.4.1(srvx@0.8.15)):
     dependencies:
       rou3: 0.7.9
       srvx: 0.9.7
@@ -24660,7 +24660,7 @@ snapshots:
       consola: 3.4.2
       crossws: 0.4.1(srvx@0.9.7)
       db0: 0.3.4
-      h3: 2.0.1-rc.5(crossws@0.4.1(srvx@0.9.7))
+      h3: 2.0.1-rc.5(crossws@0.4.1(srvx@0.8.15))
       jiti: 2.6.1
       nf3: 0.1.12
       ofetch: 2.0.0-alpha.3
