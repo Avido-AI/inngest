@@ -2489,7 +2489,7 @@ func TestCompactionSkipsPhantomBlocks(t *testing.T) {
 		// explicit compact() calls in this test run compaction.  With a non-zero
 		// sample rate, Delete spawns a background goroutine that races with the
 		// synchronous compact() assertions below.
-		CompactionSample:      0,
+		CompactionSample:      -1,
 		CompactionLeaser:      leaser,
 		DeleteAfterFlush:      func(ctx context.Context, workspaceID uuid.UUID) bool { return true },
 		EnableBlockCompaction: func(ctx context.Context, workspaceID uuid.UUID) bool { return true },
