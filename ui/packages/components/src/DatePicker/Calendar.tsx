@@ -35,8 +35,8 @@ const classNames: Partial<ClassNames> = {
   weekday: 'w-11 pt-6 pb-4 align-middle text-center font-medium text-subtle',
   day: 'w-11 h-11 align-middle text-center border-0 font-medium',
   day_button:
-    'rounded-full w-10 h-10 transition-colors hover:bg-primary-xSubtle aria-selected:hover:text-basis aria-selected:hover:bg-primary-xSubtle hover:text-basis focus:outline-none focus-visible:ring focus-visible:ring-primary-subtle',
-  selected: 'text-onContrast bg-primary-moderate',
+    'rounded-full w-10 h-10 transition-colors hover:bg-primary-xSubtle aria-selected:bg-primary-moderate aria-selected:text-onContrast aria-selected:hover:bg-primary-xSubtle aria-selected:hover:text-basis focus:outline-none focus-visible:ring focus-visible:ring-primary-subtle',
+  selected: '',
   today: 'font-semibold',
   disabled: 'text-disabled',
   outside: 'text-disabled',
