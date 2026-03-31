@@ -90,12 +90,7 @@ export default function InvokeFn() {
         },
       });
       if (success) {
-        updateCompletedSteps(currentStepName, {
-          metadata: {
-            completionSource: 'manual',
-            invokedFunction: selectedFunction,
-          },
-        });
+        updateCompletedSteps(currentStepName);
         setError(undefined);
         setIsFnInvoked(true);
         // TO DO: add link to run ID, need to update mutation first to return ID
@@ -214,12 +209,7 @@ export default function InvokeFn() {
                 appearance="outlined"
                 label="Skip to dashboard"
                 onClick={() => {
-                  updateCompletedSteps(currentStepName, {
-                    metadata: {
-                      completionSource: 'manual',
-                      invokedFunction: null,
-                    },
-                  });
+                  updateCompletedSteps(currentStepName);
                   navigate({ to: pathCreator.apps({ envSlug: 'production' }) });
                 }}
               />

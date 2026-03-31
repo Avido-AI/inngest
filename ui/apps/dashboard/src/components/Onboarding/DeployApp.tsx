@@ -118,12 +118,7 @@ export default function DeployApp() {
           <Button
             label="Next"
             onClick={() => {
-              updateCompletedSteps(currentStepName, {
-                metadata: {
-                  completionSource: 'manual',
-                  hostingProvider: 'all',
-                },
-              });
+              updateCompletedSteps(currentStepName);
               navigate({
                 to: pathCreator.onboardingSteps({ step: nextStepName }),
                 search: { nonVercel: 'true' },
@@ -207,12 +202,7 @@ export default function DeployApp() {
             <Button
               label="Next"
               onClick={() => {
-                updateCompletedSteps(currentStepName, {
-                  metadata: {
-                    completionSource: 'manual',
-                    hostingProvider: 'vercel',
-                  },
-                });
+                updateCompletedSteps(currentStepName);
                 navigate({
                   to: pathCreator.onboardingSteps({ step: nextStepName }),
                 });
@@ -250,12 +240,7 @@ export default function DeployApp() {
           <Button
             label="Next"
             onClick={() => {
-              updateCompletedSteps(currentStepName, {
-                metadata: {
-                  completionSource: 'manual',
-                  hostingProvider: 'cloudflare',
-                },
-              });
+              updateCompletedSteps(currentStepName);
               navigate({
                 to: pathCreator.onboardingSteps({ step: nextStepName }),
                 search: { nonVercel: 'true' },
@@ -297,12 +282,7 @@ export default function DeployApp() {
           <Button
             label="Next"
             onClick={() => {
-              updateCompletedSteps(currentStepName, {
-                metadata: {
-                  completionSource: 'manual',
-                  hostingProvider: 'flyio',
-                },
-              });
+              updateCompletedSteps(currentStepName);
               navigate({
                 to: pathCreator.onboardingSteps({ step: nextStepName }),
                 search: { nonVercel: 'true' },

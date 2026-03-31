@@ -111,12 +111,7 @@ export default function SyncApp() {
       });
       if (success) {
         setApp(appName);
-        updateCompletedSteps(currentStepName, {
-          metadata: {
-            completionSource: 'manual',
-            syncMethod: 'manual',
-          },
-        });
+        updateCompletedSteps(currentStepName);
       } else {
         setError(error as CodedError);
       }
@@ -217,11 +212,7 @@ export default function SyncApp() {
                 appearance="outlined"
                 label="I already have an Inngest app"
                 onClick={() => {
-                  updateCompletedSteps(currentStepName, {
-                    metadata: {
-                      completionSource: 'manual',
-                    },
-                  });
+                  updateCompletedSteps(currentStepName);
                   navigate({
                     to: pathCreator.onboardingSteps({ step: nextStepName }),
                   });
@@ -314,12 +305,7 @@ export default function SyncApp() {
             disabled={!hasSuccessfulSync}
             label="Next"
             onClick={() => {
-              updateCompletedSteps(currentStepName, {
-                metadata: {
-                  completionSource: 'manual',
-                  syncMethod: 'vercel',
-                },
-              });
+              updateCompletedSteps(currentStepName);
               navigate({
                 to: pathCreator.onboardingSteps({ step: nextStepName }),
               });

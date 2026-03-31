@@ -86,10 +86,7 @@ export default function useOnboardingStep() {
 
   const totalStepsCompleted: TotalStepsCompleted = completedSteps.length;
 
-  const updateCompletedSteps = (
-    stepName: OnboardingSteps,
-    metadata?: Record<string, any>,
-  ) => {
+  const updateCompletedSteps = (stepName: OnboardingSteps) => {
     if (typeof window !== 'undefined') {
       const step = steps.find((s) => s.name === stepName);
 

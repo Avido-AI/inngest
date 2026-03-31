@@ -119,11 +119,7 @@ export default function CreateApp() {
           label="Next"
           disabled={!devServerIsRunning}
           onClick={() => {
-            updateCompletedSteps(currentStepName, {
-              metadata: {
-                completionSource: 'manual',
-              },
-            });
+            updateCompletedSteps(currentStepName);
             navigate({
               to: pathCreator.onboardingSteps({ step: nextStepName }),
             });
@@ -133,11 +129,7 @@ export default function CreateApp() {
           appearance="outlined"
           label="I already have an Inngest app"
           onClick={() => {
-            updateCompletedSteps(currentStepName, {
-              metadata: {
-                completionSource: 'manual',
-              },
-            });
+            updateCompletedSteps(currentStepName);
             navigate({
               to: pathCreator.onboardingSteps({ step: nextStepName }),
             });
