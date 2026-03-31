@@ -807,8 +807,8 @@ importers:
         specifier: ^18.2.0
         version: 18.2.0
       react-day-picker:
-        specifier: ^8.10.0
-        version: 8.10.0(date-fns@4.1.0)(react@18.2.0)
+        specifier: ^9.0.0
+        version: 9.14.0(react@18.2.0)
       react-dom:
         specifier: ^18.2.0
         version: 18.2.0(react@18.2.0)
@@ -1791,6 +1791,9 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       postcss-selector-parser: ^7.0.0
+
+  '@date-fns/tz@1.4.1':
+    resolution: {integrity: sha512-P5LUNhtbj6YfI3iJjw5EL9eUAG6OitD0W3fWQcpQjDRc/QIsL0tRNuO1PcDvPccWL1fSTXXdE1ds+l95DV/OFA==}
 
   '@dmitryrechkin/json-schema-to-zod@1.0.1':
     resolution: {integrity: sha512-cG9gC4NMu/7JZqmRZy6uIb+l+kxek2GFQ0/qrhw7xeFK2l5B9yF9FVuujoqFPLRGDHNFYqtBWht7hY4KB0ngrA==}
@@ -5798,6 +5801,10 @@ packages:
   '@swc/helpers@0.5.5':
     resolution: {integrity: sha512-KGYxvIOXcceOAbEk4bi/dVLEK9z8sZ0uBB3Il5b1rhfClSpcX0yfRO0KmTkqR2cnQDymwLB+25ZyMzICg/cm/A==}
 
+  '@tabby_ai/hijri-converter@1.0.5':
+    resolution: {integrity: sha512-r5bClKrcIusDoo049dSL8CawnHR6mRdDwhlQuIgZRNty68q0x8k3Lf1BtPAMxRf/GgnHBnIO4ujd3+GQdLWzxQ==}
+    engines: {node: '>=16.0.0'}
+
   '@tanstack/directive-functions-plugin@1.134.5':
     resolution: {integrity: sha512-J3oawV8uBRBbPoLgMdyHt+LxzTNuWRKNJJuCLWsm/yq6v0IQSvIVCgfD2+liIiSnDPxGZ8ExduPXy8IzS70eXw==}
     engines: {node: '>=12'}
@@ -7817,6 +7824,9 @@ packages:
 
   dataloader@2.2.3:
     resolution: {integrity: sha512-y2krtASINtPFS1rSDjacrFgn1dcUuoREVabwlOGOe4SdxenREqwjwjElAdwvbGM7kgZz9a3KVicWR7vcz8rnzA==}
+
+  date-fns-jalali@4.1.0-0:
+    resolution: {integrity: sha512-hTIP/z+t+qKwBDcmmsnmjWTduxCg+5KfdqWQvb2X/8C9+knYY6epN/pfxdDuyVlSVeFz0sM5eEfwIUQ70U4ckg==}
 
   date-fns-tz@3.2.0:
     resolution: {integrity: sha512-sg8HqoTEulcbbbVXeg84u5UnlsQa8GS5QXMqjjYIhS4abEVVKIUwe0/l/UhrZdKaL/W5eWZNlbTeEIiOXTcsBQ==}
@@ -11040,11 +11050,11 @@ packages:
   react-base16-styling@0.10.0:
     resolution: {integrity: sha512-H1k2eFB6M45OaiRru3PBXkuCcn2qNmx+gzLb4a9IPMR7tMH8oBRXU5jGbPDYG1Hz+82d88ED0vjR8BmqU3pQdg==}
 
-  react-day-picker@8.10.0:
-    resolution: {integrity: sha512-mz+qeyrOM7++1NCb1ARXmkjMkzWVh2GL9YiPbRjKe0zHccvekk4HE+0MPOZOrosn8r8zTHIIeOUXTmXRqmkRmg==}
+  react-day-picker@9.14.0:
+    resolution: {integrity: sha512-tBaoDWjPwe0M5pGrum4H0SR6Lyk+BO9oHnp9JbKpGKW2mlraNPgP9BMfsg5pWpwrssARmeqk7YBl2oXutZTaHA==}
+    engines: {node: '>=18'}
     peerDependencies:
-      date-fns: ^2.28.0 || ^3.0.0
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0
+      react: '>=16.8.0'
 
   react-docgen-typescript@2.2.2:
     resolution: {integrity: sha512-tvg2ZtOpOi6QDwsb3GZhOjDkkX0h8Z2gipvTg6OVMUyoYoURhEiRNePT8NZItTVCDh39JJHnLdfCOkzoLbFnTg==}
@@ -14378,6 +14388,8 @@ snapshots:
   '@csstools/selector-specificity@5.0.0(postcss-selector-parser@7.1.0)':
     dependencies:
       postcss-selector-parser: 7.1.0
+
+  '@date-fns/tz@1.4.1': {}
 
   '@dmitryrechkin/json-schema-to-zod@1.0.1':
     dependencies:
@@ -18931,6 +18943,8 @@ snapshots:
       '@swc/counter': 0.1.3
       tslib: 2.8.1
 
+  '@tabby_ai/hijri-converter@1.0.5': {}
+
   '@tanstack/directive-functions-plugin@1.134.5(vite@8.0.3(@emnapi/core@1.7.1)(@emnapi/runtime@1.7.1)(@types/node@24.9.2)(esbuild@0.27.2)(jiti@2.6.1)(terser@5.39.0)(tsx@4.20.6)(yaml@2.8.0))':
     dependencies:
       '@babel/code-frame': 7.27.1
@@ -19558,7 +19572,7 @@ snapshots:
   '@testing-library/dom@10.4.0':
     dependencies:
       '@babel/code-frame': 7.29.0
-      '@babel/runtime': 7.27.0
+      '@babel/runtime': 7.29.2
       '@types/aria-query': 5.0.4
       aria-query: 5.3.0
       chalk: 4.1.2
@@ -21670,6 +21684,8 @@ snapshots:
   dataloader@2.2.2: {}
 
   dataloader@2.2.3: {}
+
+  date-fns-jalali@4.1.0-0: {}
 
   date-fns-tz@3.2.0(date-fns@4.1.0):
     dependencies:
@@ -25582,9 +25598,12 @@ snapshots:
       csstype: 3.2.3
       lodash-es: 4.17.21
 
-  react-day-picker@8.10.0(date-fns@4.1.0)(react@18.2.0):
+  react-day-picker@9.14.0(react@18.2.0):
     dependencies:
+      '@date-fns/tz': 1.4.1
+      '@tabby_ai/hijri-converter': 1.0.5
       date-fns: 4.1.0
+      date-fns-jalali: 4.1.0-0
       react: 18.2.0
 
   react-docgen-typescript@2.2.2(typescript@5.1.3):
