@@ -324,7 +324,10 @@ func (c *connectGatewaySvc) Handler() http.Handler {
 				case <-gracefulDone:
 					// Graceful close handshake completed
 				case <-time.After(2 * time.Second):
-					// Peer is not reading; cancel the run loop to force cleanup
+					// Peer is not reading; cancel the run loop to force cleanup.
+					// The drain goroutine's defer ws.CloseNow() and the handler's
+					// own cleanup defer handle closing the connection, so we only
+					// need to unblock the read loop here.
 					if cancel := ch.cancelRunLoop.Load(); cancel != nil {
 						(*cancel)()
 					}
