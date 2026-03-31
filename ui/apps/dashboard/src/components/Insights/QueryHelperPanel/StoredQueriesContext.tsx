@@ -39,7 +39,7 @@ const StoredQueriesContext = createContext<
 
 interface StoredQueriesProviderProps {
   children: ReactNode;
-  tabManagerActionsRef: React.RefObject<TabManagerActions>;
+  tabManagerActionsRef: React.MutableRefObject<TabManagerActions>;
 }
 
 export function StoredQueriesProvider({
@@ -83,7 +83,7 @@ export function StoredQueriesProvider({
       } else {
         const result = await beSaveQuery({ name: tab.name, query: tab.query });
         if (result.ok) {
-          tabManagerActionsRef.current?.updateTab(tab.id, {
+          tabManagerActionsRef.current.updateTab(tab.id, {
             savedQueryId: result.data.id,
           });
           // TODO: This often leads to double-fetching, but it's currently needed because the "InsightsQueryStatement"
@@ -107,7 +107,7 @@ export function StoredQueriesProvider({
     async (queryId: string) => {
       const result = await beDeleteQuery({ id: queryId });
       if (result.ok) {
-        tabManagerActionsRef.current?.breakQueryAssociation(queryId);
+        tabManagerActionsRef.current.breakQueryAssociation(queryId);
         // This is necessary because the query never returns anything that matches the list by __typename.
         // It returns only a list of deleted IDs.
         refetchSavedQueries();

@@ -82,7 +82,7 @@ interface InsightsWithTabManagerProps {
   isQueryHelperPanelVisible: boolean;
   onToggleQueryHelperPanelVisibility: () => void;
   deepLinkQueryId?: string;
-  actionsRef: React.RefObject<TabManagerActions>;
+  actionsRef: React.MutableRefObject<TabManagerActions>;
 }
 
 function InsightsWithTabManager({
