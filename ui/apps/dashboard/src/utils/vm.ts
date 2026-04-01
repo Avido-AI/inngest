@@ -34,7 +34,7 @@ export default async function makeVM(timeout: number = -1) {
   const disposables = new DisposableComposer();
 
   const QuickJS = await getQuickJS();
-  const vm = QuickJS.createVm();
+  const vm = QuickJS.newContext();
   let alive = true;
   disposables.add({
     get alive() {
