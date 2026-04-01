@@ -989,10 +989,11 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 	svc.logger = l
 
 	go func() {
-		err := svc.Run(ctx)
-		if err != nil {
-			require.ErrorIs(t, err, context.Canceled)
-		}
+		// NOTE: Do not call require/assert on t from this goroutine.
+		// The test may have already finished by the time svc.Run returns,
+		// and calling t.FailNow / require from a non-test goroutine after
+		// the test completes causes a panic.
+		_ = svc.Run(ctx)
 	}()
 	t.Cleanup(func() {
 		_ = svc.Stop(context.Background())
