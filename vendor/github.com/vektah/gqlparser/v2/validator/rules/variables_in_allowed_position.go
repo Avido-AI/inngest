@@ -1,18 +1,16 @@
-package rules
+package validator
 
 import (
 	"github.com/vektah/gqlparser/v2/ast"
-	//nolint:staticcheck // Validator rules each use dot imports for convenience.
-	. "github.com/vektah/gqlparser/v2/validator/core"
+
+	//nolint:revive // Validator rules each use dot imports for convenience.
+	. "github.com/vektah/gqlparser/v2/validator"
 )
 
-var VariablesInAllowedPositionRule = Rule{
-	Name: "VariablesInAllowedPosition",
-	RuleFunc: func(observers *Events, addError AddErrFunc) {
+func init() {
+	AddRule("VariablesInAllowedPosition", func(observers *Events, addError AddErrFunc) {
 		observers.OnValue(func(walker *Walker, value *ast.Value) {
-			if value.Kind != ast.Variable || value.ExpectedType == nil ||
-				value.VariableDefinition == nil ||
-				walker.CurrentOperation == nil {
+			if value.Kind != ast.Variable || value.ExpectedType == nil || value.VariableDefinition == nil || walker.CurrentOperation == nil {
 				return
 			}
 
@@ -20,16 +18,10 @@ var VariablesInAllowedPositionRule = Rule{
 
 			// todo: move me into walk
 			// If there is a default non nullable types can be null
-			if value.VariableDefinition.DefaultValue != nil &&
-				value.VariableDefinition.DefaultValue.Kind != ast.NullValue {
+			if value.VariableDefinition.DefaultValue != nil && value.VariableDefinition.DefaultValue.Kind != ast.NullValue {
 				if value.ExpectedType.NonNull {
 					tmp.NonNull = false
 				}
-			}
-
-			// If the expected type has a default, the given variable can be null
-			if value.ExpectedTypeHasDefault {
-				tmp.NonNull = false
 			}
 
 			if !value.VariableDefinition.Type.IsCompatible(&tmp) {
@@ -44,5 +36,5 @@ var VariablesInAllowedPositionRule = Rule{
 				)
 			}
 		})
-	},
+	})
 }

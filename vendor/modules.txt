@@ -1343,15 +1343,14 @@ github.com/urfave/cli/v3
 ## explicit; go 1.24
 github.com/valyala/fastjson
 github.com/valyala/fastjson/fastfloat
-# github.com/vektah/gqlparser/v2 v2.5.32
-## explicit; go 1.22
+# github.com/vektah/gqlparser/v2 v2.5.15
+## explicit; go 1.19
 github.com/vektah/gqlparser/v2
 github.com/vektah/gqlparser/v2/ast
 github.com/vektah/gqlparser/v2/gqlerror
 github.com/vektah/gqlparser/v2/lexer
 github.com/vektah/gqlparser/v2/parser
 github.com/vektah/gqlparser/v2/validator
-github.com/vektah/gqlparser/v2/validator/core
 github.com/vektah/gqlparser/v2/validator/rules
 # github.com/woodsbury/decimal128 v1.3.0
 ## explicit; go 1.21
