@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -993,7 +994,9 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 		// The test may have already finished by the time svc.Run returns,
 		// and calling t.FailNow / require from a non-test goroutine after
 		// the test completes causes a panic.
-		_ = svc.Run(ctx)
+		if err := svc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			t.Logf("svc.Run exited with unexpected error: %v", err)
+		}
 	}()
 	t.Cleanup(func() {
 		_ = svc.Stop(context.Background())
