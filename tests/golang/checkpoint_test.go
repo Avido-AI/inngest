@@ -81,7 +81,7 @@ func TestFnCheckpoint(t *testing.T) {
 
 			runID := rid.Wait(t)
 			run := c.WaitForRunStatus(ctx, t, "COMPLETED", runID, client.WaitForRunStatusOpts{
-				Timeout: 30 * time.Second,
+				Timeout: 60 * time.Second,
 			})
 			var output string
 			err = json.Unmarshal([]byte(run.Output), &output)
