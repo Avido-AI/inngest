@@ -29,7 +29,7 @@ func TestFnCheckpoint(t *testing.T) {
 		checkpoint.ConfigPerformant,
 		{
 			BatchSteps:    3,
-			BatchInterval: time.Second,
+			BatchInterval: 3 * time.Second,
 		},
 	}
 
