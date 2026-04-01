@@ -167,7 +167,7 @@ func HandleHttpResponse(ctx context.Context, r Request, resp *Response) (*state.
 	l := logger.StdlibLogger(ctx)
 
 	var err error
-	if resp.StatusCode == 206 {
+	if resp.StatusCode == 206 && resp.IsSDK {
 		// This is a generator-based function returning opcodes.
 		dr := &state.DriverResponse{
 			Step:           r.Step,
