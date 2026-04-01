@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,8 +12,7 @@ import (
 	"github.com/99designs/gqlgen/codegen/config"
 )
 
-// Data is a unified model of the code to be generated. Plugins may modify this structure to do
-// things like implement
+// Data is a unified model of the code to be generated. Plugins may modify this structure to do things like implement
 // resolvers or directives automatically (eg grpc, validation)
 type Data struct {
 	Config *config.Config
@@ -36,7 +34,7 @@ type Data struct {
 	MutationRoot     *Object
 	SubscriptionRoot *Object
 	AugmentedSources []AugmentedSource
-	Plugins          []any
+	Plugins          []interface{}
 }
 
 func (d *Data) HasEmbeddableSources() bool {
@@ -49,22 +47,7 @@ func (d *Data) HasEmbeddableSources() bool {
 	return hasEmbeddableSources
 }
 
-func (d *Data) HasBatchResolverFields() bool {
-	for _, obj := range d.Objects {
-		if obj.Root {
-			continue
-		}
-		for _, field := range obj.Fields {
-			if field.IsBatch() {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// AugmentedSource contains extra information about graphql schema files which is not known directly
-// from the Config.Sources data
+// AugmentedSource contains extra information about graphql schema files which is not known directly from the Config.Sources data
 type AugmentedSource struct {
 	// path relative to Config.Exec.Filename
 	RelativePath string
@@ -78,30 +61,6 @@ type builder struct {
 	Schema     *ast.Schema
 	Binder     *config.Binder
 	Directives map[string]*Directive
-}
-
-// Get only the directives which should have a user provided definition on server instantiation
-func (d *Data) UserDirectives() DirectiveList {
-	res := DirectiveList{}
-	directives := d.Directives()
-	for k, directive := range directives {
-		if directive.Implementation == nil {
-			res[k] = directive
-		}
-	}
-	return res
-}
-
-// Get only the directives which should have a statically provided definition
-func (d *Data) BuiltInDirectives() DirectiveList {
-	res := DirectiveList{}
-	directives := d.Directives()
-	for k, directive := range directives {
-		if directive.Implementation != nil {
-			res[k] = directive
-		}
-	}
-	return res
 }
 
 // Get only the directives which are defined in the config's sources.
@@ -118,7 +77,8 @@ func (d *Data) Directives() DirectiveList {
 	return res
 }
 
-func BuildData(cfg *config.Config, plugins ...any) (*Data, error) {
+func BuildData(cfg *config.Config, plugins ...interface{}) (*Data, error) {
+	// We reload all packages to allow packages to be compared correctly.
 	cfg.ReloadAllPackages()
 
 	b := builder{
@@ -136,7 +96,7 @@ func BuildData(cfg *config.Config, plugins ...any) (*Data, error) {
 
 	dataDirectives := make(map[string]*Directive)
 	for name, d := range b.Directives {
-		if !d.SkipRuntime {
+		if !d.Builtin {
 			dataDirectives[name] = d
 		}
 	}
@@ -177,7 +137,7 @@ func BuildData(cfg *config.Config, plugins ...any) (*Data, error) {
 	if s.Schema.Query != nil {
 		s.QueryRoot = s.Objects.ByName(s.Schema.Query.Name)
 	} else {
-		return nil, errors.New("query entry point missing")
+		return nil, fmt.Errorf("query entry point missing")
 	}
 
 	if s.Schema.Mutation != nil {
@@ -195,11 +155,11 @@ func BuildData(cfg *config.Config, plugins ...any) (*Data, error) {
 	s.ReferencedTypes = b.buildTypes()
 
 	sort.Slice(s.Objects, func(i, j int) bool {
-		return s.Objects[i].Name < s.Objects[j].Name
+		return s.Objects[i].Definition.Name < s.Objects[j].Definition.Name
 	})
 
 	sort.Slice(s.Inputs, func(i, j int) bool {
-		return s.Inputs[i].Name < s.Inputs[j].Name
+		return s.Inputs[i].Definition.Name < s.Inputs[j].Definition.Name
 	})
 
 	if b.Binder.SawInvalid {
@@ -210,18 +170,10 @@ func BuildData(cfg *config.Config, plugins ...any) (*Data, error) {
 		}
 
 		// otherwise show a generic error message
-		return nil, errors.New(
-			"invalid types were encountered while traversing the go source code, this probably means the invalid code generated isnt correct. add try adding -v to debug",
-		)
+		return nil, fmt.Errorf("invalid types were encountered while traversing the go source code, this probably means the invalid code generated isnt correct. add try adding -v to debug")
 	}
-	var sources []*ast.Source
-	sources, err = SerializeTransformedSchema(cfg.Schema, cfg.Sources)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize transformed schema: %w", err)
-	}
-
 	aSources := []AugmentedSource{}
-	for _, s := range sources {
+	for _, s := range cfg.Sources {
 		wd, err := os.Getwd()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get working directory: %w", err)
@@ -230,12 +182,7 @@ func BuildData(cfg *config.Config, plugins ...any) (*Data, error) {
 		sourcePath := filepath.Join(wd, s.Name)
 		relative, err := filepath.Rel(outputDir, sourcePath)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to compute path of %s relative to %s: %w",
-				sourcePath,
-				outputDir,
-				err,
-			)
+			return nil, fmt.Errorf("failed to compute path of %s relative to %s: %w", sourcePath, outputDir, err)
 		}
 		relative = filepath.ToSlash(relative)
 		embeddable := true
@@ -257,7 +204,7 @@ func BuildData(cfg *config.Config, plugins ...any) (*Data, error) {
 func (b *builder) injectIntrospectionRoots(s *Data) error {
 	obj := s.Objects.ByName(b.Schema.Query.Name)
 	if obj == nil {
-		return errors.New("root query type must be defined")
+		return fmt.Errorf("root query type must be defined")
 	}
 
 	__type, err := b.buildField(obj, &ast.FieldDefinition{
