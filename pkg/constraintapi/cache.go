@@ -33,7 +33,7 @@ type constraintCache struct {
 
 	cache                                *ccache.Cache[*constraintCacheItem]
 	maxSize                              int64
-	percentToPrune                       uint32
+	percentToPrune                       uint8
 	enableHighCardinalityInstrumentation EnableHighCardinalityInstrumentation
 	enableCache                          EnableConstraintCacheFn
 	shouldCache                          ShouldCacheConstraintFn
@@ -82,7 +82,7 @@ func WithConstraintCacheMaxSize(maxSize int64) ConstraintCacheOption {
 	}
 }
 
-func WithConstraintCacheItemsToPrune(percentToPrune uint32) ConstraintCacheOption {
+func WithConstraintCacheItemsToPrune(percentToPrune uint8) ConstraintCacheOption {
 	return func(c *constraintCache) {
 		c.percentToPrune = percentToPrune
 	}

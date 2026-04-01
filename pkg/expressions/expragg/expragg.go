@@ -42,7 +42,7 @@ func NewAggregator(
 
 	cache := ccache.New(ccache.Configure().
 		MaxSize(size).
-		PercentToPrune(25).
+		ItemsToPrune(uint32(size) / 4).
 		OnDelete(func(item *ccache.Item) {
 			if bk, ok := item.Value().(*bookkeeper); ok {
 				bk.ae.Close()
