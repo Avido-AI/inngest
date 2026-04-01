@@ -175,6 +175,7 @@ func NewHTTPSServer(f http.Handler) *HTTPServer {
 		Handler:        f,
 		ReadTimeout:    60 * time.Second,
 		WriteTimeout:   60 * time.Second,
+		IdleTimeout:    10 * time.Minute,
 		MaxHeaderBytes: 1 << 20,
 	}
 	go func() {
