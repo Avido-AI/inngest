@@ -201,9 +201,6 @@ func HandleHttpResponse(ctx context.Context, r Request, resp *Response) (*state.
 			dr.SetError(resp.SysErr)
 		}
 
-		if !resp.IsSDK {
-			dr.SetError(ErrNotSDK)
-		}
 		return dr, nil
 	}
 
