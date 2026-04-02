@@ -24,7 +24,7 @@ import (
 	"github.com/inngest/inngest/pkg/event"
 	"github.com/inngest/inngest/pkg/execution"
 	"github.com/inngest/inngest/pkg/execution/executor"
-	"github.com/inngest/inngest/pkg/execution/state/v2"
+	state "github.com/inngest/inngest/pkg/execution/state/v2"
 	"github.com/inngest/inngest/pkg/inngest"
 	"github.com/inngest/inngest/pkg/run"
 	"github.com/inngest/inngest/pkg/telemetry/metrics"
