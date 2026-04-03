@@ -16,7 +16,7 @@ require (
 	github.com/aws/aws-lambda-go v1.54.0
 	github.com/aws/smithy-go v1.24.2
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/charmbracelet/lipgloss v0.13.1
+	github.com/charmbracelet/lipgloss/v2 v2.0.2
 	github.com/coder/websocket v1.8.14
 	github.com/coocood/freecache v1.2.7
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
