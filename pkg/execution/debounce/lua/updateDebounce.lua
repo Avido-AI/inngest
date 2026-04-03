@@ -63,6 +63,9 @@ if item == nil then
 		local existingItem = cjson.decode(existingData)
 		if existingItem ~= nil and existingItem.e ~= nil and existingItem.e.ts > eventTime then
 			-- The stored event occurs after the event we're updating, so don't overwrite.
+			-- Unlike the normal-path -2 (line 86), we refresh the pointer TTL here because
+			-- the queue item doesn't exist yet (newDebounce is still enqueuing), so we need
+			-- to keep the pointer alive until the original enqueue completes.
 			redis.call("SETEX", keyPtr, ttl, debounceID)
 			return -2
 		end
