@@ -61,7 +61,7 @@ overrides:
   nodemon>minimatch: 10.2.5
   nodemon>brace-expansion: 5.0.5
   '@urql/core': 6.0.1
-  h3@>=2.0.0-beta.0 <2.0.1-rc.18: '>=2.0.1-rc.18'
+  h3@>=2.0.0-beta.0 <2.0.1-rc.18: '>=2.0.1-rc.18 <3'
   h3-v2: npm:h3@2.0.1-rc.20
 
 importers:
@@ -7798,7 +7798,7 @@ packages:
       aws-lambda: '>=1.0.7'
       express: '>=4.19.2'
       fastify: '>=4.21.0'
-      h3: '>=2.0.1-rc.18'
+      h3: '>=2.0.1-rc.18 <3'
       hono: '>=4.2.7'
       koa: '>=2.14.2'
       next: '>=12.0.0'

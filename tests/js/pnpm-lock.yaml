@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  h3@<1.15.6: '>=1.15.6'
+  h3@<1.15.6: '>=1.15.6 <2'
 
 importers:
 
