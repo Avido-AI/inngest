@@ -1219,9 +1219,19 @@ func TestPartitionProcessRequeueAfterLimitedWithConstraintAPI(t *testing.T) {
 		require.True(t, len(cmLifecycles.AcquireCalls) == 1 || len(cmLifecycles.AcquireCalls) == 2,
 			"expected 1 or 2 acquire calls, got %d", len(cmLifecycles.AcquireCalls))
 
+		// The first call always grants exactly one lease.
+		require.Len(t, cmLifecycles.AcquireCalls[0].GrantedLeases, 1)
+
+		// The last call always reports the concurrency limit (it may be the same
+		// call as the first when only 1 acquire is made).
 		lastCall := cmLifecycles.AcquireCalls[len(cmLifecycles.AcquireCalls)-1]
 		require.NotEmpty(t, lastCall.LimitingConstraints)
 		require.Equal(t, lastCall.LimitingConstraints[0].Kind, constraintapi.ConstraintKindConcurrency)
+
+		// When there are 2 calls, the second grants no leases.
+		if len(cmLifecycles.AcquireCalls) == 2 {
+			require.Len(t, cmLifecycles.AcquireCalls[1].GrantedLeases, 0)
+		}
 
 		// partition was requeued
 		require.Equal(t, start.Add(osqueue.PartitionConcurrencyLimitRequeueExtension).Unix(), int64(score(t, r, kg.GlobalPartitionIndex(), p.ID)))
