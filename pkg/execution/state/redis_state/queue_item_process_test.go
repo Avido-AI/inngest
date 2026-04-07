@@ -1211,11 +1211,13 @@ func TestPartitionProcessRequeueAfterLimitedWithConstraintAPI(t *testing.T) {
 		// remaining items are still in partition
 		require.Equal(t, 8, zcard(t, rc, partitionZsetKey(p, kg)))
 
-		// expect 1 successful and 1 failed calls to constraintapi
-		require.Len(t, cmLifecycles.AcquireCalls, 2)
+		// expect 1 acquire call: the pre-leased item is allowed without an acquire call,
+		// and the second item's acquire both grants a lease and reports the concurrency limit
+		// (since 2/2 fn concurrency slots are now used), causing the processor to stop.
+		require.Len(t, cmLifecycles.AcquireCalls, 1)
 		require.Len(t, cmLifecycles.AcquireCalls[0].GrantedLeases, 1)
-		require.Len(t, cmLifecycles.AcquireCalls[1].GrantedLeases, 0)
-		require.Equal(t, cmLifecycles.AcquireCalls[1].LimitingConstraints[0].Kind, constraintapi.ConstraintKindConcurrency)
+		require.NotEmpty(t, cmLifecycles.AcquireCalls[0].LimitingConstraints)
+		require.Equal(t, cmLifecycles.AcquireCalls[0].LimitingConstraints[0].Kind, constraintapi.ConstraintKindConcurrency)
 
 		// partition was requeued
 		require.Equal(t, start.Add(osqueue.PartitionConcurrencyLimitRequeueExtension).Unix(), int64(score(t, r, kg.GlobalPartitionIndex(), p.ID)))

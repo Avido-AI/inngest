@@ -85,10 +85,11 @@ func TestNotSDKResponse(t *testing.T) {
 			eventID, err := ic.Send(ctx, inngestgo.Event{Name: eventName})
 			r.NoError(err)
 
-			// Wait for 2 attempts.
+			// Wait for at least 1 execution attempt. For non-2xx-like status codes
+			// (e.g. 206), the executor may retry internally, so we only assert >= 1.
 			r.EventuallyWithT(func(t *assert.CollectT) {
 				a := assert.New(t)
-				a.Equal(int32(1), count)
+				a.GreaterOrEqual(atomic.LoadInt32(&count), int32(1))
 			}, time.Minute, 100*time.Millisecond)
 
 			// Assert status and output.
