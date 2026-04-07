@@ -86,10 +86,13 @@ func TestNotSDKResponse(t *testing.T) {
 			r.NoError(err)
 
 			// Wait for at least 1 execution attempt. For non-2xx-like status codes
-			// (e.g. 206), the executor may retry internally, so we only assert >= 1.
+			// (e.g. 206), the executor may retry internally, so we assert >= 1
+			// with an upper bound to catch runaway retries.
 			r.EventuallyWithT(func(t *assert.CollectT) {
 				a := assert.New(t)
-				a.GreaterOrEqual(atomic.LoadInt32(&count), int32(1))
+				current := atomic.LoadInt32(&count)
+				a.GreaterOrEqual(current, int32(1))
+				a.LessOrEqual(current, int32(50), "proxy was called an unexpectedly high number of times")
 			}, time.Minute, 100*time.Millisecond)
 
 			// Assert status and output.

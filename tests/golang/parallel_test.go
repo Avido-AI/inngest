@@ -3,6 +3,7 @@ package golang
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -251,7 +252,8 @@ func TestParallelSequential(t *testing.T) {
 		counterA2 int32
 		counterB1 int32
 		counterB2 int32
-		stepOrder []string
+		stepOrder   []string
+		stepOrderMu sync.Mutex
 	)
 	rid := NewRunID()
 	_, err := inngestgo.CreateFunction(
@@ -265,7 +267,9 @@ func TestParallelSequential(t *testing.T) {
 				func(ctx context.Context) (any, error) {
 					_, err := step.Run(ctx, "a1", func(ctx context.Context) (any, error) {
 						atomic.AddInt32(&counterA1, 1)
+						stepOrderMu.Lock()
 						stepOrder = append(stepOrder, "a1")
+						stepOrderMu.Unlock()
 						return nil, nil
 					})
 					if err != nil {
@@ -274,7 +278,9 @@ func TestParallelSequential(t *testing.T) {
 
 					_, err = step.Run(ctx, "a2", func(ctx context.Context) (any, error) {
 						atomic.AddInt32(&counterA2, 1)
+						stepOrderMu.Lock()
 						stepOrder = append(stepOrder, "a2")
+						stepOrderMu.Unlock()
 						return nil, nil
 					})
 					return nil, err
@@ -283,7 +289,9 @@ func TestParallelSequential(t *testing.T) {
 					_, err := step.Run(ctx, "b1", func(ctx context.Context) (any, error) {
 						atomic.AddInt32(&counterB1, 1)
 						time.Sleep(2 * time.Second)
+						stepOrderMu.Lock()
 						stepOrder = append(stepOrder, "b1")
+						stepOrderMu.Unlock()
 						return nil, nil
 					})
 					if err != nil {
@@ -293,14 +301,18 @@ func TestParallelSequential(t *testing.T) {
 					_, err = step.Run(ctx, "b2", func(ctx context.Context) (any, error) {
 						atomic.AddInt32(&counterB2, 1)
 						time.Sleep(2 * time.Second)
+						stepOrderMu.Lock()
 						stepOrder = append(stepOrder, "b2")
+						stepOrderMu.Unlock()
 						return nil, nil
 					})
 					return nil, err
 				},
 			)
 
+			stepOrderMu.Lock()
 			stepOrder = append(stepOrder, "end")
+			stepOrderMu.Unlock()
 			return res, nil
 		},
 	)
