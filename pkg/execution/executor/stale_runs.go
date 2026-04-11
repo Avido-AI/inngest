@@ -9,9 +9,10 @@ import (
 	"github.com/inngest/inngest/pkg/execution/queue"
 	sv2 "github.com/inngest/inngest/pkg/execution/state/v2"
 	"github.com/inngest/inngest/pkg/logger"
+	"github.com/oklog/ulid/v2"
 )
 
-// runStaleRunRecovery runs a background goroutine that periodically scans for
+// StaleRunRecovery is a self-contained coordinator that periodically scans for
 // stale RUNNING runs (runs with no outstanding queue items that have been active
 // longer than StaleRunThreshold). When found, these runs are cancelled via the
 // executor, which triggers Finalize() to release concurrency locks and fire
@@ -19,35 +20,48 @@ import (
 //
 // This handles orphaned runs caused by lost events during rolling deployments,
 // where in-flight events in the in-memory pubsub are lost when pods terminate.
-func (s *svc) runStaleRunRecovery(ctx context.Context) {
-	l := s.log.With("component", "stale-run-recovery")
+type StaleRunRecovery struct {
+	log  logger.Logger
+	q    queue.Queue
+	exec execution.Executor
+}
 
-	// Get the queue shard for ConfigLease coordination and stale run scanning.
-	qp, ok := s.queue.(queue.QueueProcessor)
+// NewStaleRunRecovery creates a new StaleRunRecovery coordinator.
+func NewStaleRunRecovery(log logger.Logger, q queue.Queue, exec execution.Executor) *StaleRunRecovery {
+	return &StaleRunRecovery{
+		log:  log.With("component", "stale-run-recovery"),
+		q:    q,
+		exec: exec,
+	}
+}
+
+// Run starts the stale run recovery loop. It uses ConfigLease for distributed
+// coordination so that only one pod runs this across replicas.
+func (r *StaleRunRecovery) Run(ctx context.Context) {
+	qp, ok := r.q.(queue.QueueProcessor)
 	if !ok {
-		l.Warn("queue does not implement QueueProcessor, stale run recovery disabled")
+		r.log.Warn("queue does not implement QueueProcessor, stale run recovery disabled")
 		return
 	}
 
 	shard := qp.Shard()
 	if shard == nil {
-		l.Warn("no primary queue shard available, stale run recovery disabled")
+		r.log.Warn("no primary queue shard available, stale run recovery disabled")
 		return
 	}
 
 	scavenger, ok := shard.(queue.StaleRunScavenger)
 	if !ok {
-		l.Warn("queue shard does not support stale run scavenging, stale run recovery disabled")
+		r.log.Warn("queue shard does not support stale run scavenging, stale run recovery disabled")
 		return
 	}
 
-	// Use ConfigLease for distributed coordination - only one pod should run this.
 	leaseKey := "stale-run-recovery"
 	leaseDuration := queue.ConfigLeaseDuration
 
 	leaseID, err := shard.ConfigLease(ctx, leaseKey, leaseDuration)
 	if err != nil && err != queue.ErrConfigAlreadyLeased {
-		l.Error("error claiming stale run recovery lease", "error", err)
+		r.log.Error("error claiming stale run recovery lease", "error", err)
 		return
 	}
 
@@ -67,30 +81,35 @@ func (s *svc) runStaleRunRecovery(ctx context.Context) {
 			if !isLeaseHolder {
 				continue
 			}
-			s.scavengeStaleRuns(ctx, l, scavenger)
+			r.scavenge(ctx, scavenger)
 		case <-leaseTick.C:
-			newLeaseID, err := shard.ConfigLease(ctx, leaseKey, leaseDuration, leaseID)
-			if err == queue.ErrConfigAlreadyLeased {
-				isLeaseHolder = false
-				leaseID = nil
-				continue
-			}
-			if err != nil {
-				l.Error("error renewing stale run recovery lease", "error", err)
-				isLeaseHolder = false
-				leaseID = nil
-				continue
-			}
-			leaseID = newLeaseID
-			isLeaseHolder = true
+			leaseID, isLeaseHolder = r.renewLease(ctx, shard, leaseKey, leaseDuration, leaseID)
 		}
 	}
 }
 
-func (s *svc) scavengeStaleRuns(ctx context.Context, l logger.Logger, scavenger queue.StaleRunScavenger) {
+func (r *StaleRunRecovery) renewLease(
+	ctx context.Context,
+	shard queue.QueueShard,
+	leaseKey string,
+	leaseDuration time.Duration,
+	leaseID *ulid.ULID,
+) (*ulid.ULID, bool) {
+	newLeaseID, err := shard.ConfigLease(ctx, leaseKey, leaseDuration, leaseID)
+	if err == queue.ErrConfigAlreadyLeased {
+		return nil, false
+	}
+	if err != nil {
+		r.log.Error("error renewing stale run recovery lease", "error", err)
+		return nil, false
+	}
+	return newLeaseID, true
+}
+
+func (r *StaleRunRecovery) scavenge(ctx context.Context, scavenger queue.StaleRunScavenger) {
 	staleRuns, err := scavenger.ScavengeStaleRuns(ctx, consts.StaleRunThreshold)
 	if err != nil {
-		l.Error("error scanning for stale runs", "error", err)
+		r.log.Error("error scanning for stale runs", "error", err)
 		return
 	}
 
@@ -98,37 +117,40 @@ func (s *svc) scavengeStaleRuns(ctx context.Context, l logger.Logger, scavenger 
 		return
 	}
 
-	l.Info("found stale runs to recover", "count", len(staleRuns))
+	r.log.Info("found stale runs to recover", "count", len(staleRuns))
 
 	for _, run := range staleRuns {
-		runLogger := l.With(
-			"run_id", run.RunID.String(),
-			"function_id", run.FunctionID.String(),
-			"account_id", run.AccountID.String(),
-		)
-
-		id := sv2.ID{
-			RunID:      run.RunID,
-			FunctionID: run.FunctionID,
-			Tenant: sv2.Tenant{
-				AccountID: run.AccountID,
-				EnvID:     run.WorkspaceID,
-				AppID:     run.AppID,
-			},
-		}
-
-		runLogger.Warn("cancelling stale run")
-
-		if err := s.exec.Cancel(ctx, id, execution.CancelRequest{}); err != nil {
-			runLogger.Error("error cancelling stale run", "error", err)
-			continue
-		}
-
-		// Remove from active runs index after successful cancellation.
-		if err := scavenger.RemoveActiveRun(ctx, run); err != nil {
-			runLogger.Error("error removing stale run from active runs index", "error", err)
-		}
-
-		runLogger.Info("successfully cancelled stale run")
+		r.cancelRun(ctx, scavenger, run)
 	}
+}
+
+func (r *StaleRunRecovery) cancelRun(ctx context.Context, scavenger queue.StaleRunScavenger, run queue.StaleRunInfo) {
+	runLogger := r.log.With(
+		"run_id", run.RunID.String(),
+		"function_id", run.FunctionID.String(),
+		"account_id", run.AccountID.String(),
+	)
+
+	id := sv2.ID{
+		RunID:      run.RunID,
+		FunctionID: run.FunctionID,
+		Tenant: sv2.Tenant{
+			AccountID: run.AccountID,
+			EnvID:     run.WorkspaceID,
+			AppID:     run.AppID,
+		},
+	}
+
+	runLogger.Warn("cancelling stale run")
+
+	if err := r.exec.Cancel(ctx, id, execution.CancelRequest{}); err != nil {
+		runLogger.Error("error cancelling stale run", "error", err)
+		return
+	}
+
+	if err := scavenger.RemoveActiveRun(ctx, run); err != nil {
+		runLogger.Error("error removing stale run from active runs index", "error", err)
+	}
+
+	runLogger.Info("successfully cancelled stale run")
 }
