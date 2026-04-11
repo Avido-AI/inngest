@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/inngest/inngest/pkg/consts"
 	osqueue "github.com/inngest/inngest/pkg/execution/queue"
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/telemetry/redis_telemetry"
@@ -130,7 +131,7 @@ func (q *queue) ScavengeStaleRuns(ctx context.Context, threshold time.Duration) 
 		Key(kg.ActiveRuns()).
 		Min("-inf").
 		Max(cutoff).
-		Limit(0, 100).
+		Limit(0, int64(consts.StaleRunScavengerBatchSize)).
 		Build()
 
 	members, err := client.Do(ctx, cmd).AsStrSlice()
