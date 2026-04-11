@@ -152,21 +152,20 @@ func (r *StaleRunRecovery) cancelRun(ctx context.Context, scavenger queue.StaleR
 
 	runLogger.Warn("attempting to cancel stale run candidate")
 
-	err := r.exec.Cancel(ctx, id, execution.CancelRequest{})
-	if err != nil {
-		runLogger.Error("error cancelling stale run", "error", err)
+	if err := r.exec.Cancel(ctx, id, execution.CancelRequest{}); err != nil {
+		// Cancel returns nil for already-finalized runs (metadata/event not found),
+		// so a non-nil error indicates a genuine transient failure (e.g., storage error).
+		// Leave the run in the ActiveRuns index so the next scavenge pass retries it.
+		runLogger.Error("error cancelling stale run, will retry on next tick", "error", err)
+		return
 	}
 
-	// Always clean up the ActiveRuns index entry regardless of Cancel result.
-	// Cancel may fail for already-finalized runs (e.g., race with normal completion),
-	// but the index entry still needs removal.
+	// Cancel returned nil — run is finalized (or was already gone).
+	// finalizeRemoveActiveRun() inside Cancel()/Finalize() normally handles cleanup;
+	// this call is a safety net for the rare case where that path failed.
 	if removeErr := scavenger.RemoveActiveRun(ctx, run); removeErr != nil {
 		runLogger.Error("error removing run from active runs index", "error", removeErr)
 	}
 
-	if err == nil {
-		runLogger.Info("stale run cancelled and cleaned up")
-	} else {
-		runLogger.Info("stale run cleaned up from index (cancel may have been redundant)")
-	}
+	runLogger.Info("stale run cancelled and cleaned up")
 }
