@@ -59,10 +59,19 @@ func (r *StaleRunRecovery) Run(ctx context.Context) {
 	leaseKey := "stale-run-recovery"
 	leaseDuration := queue.ConfigLeaseDuration
 
-	leaseID, err := shard.ConfigLease(ctx, leaseKey, leaseDuration)
-	if err != nil && err != queue.ErrConfigAlreadyLeased {
-		r.log.Error("error claiming stale run recovery lease", "error", err)
-		return
+	var leaseID *ulid.ULID
+	for {
+		var err error
+		leaseID, err = shard.ConfigLease(ctx, leaseKey, leaseDuration)
+		if err == nil || err == queue.ErrConfigAlreadyLeased {
+			break
+		}
+		r.log.Error("error claiming stale run recovery lease, retrying", "error", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(leaseDuration):
+		}
 	}
 
 	leaseTick := time.NewTicker(leaseDuration / 3)

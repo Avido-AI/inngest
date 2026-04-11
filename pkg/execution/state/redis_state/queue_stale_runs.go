@@ -168,14 +168,9 @@ func (q *queue) ScavengeStaleRuns(ctx context.Context, threshold time.Duration) 
 		}
 
 		if outstandingCount > 0 {
-			// Run has active queue items - not stale, but old.
-			// Remove from ActiveRuns since it's being tracked by queue items.
-			if err := q.RemoveActiveRun(ctx, info); err != nil {
-				l.Error("error removing active run with outstanding items",
-					"error", err,
-					"run_id", info.RunID.String(),
-				)
-			}
+			// Run still has active queue items — not stale yet.
+			// Leave it in ActiveRuns so it stays monitored in case it
+			// becomes orphaned later (e.g., pod dies after step completes).
 			continue
 		}
 
