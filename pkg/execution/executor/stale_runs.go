@@ -150,16 +150,23 @@ func (r *StaleRunRecovery) cancelRun(ctx context.Context, scavenger queue.StaleR
 		},
 	}
 
-	runLogger.Warn("cancelling stale run")
+	runLogger.Warn("attempting to cancel stale run candidate")
 
-	if err := r.exec.Cancel(ctx, id, execution.CancelRequest{}); err != nil {
+	err := r.exec.Cancel(ctx, id, execution.CancelRequest{})
+	if err != nil {
 		runLogger.Error("error cancelling stale run", "error", err)
-		return
 	}
 
-	if err := scavenger.RemoveActiveRun(ctx, run); err != nil {
-		runLogger.Error("error removing stale run from active runs index", "error", err)
+	// Always clean up the ActiveRuns index entry regardless of Cancel result.
+	// Cancel may fail for already-finalized runs (e.g., race with normal completion),
+	// but the index entry still needs removal.
+	if removeErr := scavenger.RemoveActiveRun(ctx, run); removeErr != nil {
+		runLogger.Error("error removing run from active runs index", "error", removeErr)
 	}
 
-	runLogger.Info("successfully cancelled stale run")
+	if err == nil {
+		runLogger.Info("stale run cancelled and cleaned up")
+	} else {
+		runLogger.Info("stale run cleaned up from index (cancel may have been redundant)")
+	}
 }
