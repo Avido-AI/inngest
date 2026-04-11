@@ -97,6 +97,10 @@ func (e *executor) finalizeRemoveActiveRun(ctx context.Context, opts execution.F
 		nil,
 	)
 	if err != nil {
+		l.Warn("failed to find queue shard for active run cleanup",
+			"error", err,
+			"run_id", opts.Metadata.ID.RunID.String(),
+		)
 		return
 	}
 
