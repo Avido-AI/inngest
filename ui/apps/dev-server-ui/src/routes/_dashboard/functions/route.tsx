@@ -83,7 +83,8 @@ const columns = [
     header: () => <span>App URL</span>,
     cell: (props) => {
       try {
-        const cleanUrl = new URL(props.getValue() || '', window.location.origin);
+        const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8288';
+        const cleanUrl = new URL(props.getValue() || '', origin);
         cleanUrl.search = '';
         return <p className="text-sm">{cleanUrl.toString()}</p>;
       } catch {
