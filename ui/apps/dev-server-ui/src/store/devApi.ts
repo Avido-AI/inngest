@@ -3,9 +3,10 @@ import { z } from 'zod';
 
 import { api } from './generated';
 
-const baseURL = import.meta.env.VITE_PUBLIC_API_BASE_URL
-  ? new URL('/', import.meta.env.VITE_PUBLIC_API_BASE_URL)
-  : '/';
+const baseURL = new URL(
+  '/',
+  import.meta.env.VITE_PUBLIC_API_BASE_URL || window.location.origin,
+);
 
 export interface EventPayload {
   id?: string;
