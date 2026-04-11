@@ -2286,7 +2286,31 @@ func (w wrapper) GetTraceRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt)
 }
 
 // getTraceRunsCount uses SELECT COUNT(*) against the trace_runs table.
+// When CEL event-ID or output filters are active, it falls back to fetching rows
+// because trigger_ids storage format differs between dialects and output matching
+// requires row materialisation.
 func (w wrapper) getTraceRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt) (int, error) {
+	// Check for CEL expressions that require post-query filtering (event-ID or output filters).
+	// These cannot be pushed into a SQL COUNT because trigger_ids is stored as opaque bytes
+	// and output matching requires deserialising each row.
+	if opt.Filter.CEL != "" {
+		expHandler, err := run.NewExpressionHandler(ctx,
+			run.WithExpressionHandlerBlob(opt.Filter.CEL, "\n"),
+		)
+		if err != nil {
+			return 0, err
+		}
+		if expHandler.HasEventFilters() || expHandler.HasOutputFilters() {
+			// Fall back: fetch all matching rows and count in Go.
+			opt.Items = 0
+			res, err := w.GetTraceRuns(ctx, opt)
+			if err != nil {
+				return 0, err
+			}
+			return len(res), nil
+		}
+	}
+
 	builder := newRunsQueryBuilder(ctx, opt)
 	// ignore builder.order for count queries — ORDER BY with COUNT errors on Postgres
 

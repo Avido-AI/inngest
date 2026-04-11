@@ -1,4 +1,8 @@
--- Add indexes to trace_runs for common query patterns (filter by app, function, time, status)
+-- Add indexes to trace_runs for common query patterns (filter by app, function, time, status).
+-- NOTE: Using CREATE INDEX (not CONCURRENTLY) because golang-migrate runs migrations inside
+-- a transaction block, and CREATE INDEX CONCURRENTLY cannot run within a transaction.
+-- If these tables are very large in production, consider running these indexes manually
+-- with CONCURRENTLY outside of the migration framework before deploying this migration.
 CREATE INDEX IF NOT EXISTS idx_trace_runs_app_id ON trace_runs(app_id);
 CREATE INDEX IF NOT EXISTS idx_trace_runs_function_id ON trace_runs(function_id);
 CREATE INDEX IF NOT EXISTS idx_trace_runs_queued_at ON trace_runs(queued_at);
