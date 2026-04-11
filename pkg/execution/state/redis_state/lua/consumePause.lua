@@ -46,10 +46,12 @@ end
 
 -- Clean up stale pending entries that were re-added by a retried savePending
 -- but have already been completed (exist in the actions hash).
-local remaining = redis.call("SMEMBERS", keyStepsPending)
-for _, step in ipairs(remaining) do
-  if redis.call("HEXISTS", actionKey, step) == 1 then
-    redis.call("SREM", keyStepsPending, step)
+if actionKey ~= nil then
+  local remaining = redis.call("SMEMBERS", keyStepsPending)
+  for _, step in ipairs(remaining) do
+    if redis.call("HEXISTS", actionKey, step) == 1 then
+      redis.call("SREM", keyStepsPending, step)
+    end
   end
 end
 
