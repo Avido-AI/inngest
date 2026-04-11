@@ -2302,8 +2302,10 @@ func (w wrapper) getTraceRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt)
 		}
 		if expHandler.HasEventFilters() || expHandler.HasOutputFilters() {
 			// Fall back: fetch all matching rows and count in Go.
-			opt.Items = 0
-			res, err := w.GetTraceRuns(ctx, opt)
+			// Use a local copy to avoid mutating the caller's opt.
+			countOpt := opt
+			countOpt.Items = 0
+			res, err := w.GetTraceRuns(ctx, countOpt)
 			if err != nil {
 				return 0, err
 			}
