@@ -298,9 +298,20 @@ func (c *connectGatewaySvc) Name() string {
 	return "connect-gateway"
 }
 
+// StartTimeout returns the pre-start timeout for the connect gateway.
+// This is longer than the default 30s to give the retry loop in Pre()
+// enough headroom when Azure AD token acquisition is slow.
+func (c *connectGatewaySvc) StartTimeout() time.Duration {
+	return 60 * time.Second
+}
+
 func (c *connectGatewaySvc) Pre(ctx context.Context) error {
+	// Keep a reference to the stdlib logger for retry warnings — c.logger
+	// may be replaced with VoidLogger in dev mode below.
+	stdLogger := logger.StdlibLogger(ctx).With("gateway_id", c.gatewayId)
+
 	// Set up gateway-specific logger with info for correlations
-	c.logger = logger.StdlibLogger(ctx).With("gateway_id", c.gatewayId)
+	c.logger = stdLogger
 	if c.dev {
 		// Hide verbose connect gateway logs in dev server by default
 		if os.Getenv("CONNECT_GATEWAY_FULL_LOGS") != "true" {
@@ -324,12 +335,16 @@ func (c *connectGatewaySvc) Pre(ctx context.Context) error {
 		if err := c.updateGatewayState(state.GatewayStatusStarting); err != nil {
 			lastErr = err
 			if attempt < maxRetries {
-				c.logger.Warn("retrying initial gateway state update",
+				stdLogger.Warn("retrying initial gateway state update",
 					"attempt", attempt,
 					"max_retries", maxRetries,
 					"error", err,
 				)
-				time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				select {
+				case <-time.After(time.Duration(attempt) * 2 * time.Second):
+				case <-ctx.Done():
+					return fmt.Errorf("could not set initial gateway state: context cancelled during retry: %w", ctx.Err())
+				}
 				continue
 			}
 		} else {

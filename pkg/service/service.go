@@ -92,8 +92,13 @@ func StartAll(ctx context.Context, all ...Service) (err error) {
 		svc := s
 		eg.Go(func() error {
 			err := Start(ctx, svc)
-			// Log which service triggered the cascade shutdown.
-			if err != nil && err != context.Canceled {
+			// Distinguish the service that triggered shutdown from services
+			// that exited due to cascade cancellation.
+			if ctx.Err() != nil {
+				// Context already canceled — this service is a victim of
+				// cascade shutdown, not the trigger.
+				l.Info("service exited after cascade cancellation", "service", svc.Name())
+			} else if err != nil && err != context.Canceled {
 				l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
 			} else {
 				l.Info("service exited, canceling all services", "service", svc.Name())
