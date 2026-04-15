@@ -163,11 +163,13 @@ func NewRedisClientOption() (rueidis.ClientOption, error) {
 			ServerName: cfg.Host,
 			MinVersion: tls.VersionTLS12,
 		},
-		// Increase dial timeout from the default 5s to 15s to accommodate
-		// Azure AD token acquisition on the first connection. The
-		// AuthCredentialsFn below acquires a token during connection setup,
-		// which can be slow on initial startup (IMDS endpoint latency,
-		// multiple clients requesting tokens simultaneously).
+		// Increase dial timeout from the default 5s to 15s. In rueidis,
+		// Dialer.Timeout is reused for both the TCP dial phase AND the init
+		// commands phase (HELLO + AUTH) after AuthCredentialsFn returns.
+		// AuthCredentialsFn has its own 30s timeout for Azure AD token
+		// acquisition from the IMDS endpoint. The 15s here gives extra
+		// headroom for the TCP dial to Azure Redis and the subsequent
+		// AUTH/HELLO exchange on slow or cold connections.
 		Dialer: net.Dialer{Timeout: 15 * time.Second},
 		AuthCredentialsFn: func(_ rueidis.AuthCredentialsContext) (rueidis.AuthCredentials, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
