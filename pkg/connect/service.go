@@ -306,18 +306,9 @@ func (c *connectGatewaySvc) StartTimeout() time.Duration {
 }
 
 func (c *connectGatewaySvc) Pre(ctx context.Context) error {
-	// Keep a reference to the stdlib logger for retry warnings — c.logger
-	// may be replaced with VoidLogger in dev mode below.
-	stdLogger := logger.StdlibLogger(ctx).With("gateway_id", c.gatewayId)
-
-	// Set up gateway-specific logger with info for correlations
-	c.logger = stdLogger
-	if c.dev {
-		// Hide verbose connect gateway logs in dev server by default
-		if os.Getenv("CONNECT_GATEWAY_FULL_LOGS") != "true" {
-			c.logger = logger.VoidLogger()
-		}
-	}
+	// Always use the stdlib logger for the connect gateway so errors
+	// and retry warnings are never silenced.
+	c.logger = logger.StdlibLogger(ctx).With("gateway_id", c.gatewayId)
 
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -335,7 +326,7 @@ func (c *connectGatewaySvc) Pre(ctx context.Context) error {
 		if err := c.updateGatewayState(state.GatewayStatusStarting); err != nil {
 			lastErr = err
 			if attempt < maxRetries {
-				stdLogger.Warn("retrying initial gateway state update",
+				c.logger.Warn("retrying initial gateway state update",
 					"attempt", attempt,
 					"max_retries", maxRetries,
 					"error", err,
