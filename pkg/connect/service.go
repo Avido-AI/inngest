@@ -316,8 +316,29 @@ func (c *connectGatewaySvc) Pre(ctx context.Context) error {
 
 	c.ipAddress = c.grpcConfig.Gateway.IP
 
-	if err := c.updateGatewayState(state.GatewayStatusStarting); err != nil {
-		return fmt.Errorf("could not set initial gateway state: %w", err)
+	// Retry the initial gateway state update to handle slow token acquisition
+	// (e.g. Azure Workload Identity) on the first Redis operation after startup.
+	const maxRetries = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err := c.updateGatewayState(state.GatewayStatusStarting); err != nil {
+			lastErr = err
+			if attempt < maxRetries {
+				c.logger.Warn("retrying initial gateway state update",
+					"attempt", attempt,
+					"max_retries", maxRetries,
+					"error", err,
+				)
+				time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				continue
+			}
+		} else {
+			lastErr = nil
+			break
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("could not set initial gateway state after %d attempts: %w", maxRetries, lastErr)
 	}
 
 	c.grpcClientManager = grpc.NewGRPCClientManager(pb.NewConnectExecutorClient, grpc.WithLogger[pb.ConnectExecutorClient](c.logger))

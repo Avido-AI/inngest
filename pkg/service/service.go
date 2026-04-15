@@ -83,6 +83,7 @@ func stopTimeout(s Service) time.Duration {
 // StartAll starts all of the specified services, stopping all services when
 // any of the group errors.
 func StartAll(ctx context.Context, all ...Service) (err error) {
+	l := logger.StdlibLogger(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -91,6 +92,12 @@ func StartAll(ctx context.Context, all ...Service) (err error) {
 		svc := s
 		eg.Go(func() error {
 			err := Start(ctx, svc)
+			// Log which service triggered the cascade shutdown.
+			if err != nil && err != context.Canceled {
+				l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
+			} else {
+				l.Info("service exited, canceling all services", "service", svc.Name())
+			}
 			// Close all other services.
 			cancel()
 			if err != nil && err != context.Canceled {
@@ -121,6 +128,7 @@ func Start(ctx context.Context, s Service) (err error) {
 	}()
 
 	if preErr := pre(ctx, s); preErr != nil {
+		l.Error("service pre-start failed", "error", preErr)
 		return preErr
 	}
 
