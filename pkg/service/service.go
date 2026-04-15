@@ -133,7 +133,8 @@ func Start(ctx context.Context, s Service) (err error) {
 	}()
 
 	if preErr := pre(ctx, s); preErr != nil {
-		l.Error("service pre-start failed", "error", preErr)
+		// Error is returned to the caller (e.g. StartAll) which logs it
+		// with cascade-shutdown context. Logging here would double-log.
 		return preErr
 	}
 
