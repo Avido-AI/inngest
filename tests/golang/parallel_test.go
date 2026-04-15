@@ -625,14 +625,17 @@ func TestParallelStepsDuplicatePlan(t *testing.T) {
 	// cancellation propagates as an error). The core assertion is counter == 1
 	// (no duplicate step execution), not the specific terminal status.
 	runID := rid.Wait(t)
+	var terminalStatus string
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		run, err := c.TryRun(ctx, runID)
 		if !assert.NoError(ct, err) {
 			return
 		}
+		terminalStatus = run.Status
 		assert.True(ct, run.Status == "COMPLETED" || run.Status == "FAILED",
 			"expected terminal status, got %s (runID: %s)", run.Status, runID)
 	}, 30*time.Second, 500*time.Millisecond)
+	t.Logf("run %s reached terminal status: %s", runID, terminalStatus)
 
 	r.Equal(1, int(atomic.LoadInt32(&counter)))
 }
