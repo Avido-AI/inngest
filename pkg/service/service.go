@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -88,23 +89,29 @@ func StartAll(ctx context.Context, all ...Service) (err error) {
 	defer cancel()
 
 	eg := &errgroup.Group{}
+	// Use sync.Once to ensure only the first service to exit is logged
+	// as the cascade trigger. Without this, two simultaneously-failing
+	// services could both see ctx.Err()==nil before either calls cancel(),
+	// causing both to log as the trigger.
+	var triggerOnce sync.Once
 	for _, s := range all {
 		svc := s
 		eg.Go(func() error {
 			err := Start(ctx, svc)
-			// Distinguish the service that triggered shutdown from services
-			// that exited due to cascade cancellation.
-			if ctx.Err() != nil {
-				// Context already canceled — this service is a victim of
-				// cascade shutdown, not the trigger.
+			isTrigger := false
+			triggerOnce.Do(func() {
+				isTrigger = true
+				// First service to exit — this is the cascade trigger.
+				if err != nil && err != context.Canceled {
+					l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
+				} else {
+					l.Info("service exited, canceling all services", "service", svc.Name())
+				}
+				cancel()
+			})
+			if !isTrigger {
 				l.Info("service exited after cascade cancellation", "service", svc.Name())
-			} else if err != nil && err != context.Canceled {
-				l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
-			} else {
-				l.Info("service exited, canceling all services", "service", svc.Name())
 			}
-			// Close all other services.
-			cancel()
 			if err != nil && err != context.Canceled {
 				return fmt.Errorf("service %s errored: %w", svc.Name(), err)
 			}
