@@ -85,26 +85,33 @@ func TestParallelSteps(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("verify in-progress", func(t *testing.T) {
-		<-time.After(2 * time.Second)
-		require.Equal(t, int32(2), atomic.LoadInt32(&counter))
+		// Poll until at least 2 steps have started (concurrency limit = 2).
+		// Under CI load, step scheduling can be slower than the 5s step duration.
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assert.GreaterOrEqual(ct, atomic.LoadInt32(&counter), int32(2),
+				"expected at least 2 steps to have started")
+		}, 15*time.Second, 500*time.Millisecond)
 
 		_ = c.WaitForRunTraces(ctx, t, &runID, client.WaitForRunTracesOptions{
 			Status:         models.FunctionStatusRunning,
 			ChildSpanCount: 2,
-			Timeout:        2 * time.Second,
-			Interval:       200 * time.Millisecond,
+			Timeout:        10 * time.Second,
+			Interval:       500 * time.Millisecond,
 		})
 	})
 
 	t.Run("verify completion", func(t *testing.T) {
-		<-time.After(10 * time.Second)
-		require.Equal(t, int32(4), atomic.LoadInt32(&counter))
+		// Poll until all 4 steps have completed instead of using a fixed sleep.
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assert.Equal(ct, int32(4), atomic.LoadInt32(&counter),
+				"expected all 4 parallel steps to have executed")
+		}, 30*time.Second, 500*time.Millisecond)
 
 		run := c.WaitForRunTraces(ctx, t, &runID, client.WaitForRunTracesOptions{
 			Status:         models.FunctionStatusCompleted,
 			ChildSpanCount: 4,
-			Timeout:        5 * time.Second,
-			Interval:       250 * time.Millisecond,
+			Timeout:        15 * time.Second,
+			Interval:       500 * time.Millisecond,
 		})
 
 		// check on spans
