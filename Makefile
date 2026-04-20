@@ -57,7 +57,10 @@ protobuf: ## Generate protobuf files
 # $GOBIN must be set and be in your path for this to work
 .PHONY: queries
 queries: ## Generate sqlc queries
-	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+	# Pin sqlc: v1.31.0 ships with replace directives in its go.mod, which
+	# `go install` refuses to build (see sqlc-dev/sqlc#4396). v1.29.0 matches
+	# the version recorded in the committed generated files.
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
 	sqlc generate
 
 .PHONY: snapshot
