@@ -141,6 +141,12 @@ func Command() *cli.Command {
 				Hidden: true,
 			},
 
+			&cli.StringSliceFlag{
+				Category: "Advanced",
+				Name:     "realtime-allowed-origin",
+				Usage:    "Origin pattern allowed to open realtime websocket connections (may be repeated; supports '*' wildcards). When unset, only same-host connections are allowed.",
+			},
+
 			&cli.StringFlag{
 				Name:   "system-trace-endpoint",
 				Usage:  "Endpoint for sending OTLP HTTP traces",

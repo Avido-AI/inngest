@@ -348,3 +348,140 @@ func TestAPI_GetWebsocketUpgrade(t *testing.T) {
 		}
 	})
 }
+
+func TestAPI_GetWebsocketUpgrade_OriginVerification(t *testing.T) {
+	newAuthedJWT := func(t *testing.T) string {
+		t.Helper()
+		topics := []Topic{
+			{Kind: streamingtypes.TopicKindRun, Channel: "user:123", Name: "ai"},
+		}
+		jwt, err := NewJWT(context.Background(), []byte("test-secret"), uuid.New(), uuid.New(), topics)
+		require.NoError(t, err)
+		return jwt
+	}
+
+	t.Run("allows matching origin when AllowedOrigins is set", func(t *testing.T) {
+		bc := newTestBroadcaster(t)
+		server := httptest.NewServer(NewAPI(APIOpts{
+			JWTSecret:      []byte("test-secret"),
+			Broadcaster:    bc,
+			AllowedOrigins: []string{"app.example.com"},
+		}))
+		defer server.Close()
+
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/realtime/connect"
+
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+
+		conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+			HTTPHeader: http.Header{
+				"Authorization": []string{"Bearer " + newAuthedJWT(t)},
+				"Origin":        []string{"https://app.example.com"},
+			},
+		})
+		require.NoError(t, err)
+		conn.Close(websocket.StatusNormalClosure, "test complete")
+	})
+
+	t.Run("rejects disallowed origin when AllowedOrigins is set", func(t *testing.T) {
+		bc := newTestBroadcaster(t)
+		server := httptest.NewServer(NewAPI(APIOpts{
+			JWTSecret:      []byte("test-secret"),
+			Broadcaster:    bc,
+			AllowedOrigins: []string{"app.example.com"},
+		}))
+		defer server.Close()
+
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/realtime/connect"
+
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+
+		_, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+			HTTPHeader: http.Header{
+				"Authorization": []string{"Bearer " + newAuthedJWT(t)},
+				"Origin":        []string{"https://evil.example.com"},
+			},
+		})
+		require.Error(t, err, "cross-origin upgrade must be rejected")
+		if resp != nil {
+			require.Equal(t, http.StatusForbidden, resp.StatusCode)
+			_ = resp.Body.Close()
+		}
+	})
+
+	t.Run("allows requests without Origin header (server SDK)", func(t *testing.T) {
+		bc := newTestBroadcaster(t)
+		server := httptest.NewServer(NewAPI(APIOpts{
+			JWTSecret:      []byte("test-secret"),
+			Broadcaster:    bc,
+			AllowedOrigins: []string{"app.example.com"},
+		}))
+		defer server.Close()
+
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/realtime/connect"
+
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+
+		// No Origin header — mimics server-side SDK dials (e.g. inngestgo).
+		conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+			HTTPHeader: http.Header{
+				"Authorization": []string{"Bearer " + newAuthedJWT(t)},
+			},
+		})
+		require.NoError(t, err)
+		conn.Close(websocket.StatusNormalClosure, "test complete")
+	})
+
+	t.Run("allows same-host origin when AllowedOrigins is unset", func(t *testing.T) {
+		bc := newTestBroadcaster(t)
+		server := httptest.NewServer(NewAPI(APIOpts{
+			JWTSecret:   []byte("test-secret"),
+			Broadcaster: bc,
+		}))
+		defer server.Close()
+
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/realtime/connect"
+		host := strings.TrimPrefix(server.URL, "http://")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+
+		conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+			HTTPHeader: http.Header{
+				"Authorization": []string{"Bearer " + newAuthedJWT(t)},
+				"Origin":        []string{"http://" + host},
+			},
+		})
+		require.NoError(t, err)
+		conn.Close(websocket.StatusNormalClosure, "test complete")
+	})
+
+	t.Run("rejects cross-host origin when AllowedOrigins is unset", func(t *testing.T) {
+		bc := newTestBroadcaster(t)
+		server := httptest.NewServer(NewAPI(APIOpts{
+			JWTSecret:   []byte("test-secret"),
+			Broadcaster: bc,
+		}))
+		defer server.Close()
+
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/realtime/connect"
+
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+
+		_, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+			HTTPHeader: http.Header{
+				"Authorization": []string{"Bearer " + newAuthedJWT(t)},
+				"Origin":        []string{"https://evil.example.com"},
+			},
+		})
+		require.Error(t, err, "cross-origin upgrade must be rejected with default same-host policy")
+		if resp != nil {
+			require.Equal(t, http.StatusForbidden, resp.StatusCode)
+			_ = resp.Body.Close()
+		}
+	})
+}

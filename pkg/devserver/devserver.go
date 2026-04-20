@@ -154,6 +154,11 @@ type StartOpts struct {
 
 	// Debug API
 	DebugAPIPort int `json:"debugAPIPort"`
+
+	// RealtimeAllowedOrigins is the list of origin patterns permitted to open
+	// realtime websocket connections. Forwarded to realtime.APIOpts.AllowedOrigins.
+	// When empty, the upgrade falls back to same-host-only verification.
+	RealtimeAllowedOrigins []string `json:"realtime_allowed_origins"`
 }
 
 // Create and start a new dev server.  The dev server is used during (surprise surprise)
@@ -675,12 +680,13 @@ func start(ctx context.Context, opts StartOpts) error {
 			Broadcaster:        broadcaster,
 			TraceReader:        ds.Data,
 
-			AppCreator:        dbcqrs,
-			FunctionCreator:   dbcqrs,
-			EventPublisher:    runner,
-			TracerProvider:    tp,
-			State:             smv2,
-			RealtimeJWTSecret: consts.DevServerRealtimeJWTSecret,
+			AppCreator:             dbcqrs,
+			FunctionCreator:        dbcqrs,
+			EventPublisher:         runner,
+			TracerProvider:         tp,
+			State:                  smv2,
+			RealtimeJWTSecret:      consts.DevServerRealtimeJWTSecret,
+			RealtimeAllowedOrigins: opts.RealtimeAllowedOrigins,
 
 			CheckpointOpts: apiv1.CheckpointAPIOpts{
 				RunOutputReader: devutil.NewLocalOutputReader(core.Resolver(), ds.Data, ds.Data),

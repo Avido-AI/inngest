@@ -49,6 +49,9 @@ type Config struct {
 	// Tracing
 	SystemTraceEndpoint string `koanf:"system-trace-endpoint"`
 	SystemTraceURLPath  string `koanf:"system-trace-url-path"`
+
+	// Realtime websocket configuration
+	RealtimeAllowedOrigin []string `koanf:"realtime-allowed-origin"`
 }
 
 // Global variables to store koanf instance and loaded configuration
@@ -204,7 +207,7 @@ func loadEnvironmentVariables() error {
 			}
 
 			// Handle array fields - convert single values and comma-separated values to arrays
-			if configKey == "sdk-url" || configKey == "event-key" {
+			if configKey == "sdk-url" || configKey == "event-key" || configKey == "realtime-allowed-origin" {
 				if strings.Contains(value, ",") {
 					return configKey, strings.Split(value, ",")
 				}

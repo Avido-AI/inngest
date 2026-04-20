@@ -122,6 +122,8 @@ func action(ctx context.Context, cmd *cli.Command) error {
 	connectGatewayGRPCPort := localconfig.GetIntValue(cmd, "connect-gateway-grpc-port", devserver.DefaultConnectGatewayGRPCPort)
 	connectExecutorGRPCPort := localconfig.GetIntValue(cmd, "connect-executor-grpc-port", devserver.DefaultConnectExecutorGRPCPort)
 
+	realtimeAllowedOrigins := localconfig.GetStringSlice(cmd, "realtime-allowed-origin")
+
 	opts := devserver.StartOpts{
 		Config:                  *conf,
 		ConnectGatewayHost:      conf.CoreAPI.Addr,
@@ -143,6 +145,7 @@ func action(ctx context.Context, cmd *cli.Command) error {
 		SQLiteDir:               sqliteDir,
 		Tick:                    time.Duration(tick) * time.Millisecond,
 		URLs:                    sdkURLs,
+		RealtimeAllowedOrigins:  realtimeAllowedOrigins,
 		ConnectGRPCConfig: connectConfig.NewGRPCConfig(
 			ctx,
 			connectgrpc.DefaultConnectGRPCIP, connectGatewayGRPCPort,

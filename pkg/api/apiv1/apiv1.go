@@ -67,6 +67,11 @@ type Opts struct {
 	// RealtimeJWTSecret is the realtime JWT secret for the V1 API
 	RealtimeJWTSecret []byte
 
+	// RealtimeAllowedOrigins is the list of origin patterns allowed to open
+	// realtime websocket connections. Forwarded to realtime.APIOpts.AllowedOrigins.
+	// When empty, the upgrade falls back to same-host-only verification.
+	RealtimeAllowedOrigins []string
+
 	// CheckpointOpts represents required opts for the checkpoint API
 	CheckpointOpts CheckpointAPIOpts
 
@@ -122,6 +127,7 @@ func (a *router) setup() {
 					Broadcaster:    a.opts.Broadcaster,
 					AuthMiddleware: a.opts.AuthMiddleware,
 					AuthFinder:     a.opts.AuthFinder,
+					AllowedOrigins: a.opts.RealtimeAllowedOrigins,
 				})
 				r.Mount("/", rt)
 			})

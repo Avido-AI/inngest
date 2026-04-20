@@ -47,6 +47,12 @@ type APIOpts struct {
 	// AuthFinder authenticates the given request, returning the env and account IDs.
 	// Used as a fallback when JWT auth fails (e.g. signing-key auth in the dev server).
 	AuthFinder apiv1auth.AuthFinder
+	// AllowedOrigins is the list of origin patterns permitted to open websocket
+	// connections. Matches the semantics of coder/websocket AcceptOptions.OriginPatterns
+	// (supports "*" wildcards in the hostname). When empty, the upgrade falls back
+	// to same-host-only verification. Requests without an Origin header (e.g. server
+	// SDK dials) are always allowed; the JWT check above remains the primary control.
+	AllowedOrigins []string
 }
 
 func NewAPI(o APIOpts) http.Handler {
@@ -282,7 +288,12 @@ func (a *api) GetWebsocketUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // We don't care about verifying the origin.
+		// OriginPatterns restricts cross-origin upgrades to the configured
+		// allowlist. When empty, coder/websocket falls back to same-host-only
+		// verification. Requests without an Origin header are always accepted,
+		// so server-side SDK dials continue to work; JWT auth above is the
+		// primary authentication control, origin validation is defense in depth.
+		OriginPatterns: a.opts.AllowedOrigins,
 	})
 	if err != nil {
 		w.WriteHeader(400)

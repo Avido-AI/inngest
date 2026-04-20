@@ -120,6 +120,11 @@ func Command() *cli.Command {
 				Name:     "no-ui",
 				Usage:    "Disable the web UI and GraphQL API endpoint",
 			},
+			&cli.StringSliceFlag{
+				Category: "Advanced",
+				Name:     "realtime-allowed-origin",
+				Usage:    "Origin pattern allowed to open realtime websocket connections (may be repeated; supports '*' wildcards). When unset, only same-host connections are allowed.",
+			},
 		},
 	}
 

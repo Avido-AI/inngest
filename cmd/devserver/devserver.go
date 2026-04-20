@@ -78,6 +78,8 @@ func action(ctx context.Context, cmd *cli.Command) error {
 	connectGatewayGRPCPort := localconfig.GetIntValue(cmd, "connect-gateway-grpc-port", devserver.DefaultConnectGatewayGRPCPort)
 	connectExecutorGRPCPort := localconfig.GetIntValue(cmd, "connect-executor-grpc-port", devserver.DefaultConnectExecutorGRPCPort)
 
+	realtimeAllowedOrigins := localconfig.GetStringSlice(cmd, "realtime-allowed-origin")
+
 	postgresURI := localconfig.GetValue(cmd, "postgres-uri", "")
 	postgresMaxIdleConns := localconfig.GetIntValue(cmd, "postgres-max-idle-conns", 10)
 	postgresMaxOpenConns := localconfig.GetIntValue(cmd, "postgres-max-open-conns", 100)
@@ -110,6 +112,7 @@ func action(ctx context.Context, cmd *cli.Command) error {
 		PostgresConnMaxIdleTime: postgresConnMaxIdleTime,
 		PostgresConnMaxLifetime: postgresConnMaxLifetime,
 		DebugAPIPort:            debugAPIPort,
+		RealtimeAllowedOrigins:  realtimeAllowedOrigins,
 	}
 
 	l := logger.StdlibLogger(ctx)
