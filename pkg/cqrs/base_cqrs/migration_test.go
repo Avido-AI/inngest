@@ -714,7 +714,7 @@ func assertGooseVersionTable(t *testing.T, db *sql.DB) {
 
 	var maxVersion int64
 	require.NoError(t, db.QueryRow("SELECT MAX(version_id) FROM goose_db_version").Scan(&maxVersion))
-	require.Equal(t, int64(1), maxVersion)
+	require.Equal(t, int64(2), maxVersion)
 
 	var baselineRows int
 	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM goose_db_version WHERE version_id = 1").Scan(&baselineRows))
