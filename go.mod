@@ -14,6 +14,7 @@ require (
 	github.com/MauriceGit/skiplist v0.0.0-20211105230623-77f5c8d3e145
 	github.com/VividCortex/ewma v1.2.0
 	github.com/alicebob/miniredis/v2 v2.37.0
+	github.com/andybalholm/brotli v1.2.0
 	github.com/aws/aws-lambda-go v1.54.0
 	github.com/aws/smithy-go v1.25.0
 	github.com/cespare/xxhash/v2 v2.3.0
@@ -66,6 +67,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/cachecontrol v0.2.0
+	github.com/pressly/goose/v3 v3.26.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.67.5
 	github.com/redis/rueidis v1.0.74
@@ -215,6 +217,7 @@ require (
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
+	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/minio/minlz v1.0.1-0.20250507153514-87eb42fe8882 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
@@ -258,8 +261,9 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
-	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.3 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/sosodev/duration v1.4.0 // indirect

@@ -1945,11 +1945,23 @@ func TestBlockstoreDeleteByID(t *testing.T) {
 	err = store.FlushIndexBlock(ctx, index)
 	require.NoError(t, err)
 
-	// Wait for pause deletions after flushing to finish
+	// Wait for pause-block keys to be written after flushing
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		keys, err := rc.Do(ctx, rc.B().Keys().Pattern("*:pause-block:*").Build()).AsStrSlice()
 		assert.NoError(t, err)
 		assert.Equal(t, 3, len(keys), "Expected 3 pause-block keys after flush, but found: %v", keys)
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// Wait for the background goroutine in FlushIndexBlock to finish deleting
+	// all pauses from the buffer. Without this, the goroutine may still be
+	// running when DeleteByID is called, and its subsequent buf.Delete() with
+	// WithWriteBlockIndex will re-create pause-block keys that were already
+	// removed by DeleteByID.
+	bufferKey := fmt.Sprintf("{%s}:pause-events:%s:%s", redis_state.StateDefaultKey, workspaceID, eventName)
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		bufLen, err := rc.Do(ctx, rc.B().Hlen().Key(bufferKey).Build()).AsInt64()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), bufLen, "Expected buffer to be empty after flush goroutine completes")
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// First, delete from blocks only
