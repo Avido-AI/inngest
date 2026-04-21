@@ -69,7 +69,7 @@
     "framer-motion": "^12.0.0",
     "graphql": "16.13.2",
     "graphql-request": "^7.0.0",
-    "inngest": "^3.48.0",
+    "inngest": "^4.2.4",
     "ky": "^2.0.0",
     "launchdarkly-react-client-sdk": "^3.0.8",
     "mustache": "^4.2.0",

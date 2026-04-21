@@ -419,6 +419,12 @@ CREATE INDEX idx_history_run_id_created ON public.history USING btree (run_id, c
 CREATE INDEX idx_spans_account_status_time ON public.spans USING btree (account_id, status, start_time);
 
 --
+-- Name: idx_spans_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_spans_name ON public.spans USING btree (name);
+
+--
 -- Name: idx_spans_run_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -441,6 +447,42 @@ CREATE INDEX idx_spans_run_status ON public.spans USING btree (run_id, status);
 --
 
 CREATE INDEX idx_spans_status ON public.spans USING btree (status);
+
+--
+-- Name: idx_trace_runs_app_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trace_runs_app_id ON public.trace_runs USING btree (app_id);
+
+--
+-- Name: idx_trace_runs_ended_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trace_runs_ended_at ON public.trace_runs USING btree (ended_at);
+
+--
+-- Name: idx_trace_runs_function_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trace_runs_function_id ON public.trace_runs USING btree (function_id);
+
+--
+-- Name: idx_trace_runs_queued_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trace_runs_queued_at ON public.trace_runs USING btree (queued_at);
+
+--
+-- Name: idx_trace_runs_started_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trace_runs_started_at ON public.trace_runs USING btree (started_at);
+
+--
+-- Name: idx_trace_runs_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trace_runs_status ON public.trace_runs USING btree (status);
 
 --
 -- Name: idx_traces_trace_id; Type: INDEX; Schema: public; Owner: -

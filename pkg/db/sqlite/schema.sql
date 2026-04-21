@@ -210,3 +210,10 @@ CREATE TABLE worker_connections (
 
     PRIMARY KEY(id, app_name)
 );
+CREATE INDEX idx_trace_runs_app_id ON trace_runs(app_id);
+CREATE INDEX idx_trace_runs_function_id ON trace_runs(function_id);
+CREATE INDEX idx_trace_runs_queued_at ON trace_runs(queued_at);
+CREATE INDEX idx_trace_runs_started_at ON trace_runs(started_at);
+CREATE INDEX idx_trace_runs_ended_at ON trace_runs(ended_at);
+CREATE INDEX idx_trace_runs_status ON trace_runs(status);
+CREATE INDEX idx_spans_name ON spans(name);
