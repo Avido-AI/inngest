@@ -32,7 +32,4 @@ jobs:
       # here and only check what's shipped directly by us.
       - run: pnpm audit --audit-level=critical --prod --no-optional --ignore-registry-errors
         working-directory: ui
-              
-
-
 
