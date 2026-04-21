@@ -179,6 +179,26 @@ func TestSessionToken(t *testing.T) {
 
 }
 
+// reportCapturingLogger is a minimal logger.Logger that records ReportError
+// calls for assertion, and delegates unused methods to an embedded real logger.
+type reportCapturingLogger struct {
+	logger.Logger
+	reports []reportEntry
+}
+
+type reportEntry struct {
+	err error
+	msg string
+}
+
+func (l *reportCapturingLogger) ReportError(err error, msg string, _ ...logger.ReportErrorOpt) {
+	l.reports = append(l.reports, reportEntry{err: err, msg: msg})
+}
+
+func newCapturingLogger() *reportCapturingLogger {
+	return &reportCapturingLogger{Logger: logger.StdlibLogger(context.Background())}
+}
+
 func TestJWTAuthHandler(t *testing.T) {
 	accountId, envId := uuid.New(), uuid.New()
 	secret := []byte("this-is-a-very-strong-secret")
@@ -189,47 +209,56 @@ func TestJWTAuthHandler(t *testing.T) {
 		}
 	}
 
-	t.Run("missing token returns (nil, nil)", func(t *testing.T) {
-		handler := NewJWTAuthHandler(logger.StdlibLogger(context.Background()), secret)
+	t.Run("missing token returns (nil, nil) without reporting", func(t *testing.T) {
+		log := newCapturingLogger()
+		handler := NewJWTAuthHandler(log, secret)
 		resp, err := handler(context.Background(), newRequest(""))
 		require.NoError(t, err)
 		require.Nil(t, resp)
+		require.Empty(t, log.reports, "empty-token path must not report an error")
 	})
 
-	t.Run("valid token returns response", func(t *testing.T) {
+	t.Run("valid token returns response without reporting", func(t *testing.T) {
 		token, err := signSessionToken(secret, accountId, envId, DefaultExpiry, Entitlements{})
 		require.NoError(t, err)
 
-		handler := NewJWTAuthHandler(logger.StdlibLogger(context.Background()), secret)
+		log := newCapturingLogger()
+		handler := NewJWTAuthHandler(log, secret)
 		resp, err := handler(context.Background(), newRequest(token))
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Equal(t, accountId, resp.AccountID)
 		require.Equal(t, envId, resp.EnvID)
+		require.Empty(t, log.reports, "valid token path must not report an error")
 	})
 
-	t.Run("invalid-signature token surfaces an error instead of silent skip", func(t *testing.T) {
+	t.Run("invalid-signature token reports error but keeps (nil, nil) for gateway auth-failed branch", func(t *testing.T) {
 		forgedSecret := []byte("this-is-the-wrong-secret")
 		token, err := signSessionToken(forgedSecret, accountId, envId, DefaultExpiry, Entitlements{})
 		require.NoError(t, err)
 
-		handler := NewJWTAuthHandler(logger.StdlibLogger(context.Background()), secret)
+		log := newCapturingLogger()
+		handler := NewJWTAuthHandler(log, secret)
 		resp, err := handler(context.Background(), newRequest(token))
-		require.Error(t, err, "invalid-signature token must not silently coerce to (nil, nil)")
-		require.ErrorContains(t, err, "connect JWT verification failed")
+		require.NoError(t, err, "must return (nil, nil) so gateway routes to CodeConnectAuthFailed, not CodeConnectInternal")
 		require.Nil(t, resp)
+		require.Len(t, log.reports, 1, "verification failure must not be silently dropped")
+		require.Equal(t, "connect JWT verification failed", log.reports[0].msg)
+		require.ErrorContains(t, log.reports[0].err, "token signature is invalid")
 	})
 
-	t.Run("expired token surfaces an error instead of silent skip", func(t *testing.T) {
+	t.Run("expired token reports error but keeps (nil, nil)", func(t *testing.T) {
 		token, err := signSessionToken(secret, accountId, envId, time.Millisecond, Entitlements{})
 		require.NoError(t, err)
 		<-time.After(time.Millisecond * 5)
 
-		handler := NewJWTAuthHandler(logger.StdlibLogger(context.Background()), secret)
+		log := newCapturingLogger()
+		handler := NewJWTAuthHandler(log, secret)
 		resp, err := handler(context.Background(), newRequest(token))
-		require.Error(t, err)
-		require.ErrorContains(t, err, "connect JWT verification failed")
+		require.NoError(t, err)
 		require.Nil(t, resp)
+		require.Len(t, log.reports, 1)
+		require.ErrorContains(t, log.reports[0].err, "token is expired")
 	})
 
 	t.Run("nil logger is tolerated", func(t *testing.T) {
@@ -239,7 +268,7 @@ func TestJWTAuthHandler(t *testing.T) {
 
 		handler := NewJWTAuthHandler(nil, secret)
 		resp, err := handler(context.Background(), newRequest(token))
-		require.Error(t, err)
+		require.NoError(t, err)
 		require.Nil(t, resp)
 	})
 }

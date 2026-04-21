@@ -118,7 +118,7 @@ func NewJWTAuthHandler(log logger.Logger, jwtSecret []byte) Handler {
 			if log != nil {
 				log.ReportError(err, "connect JWT verification failed")
 			}
-			return nil, fmt.Errorf("connect JWT verification failed: %w", err)
+			return nil, nil
 		}
 
 		return &Response{
