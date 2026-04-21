@@ -45,8 +45,8 @@ func TestAPI_GetWebsocketUpgrade_RejectsCrossOriginBrowserUpgrade(t *testing.T) 
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	require.NotEqual(t, http.StatusSwitchingProtocols, resp.StatusCode,
-		"cross-origin browser upgrade must be rejected")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode,
+		"cross-origin browser upgrade must be rejected with 403")
 	require.Equal(t, 0, subCount(bc), "no subscription should be created for rejected upgrade")
 }
 
