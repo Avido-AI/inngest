@@ -702,7 +702,7 @@ func start(ctx context.Context, opts StartOpts) error {
 
 	connGateway := connect.NewConnectGatewayService(
 		connect.WithConnectionStateManager(connectionManager),
-		connect.WithGatewayAuthHandler(auth.NewJWTAuthHandler(consts.DevServerConnectJwtSecret)),
+		connect.WithGatewayAuthHandler(auth.NewJWTAuthHandler(logger.StdlibLogger(ctx), consts.DevServerConnectJwtSecret)),
 		connect.WithDev(),
 		connect.WithGatewayPublicPort(opts.ConnectGatewayPort),
 		connect.WithGRPCConfig(opts.ConnectGRPCConfig),
