@@ -8,7 +8,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/proto/gen/connect/v1"
 	"github.com/oklog/ulid/v2"
 )
@@ -106,7 +105,7 @@ func signSessionToken(jwtSecret []byte, accountId uuid.UUID, envId uuid.UUID, ex
 	return signed, nil
 }
 
-func NewJWTAuthHandler(log logger.Logger, jwtSecret []byte) Handler {
+func NewJWTAuthHandler(jwtSecret []byte) Handler {
 	return func(ctx context.Context, data *connect.WorkerConnectRequestData) (*Response, error) {
 		token := data.AuthData.GetSessionToken()
 		if token == "" {
@@ -115,10 +114,7 @@ func NewJWTAuthHandler(log logger.Logger, jwtSecret []byte) Handler {
 
 		verified, err := VerifySessionToken(jwtSecret, token)
 		if err != nil {
-			if log != nil {
-				log.ReportError(err, "connect JWT verification failed")
-			}
-			return nil, nil
+			return nil, fmt.Errorf("connect JWT verification failed: %w", err)
 		}
 
 		return &Response{
