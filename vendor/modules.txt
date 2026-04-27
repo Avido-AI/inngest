@@ -171,7 +171,7 @@ cuelang.org/go/tools/flow
 # dario.cat/mergo v1.0.2
 ## explicit; go 1.13
 dario.cat/mergo
-# github.com/99designs/gqlgen v0.17.89
+# github.com/99designs/gqlgen v0.17.90
 ## explicit; go 1.25.0
 github.com/99designs/gqlgen
 github.com/99designs/gqlgen/api
@@ -667,8 +667,8 @@ github.com/felixge/httpsnoop
 ## explicit; go 1.17
 github.com/fsnotify/fsnotify
 github.com/fsnotify/fsnotify/internal
-# github.com/getkin/kin-openapi v0.135.0
-## explicit; go 1.22.5
+# github.com/getkin/kin-openapi v0.136.0
+## explicit; go 1.26
 github.com/getkin/kin-openapi/openapi2
 github.com/getkin/kin-openapi/openapi2conv
 github.com/getkin/kin-openapi/openapi3
@@ -1003,7 +1003,7 @@ github.com/magiconair/properties
 github.com/mailru/easyjson/buffer
 github.com/mailru/easyjson/jlexer
 github.com/mailru/easyjson/jwriter
-# github.com/mattn/go-isatty v0.0.21
+# github.com/mattn/go-isatty v0.0.22
 ## explicit; go 1.21
 github.com/mattn/go-isatty
 # github.com/mattn/go-runewidth v0.0.23
@@ -1125,7 +1125,7 @@ github.com/ncruces/go-strftime
 # github.com/oasdiff/yaml v0.0.9
 ## explicit; go 1.22.5
 github.com/oasdiff/yaml
-# github.com/oasdiff/yaml3 v0.0.9
+# github.com/oasdiff/yaml3 v0.0.12
 ## explicit; go 1.22.5
 github.com/oasdiff/yaml3
 # github.com/ohler55/ojg v1.24.1
@@ -1245,6 +1245,10 @@ github.com/rogpeppe/go-internal/lockedfile/internal/filelock
 # github.com/sagikazarmark/locafero v0.11.0
 ## explicit; go 1.23.0
 github.com/sagikazarmark/locafero
+# github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+## explicit; go 1.21
+github.com/santhosh-tekuri/jsonschema/v6
+github.com/santhosh-tekuri/jsonschema/v6/kind
 # github.com/sashabaranov/go-openai v1.41.2
 ## explicit; go 1.18
 github.com/sashabaranov/go-openai
@@ -1367,7 +1371,7 @@ github.com/urfave/cli/v3
 ## explicit; go 1.24
 github.com/valyala/fastjson
 github.com/valyala/fastjson/fastfloat
-# github.com/vektah/gqlparser/v2 v2.5.32
+# github.com/vektah/gqlparser/v2 v2.5.33
 ## explicit; go 1.22
 github.com/vektah/gqlparser/v2
 github.com/vektah/gqlparser/v2/ast
@@ -1658,12 +1662,19 @@ golang.org/x/text/encoding
 golang.org/x/text/encoding/internal
 golang.org/x/text/encoding/internal/identifier
 golang.org/x/text/encoding/unicode
+golang.org/x/text/feature/plural
 golang.org/x/text/internal
+golang.org/x/text/internal/catmsg
+golang.org/x/text/internal/format
 golang.org/x/text/internal/language
 golang.org/x/text/internal/language/compact
+golang.org/x/text/internal/number
+golang.org/x/text/internal/stringset
 golang.org/x/text/internal/tag
 golang.org/x/text/internal/utf8internal
 golang.org/x/text/language
+golang.org/x/text/message
+golang.org/x/text/message/catalog
 golang.org/x/text/runes
 golang.org/x/text/secure/bidirule
 golang.org/x/text/secure/precis
@@ -1925,7 +1936,7 @@ modernc.org/mathutil
 # modernc.org/memory v1.11.0
 ## explicit; go 1.23.0
 modernc.org/memory
-# modernc.org/sqlite v1.49.1
+# modernc.org/sqlite v1.50.0
 ## explicit; go 1.25.0
 modernc.org/sqlite
 modernc.org/sqlite/lib

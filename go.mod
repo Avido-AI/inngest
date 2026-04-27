@@ -8,7 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	connectrpc.com/connect v1.19.2
 	cuelang.org/go v0.16.1
-	github.com/99designs/gqlgen v0.17.89
+	github.com/99designs/gqlgen v0.17.90
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.1
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/MauriceGit/skiplist v0.0.0-20211105230623-77f5c8d3e145
@@ -29,7 +29,7 @@ require (
 	github.com/elliotchance/orderedmap/v3 v3.1.0
 	github.com/fatih/structs v1.1.0
 	github.com/felixge/httpsnoop v1.0.4
-	github.com/getkin/kin-openapi v0.135.0
+	github.com/getkin/kin-openapi v0.136.0
 	github.com/getsentry/sentry-go v0.45.1
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
@@ -58,7 +58,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/liushuangls/go-anthropic/v2 v2.18.0
 	github.com/lmittmann/tint v1.1.3
-	github.com/mattn/go-isatty v0.0.21
+	github.com/mattn/go-isatty v0.0.22
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/moby/moby/api v1.54.2
 	github.com/modelcontextprotocol/go-sdk v1.5.0
@@ -80,7 +80,7 @@ require (
 	github.com/twmb/franz-go v1.21.0
 	github.com/urfave/cli/v3 v3.8.0
 	github.com/valyala/fastjson v1.6.10
-	github.com/vektah/gqlparser/v2 v2.5.32
+	github.com/vektah/gqlparser/v2 v2.5.33
 	github.com/xhit/go-str2duration/v2 v2.1.0
 	go.opentelemetry.io/collector/pdata v1.56.0
 	go.opentelemetry.io/otel v1.43.0
@@ -110,7 +110,7 @@ require (
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
 	lukechampine.com/frand v1.5.1
-	modernc.org/sqlite v1.49.1
+	modernc.org/sqlite v1.50.0
 )
 
 require (
@@ -236,7 +236,7 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/oasdiff/yaml v0.0.9 // indirect
-	github.com/oasdiff/yaml3 v0.0.9 // indirect
+	github.com/oasdiff/yaml3 v0.0.12 // indirect
 	github.com/ohler55/ojg v1.24.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
@@ -258,6 +258,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.3 // indirect
