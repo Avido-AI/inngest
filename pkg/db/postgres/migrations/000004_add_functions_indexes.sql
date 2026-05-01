@@ -17,7 +17,7 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- +goose Down
-ALTER TABLE functions DROP CONSTRAINT functions_pkey;
+ALTER TABLE functions DROP CONSTRAINT IF EXISTS functions_pkey;
 ALTER TABLE functions ALTER COLUMN id DROP NOT NULL;
 DROP INDEX CONCURRENTLY IF EXISTS idx_functions_app_id;
 DROP INDEX CONCURRENTLY IF EXISTS idx_functions_active;
