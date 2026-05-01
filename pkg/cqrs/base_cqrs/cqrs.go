@@ -347,13 +347,7 @@ fragmentLoop:
 			}
 		}
 
-		if attrs, ok := fragment["attributes"].(string); ok {
-			fragmentAttr := map[string]any{}
-			if err := json.Unmarshal([]byte(attrs), &fragmentAttr); err != nil {
-				logger.StdlibLogger(ctx).Error("error unmarshalling span attributes", "error", err)
-				return nil, err
-			}
-
+		if fragmentAttr, ok := extractFragmentAttrs(fragment); ok {
 			maps.Copy(newSpan.RawOtelSpan.Attributes, fragmentAttr)
 
 			if outputRef, ok := fragment["output_span_id"].(string); ok && info != nil {
@@ -571,6 +565,25 @@ func mapRootSpansFromRows[T normalizedSpan](ctx context.Context, spans []T) (*cq
 	return root, nil
 }
 
+// extractFragmentAttrs extracts the "attributes" field from a span fragment
+// as map[string]any. In SQLite the column is TEXT so the value arrives as a
+// JSON string; in PostgreSQL it is jsonb so json_build_object embeds it as an
+// already-decoded object.
+func extractFragmentAttrs(fragment map[string]any) (map[string]any, bool) {
+	switch v := fragment["attributes"].(type) {
+	case string:
+		m := map[string]any{}
+		if err := json.Unmarshal([]byte(v), &m); err != nil {
+			return nil, false
+		}
+		return m, true
+	case map[string]any:
+		return v, true
+	default:
+		return nil, false
+	}
+}
+
 func rollupSpanMetadataFromFragments(ctx context.Context, fragments []map[string]any, updatedAt time.Time) (*cqrs.SpanMetadata, error) {
 	ret := &cqrs.SpanMetadata{
 		Values:    metadata.Values{},
@@ -578,9 +591,15 @@ func rollupSpanMetadataFromFragments(ctx context.Context, fragments []map[string
 	}
 
 	for _, fragment := range fragments {
-		attrs, ok := fragment["attributes"].(string)
+		attrsMap, ok := extractFragmentAttrs(fragment)
 		if !ok {
 			logger.StdlibLogger(ctx).Error("error unmarshalling metadata span kind, no attributes")
+			continue
+		}
+
+		attrsBytes, err := json.Marshal(attrsMap)
+		if err != nil {
+			logger.StdlibLogger(ctx).Error("error marshalling metadata span attributes", "error", err)
 			continue
 		}
 
@@ -590,7 +609,7 @@ func rollupSpanMetadataFromFragments(ctx context.Context, fragments []map[string
 			Op     *metadata.Opcode `json:"_inngest.metadata.op"`
 			Values *string          `json:"_inngest.metadata.values"`
 		}
-		if err := json.Unmarshal([]byte(attrs), &fragmentAttr); err != nil {
+		if err := json.Unmarshal(attrsBytes, &fragmentAttr); err != nil {
 			logger.StdlibLogger(ctx).Error("error unmarshalling metadata span attributes", "error", err)
 			return nil, err
 		}
@@ -631,8 +650,7 @@ func rollupSpanMetadataFromFragments(ctx context.Context, fragments []map[string
 		}
 
 		var fragmentMetadata metadata.Values
-		err := json.Unmarshal([]byte(*fragmentAttr.Values), &fragmentMetadata)
-		if err != nil {
+		if err = json.Unmarshal([]byte(*fragmentAttr.Values), &fragmentMetadata); err != nil {
 			logger.StdlibLogger(ctx).Error("error unmarshalling span metadata", "error", err)
 			return nil, err
 		}
