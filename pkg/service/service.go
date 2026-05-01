@@ -234,16 +234,19 @@ func isStopTimeoutOnly(err error) bool {
 	if err == nil {
 		return false
 	}
-	// errors.Join produces an interface{ Unwrap() []error }.
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		for _, e := range joined.Unwrap() {
-			if !isStopTimeoutOnly(e) {
-				return false
-			}
+	stack := []error{err}
+	for len(stack) > 0 {
+		cur := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if joined, ok := cur.(interface{ Unwrap() []error }); ok {
+			stack = append(stack, joined.Unwrap()...)
+			continue
 		}
-		return true
+		if !errors.Is(cur, ErrStopTimeout) {
+			return false
+		}
 	}
-	return errors.Is(err, ErrStopTimeout)
+	return true
 }
 
 // IsStopTimeoutOnly is the exported form of isStopTimeoutOnly.
