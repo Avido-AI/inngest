@@ -317,6 +317,13 @@ ALTER TABLE ONLY public.event_batches
     ADD CONSTRAINT event_batches_pkey PRIMARY KEY (id);
 
 --
+-- Name: functions functions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.functions
+    ADD CONSTRAINT functions_pkey PRIMARY KEY (id);
+
+--
 -- Name: goose_db_version goose_db_version_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -350,13 +357,6 @@ ALTER TABLE ONLY public.spans
 
 ALTER TABLE ONLY public.trace_runs
     ADD CONSTRAINT trace_runs_pkey PRIMARY KEY (run_id);
-
---
--- Name: functions functions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.functions
-    ADD CONSTRAINT functions_pkey PRIMARY KEY (id);
 
 --
 -- Name: worker_connections worker_connections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
