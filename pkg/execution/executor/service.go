@@ -444,97 +444,93 @@ func (s *svc) handleDebounce(ctx context.Context, item queue.Item) error {
 		return fmt.Errorf("error unmarshalling debounce payload: %w", err)
 	}
 
-	all, err := s.data.Functions(ctx)
+	fn, err := s.findFunctionByID(ctx, d.FunctionID)
 	if err != nil {
 		return err
 	}
 
-	for _, f := range all {
-		if f.ID == d.FunctionID {
-			di, err := s.debouncer.GetDebounceItem(ctx, d.DebounceID, d.AccountID)
-			if err != nil {
-				if errors.Is(err, debounce.ErrDebounceNotFound) {
-					// This is expected after migrating items to a new primary cluster
-					s.log.Info("debounce not found during timeout job, skipping",
-						"fn_id", d.FunctionID.String(),
-						"debounce_id", d.DebounceID.String(),
-					)
-					continue
-				}
-
-				return err
-			}
-
-			if err := s.debouncer.StartExecution(ctx, *di, f, d.DebounceID); err != nil {
-				if errors.Is(err, debounce.ErrDebounceMigrating) {
-					// This should rarely happen, but it's possible for another Debounce() that will migrate an existing debounce to come in
-					// at the same time as we're starting the timeout. GetDebounceItem() does not perform an atomic swap, so
-					// the debounce may already be gone as soon as we reach StartExecution().
-					s.log.Warn("debounce raced by a migration, skipping",
-						"fn_id", d.FunctionID.String(),
-						"debounce_id", d.DebounceID.String(),
-					)
-					continue
-				}
-				return err
-			}
-
-			ctx, span := run.NewSpan(ctx,
-				run.WithScope(consts.OtelScopeDebounce),
-				run.WithName(consts.OtelSpanDebounce),
-				run.WithSpanAttributes(
-					attribute.String(consts.OtelSysAccountID, item.Identifier.AccountID.String()),
-					attribute.String(consts.OtelSysWorkspaceID, item.Identifier.WorkspaceID.String()),
-					attribute.String(consts.OtelSysAppID, item.Identifier.AppID.String()),
-					attribute.String(consts.OtelSysFunctionID, item.Identifier.WorkflowID.String()),
-					attribute.Bool(consts.OtelSysDebounceTimeout, true),
-				),
+	di, err := s.debouncer.GetDebounceItem(ctx, d.DebounceID, d.AccountID)
+	if err != nil {
+		if errors.Is(err, debounce.ErrDebounceNotFound) {
+			// This is expected after migrating items to a new primary cluster
+			s.log.Info("debounce not found during timeout job, skipping",
+				"fn_id", d.FunctionID.String(),
+				"debounce_id", d.DebounceID.String(),
 			)
-			defer span.End()
+			return nil
+		}
 
-			_, md, err := s.exec.Schedule(ctx, execution.ScheduleRequest{
-				Function:         f,
-				AccountID:        di.AccountID,
-				WorkspaceID:      di.WorkspaceID,
-				AppID:            di.AppID,
-				Events:           []event.TrackedEvent{di},
-				PreventDebounce:  true,
-				PreventRateLimit: true, // Rate limit was already enforced for this
-				FunctionPausedAt: di.FunctionPausedAt,
-			})
+		return err
+	}
 
-			metrics.IncrExecutorScheduleCount(ctx, metrics.CounterOpt{
-				PkgName: pkgName,
-				Tags: map[string]any{
-					"type":   "debounce",
-					"status": ScheduleStatus(err),
-				},
-			})
+	if err := s.debouncer.StartExecution(ctx, *di, *fn, d.DebounceID); err != nil {
+		if errors.Is(err, debounce.ErrDebounceMigrating) {
+			// This should rarely happen, but it's possible for another Debounce() that will migrate an existing debounce to come in
+			// at the same time as we're starting the timeout. GetDebounceItem() does not perform an atomic swap, so
+			// the debounce may already be gone as soon as we reach StartExecution().
+			s.log.Warn("debounce raced by a migration, skipping",
+				"fn_id", d.FunctionID.String(),
+				"debounce_id", d.DebounceID.String(),
+			)
+			return nil
+		}
+		return err
+	}
 
-			if err != nil {
-				span.SetAttributes(attribute.Bool(consts.OtelSysStepDelete, true))
+	ctx, span := run.NewSpan(ctx,
+		run.WithScope(consts.OtelScopeDebounce),
+		run.WithName(consts.OtelSpanDebounce),
+		run.WithSpanAttributes(
+			attribute.String(consts.OtelSysAccountID, item.Identifier.AccountID.String()),
+			attribute.String(consts.OtelSysWorkspaceID, item.Identifier.WorkspaceID.String()),
+			attribute.String(consts.OtelSysAppID, item.Identifier.AppID.String()),
+			attribute.String(consts.OtelSysFunctionID, item.Identifier.WorkflowID.String()),
+			attribute.Bool(consts.OtelSysDebounceTimeout, true),
+		),
+	)
+	defer span.End()
 
-				// If no run was scheduled, clean up debounce item
-				if errors.Is(err, state.ErrIdentifierExists) ||
-					errors.Is(err, ErrFunctionSkipped) ||
-					errors.Is(err, ErrFunctionSkippedIdempotency) {
-					if err := s.debouncer.DeleteDebounceItem(ctx, d.DebounceID, *di, d.AccountID); err != nil {
-						logger.StdlibLogger(ctx).ReportError(err, "error deleting debounce item")
-					}
+	_, md, err := s.exec.Schedule(ctx, execution.ScheduleRequest{
+		Function:         *fn,
+		AccountID:        di.AccountID,
+		WorkspaceID:      di.WorkspaceID,
+		AppID:            di.AppID,
+		Events:           []event.TrackedEvent{di},
+		PreventDebounce:  true,
+		PreventRateLimit: true, // Rate limit was already enforced for this
+		FunctionPausedAt: di.FunctionPausedAt,
+	})
 
-					continue
-				}
-				return err
-			}
+	metrics.IncrExecutorScheduleCount(ctx, metrics.CounterOpt{
+		PkgName: pkgName,
+		Tags: map[string]any{
+			"type":   "debounce",
+			"status": ScheduleStatus(err),
+		},
+	})
 
-			if md != nil {
-				span.SetAttributes(attribute.String(consts.OtelAttrSDKRunID, md.ID.RunID.String()))
-			}
+	if err != nil {
+		span.SetAttributes(attribute.Bool(consts.OtelSysStepDelete, true))
 
+		// If no run was scheduled, clean up debounce item
+		if errors.Is(err, state.ErrIdentifierExists) ||
+			errors.Is(err, ErrFunctionSkipped) ||
+			errors.Is(err, ErrFunctionSkippedIdempotency) {
 			if err := s.debouncer.DeleteDebounceItem(ctx, d.DebounceID, *di, d.AccountID); err != nil {
 				logger.StdlibLogger(ctx).ReportError(err, "error deleting debounce item")
 			}
+
+			return nil
 		}
+		return err
+	}
+
+	if md != nil {
+		span.SetAttributes(attribute.String(consts.OtelAttrSDKRunID, md.ID.RunID.String()))
+	}
+
+	if err := s.debouncer.DeleteDebounceItem(ctx, d.DebounceID, *di, d.AccountID); err != nil {
+		logger.StdlibLogger(ctx).ReportError(err, "error deleting debounce item")
 	}
 
 	return nil
@@ -1158,16 +1154,11 @@ func (s *svc) handleCron(ctx context.Context, item queue.Item) error {
 }
 
 func (s *svc) findFunctionByID(ctx context.Context, fnID uuid.UUID) (*inngest.Function, error) {
-	fns, err := s.data.Functions(ctx)
+	fn, err := s.data.GetFunctionByInternalUUID(ctx, fnID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error finding function by ID %s: %w", fnID, err)
 	}
-	for _, f := range fns {
-		if f.ID == fnID {
-			return &f, nil
-		}
-	}
-	return nil, fmt.Errorf("no function found with ID: %s", fnID)
+	return fn.InngestFunction()
 }
 
 func (s *svc) handleJobPromote(ctx context.Context, item queue.Item) error {
