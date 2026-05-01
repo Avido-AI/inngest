@@ -11,10 +11,12 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_functions_slug ON functions(slug) WH
 
 -- Promote the unique index to a PK (instant; index already exists).
 -- Wrapped in a DO block so a retry after partial failure is safe.
+-- +goose StatementBegin
 DO $$ BEGIN
   ALTER TABLE functions ADD CONSTRAINT functions_pkey PRIMARY KEY USING INDEX functions_pkey;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+-- +goose StatementEnd
 
 -- +goose Down
 ALTER TABLE functions DROP CONSTRAINT IF EXISTS functions_pkey;
