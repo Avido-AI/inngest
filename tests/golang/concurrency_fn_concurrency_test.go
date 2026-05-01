@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inngest/inngest/pkg/enums"
 	"github.com/inngest/inngest/tests/client"
 
 	"github.com/inngest/inngestgo"
@@ -37,11 +38,10 @@ func TestFnConcurrency(t *testing.T) {
 		inngestClient,
 		inngestgo.FunctionOpts{
 			ID: "fn-concurrency-test",
-			Concurrency: &inngestgo.ConfigConcurrency{
-				Fn: []inngestgo.ConfigFnConcurrency{
-					{
-						Limit: 1,
-					},
+			Concurrency: []inngestgo.ConfigStepConcurrency{
+				{
+					Limit: 1,
+					Scope: enums.ConcurrencyScopeFn,
 				},
 			},
 			Retries: inngestgo.IntPtr(0),
@@ -131,12 +131,11 @@ func TestFnConcurrency_Key(t *testing.T) {
 		inngestClient,
 		inngestgo.FunctionOpts{
 			ID: "fn-concurrency-key-test",
-			Concurrency: &inngestgo.ConfigConcurrency{
-				Fn: []inngestgo.ConfigFnConcurrency{
-					{
-						Limit: 1,
-						Key:   inngestgo.StrPtr("event.data.customer_id"),
-					},
+			Concurrency: []inngestgo.ConfigStepConcurrency{
+				{
+					Limit: 1,
+					Scope: enums.ConcurrencyScopeFn,
+					Key:   inngestgo.StrPtr("event.data.customer_id"),
 				},
 			},
 			Retries: inngestgo.IntPtr(0),
