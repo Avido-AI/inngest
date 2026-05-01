@@ -347,7 +347,7 @@ fragmentLoop:
 			}
 		}
 
-		if fragmentAttr, ok := extractFragmentAttrs(fragment); ok {
+		if fragmentAttr, err := extractFragmentAttrs(fragment); err == nil {
 			maps.Copy(newSpan.RawOtelSpan.Attributes, fragmentAttr)
 
 			if outputRef, ok := fragment["output_span_id"].(string); ok && info != nil {
@@ -565,25 +565,6 @@ func mapRootSpansFromRows[T normalizedSpan](ctx context.Context, spans []T) (*cq
 	return root, nil
 }
 
-// extractFragmentAttrs extracts the "attributes" field from a span fragment
-// as map[string]any. In SQLite the column is TEXT so the value arrives as a
-// JSON string; in PostgreSQL it is jsonb so json_build_object embeds it as an
-// already-decoded object.
-func extractFragmentAttrs(fragment map[string]any) (map[string]any, bool) {
-	switch v := fragment["attributes"].(type) {
-	case string:
-		m := map[string]any{}
-		if err := json.Unmarshal([]byte(v), &m); err != nil {
-			return nil, false
-		}
-		return m, true
-	case map[string]any:
-		return v, true
-	default:
-		return nil, false
-	}
-}
-
 func rollupSpanMetadataFromFragments(ctx context.Context, fragments []map[string]any, updatedAt time.Time) (*cqrs.SpanMetadata, error) {
 	ret := &cqrs.SpanMetadata{
 		Values:    metadata.Values{},
@@ -591,9 +572,9 @@ func rollupSpanMetadataFromFragments(ctx context.Context, fragments []map[string
 	}
 
 	for _, fragment := range fragments {
-		attrsMap, ok := extractFragmentAttrs(fragment)
-		if !ok {
-			logger.StdlibLogger(ctx).Error("error unmarshalling metadata span kind, no attributes")
+		attrsMap, attrsErr := extractFragmentAttrs(fragment)
+		if attrsErr != nil {
+			logger.StdlibLogger(ctx).Error("error extracting metadata span attributes", "error", attrsErr)
 			continue
 		}
 
