@@ -86,7 +86,7 @@ func TestConcurrency_ScopeFunction(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&total) == 3
+		return atomic.LoadInt32(&total) == int32(numEvents)
 	}, 3*queue.PartitionConcurrencyLimitRequeueExtension, time.Millisecond*100)
 }
 
