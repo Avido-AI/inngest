@@ -263,7 +263,7 @@ func IsStopTimeoutOnly(err error) bool { return isStopTimeoutOnly(err) }
 func stop(ctx context.Context, s Service) error {
 	l := logger.StdlibLogger(ctx).With("service", s.Name())
 	timeout := stopTimeout(s)
-	stopCh := make(chan error)
+	stopCh := make(chan error, 1)
 
 	// Create a context with the stop timeout so that the service's Stop()
 	// implementation can observe the deadline and abort in-flight work
