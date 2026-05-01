@@ -223,10 +223,11 @@ func stop(ctx context.Context, s Service) error {
 	timeout := stopTimeout(s)
 	stopCh := make(chan error, 1)
 
-	// Create a context with the stop timeout so that the service's Stop()
-	// implementation can observe the deadline and abort in-flight work
-	// (e.g. waiting for queue items) instead of blocking indefinitely.
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), timeout)
+	// Give the service's Stop() 80% of the budget so the remaining 20%
+	// is available for the global waitgroup drain (service.Go goroutines
+	// like capacity lease releases).  The outer time.After(timeout) acts
+	// as the hard safety-net for the entire stop sequence.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), timeout*4/5)
 	defer stopCancel()
 
 	go func() {

@@ -5,11 +5,12 @@ import (
 	"time"
 )
 
-// StopTimeout returns the maximum time the executor should wait for
-// in-flight queue items to finish during graceful shutdown.  The Helm
-// chart sets terminationGracePeriodSeconds=120 with a 15s preStop
-// hook, leaving ~105s.  We use 90s to leave headroom for the global
-// waitgroup drain and other cleanup.
+// StopTimeout returns the overall stop budget for the executor.
+// The Helm chart sets terminationGracePeriodSeconds=120 with a 15s
+// preStop hook, leaving ~105s.  We use 90s as the total budget;
+// the service framework gives Stop() 80% of this (72s) for
+// in-flight queue items and reserves the rest for the global
+// waitgroup drain.
 func (s *svc) StopTimeout() time.Duration { return 90 * time.Second }
 
 func (s *svc) Stop(ctx context.Context) error {
