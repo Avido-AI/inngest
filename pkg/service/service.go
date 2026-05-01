@@ -262,7 +262,15 @@ func IsStopTimeoutOnly(err error) bool { return isStopTimeoutOnly(err) }
 
 func stop(ctx context.Context, s Service) error {
 	l := logger.StdlibLogger(ctx).With("service", s.Name())
+	timeout := stopTimeout(s)
 	stopCh := make(chan error)
+
+	// Create a context with the stop timeout so that the service's Stop()
+	// implementation can observe the deadline and abort in-flight work
+	// (e.g. waiting for queue items) instead of blocking indefinitely.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), timeout)
+	defer stopCancel()
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -271,8 +279,7 @@ func stop(ctx context.Context, s Service) error {
 		}()
 
 		l.Info("service cleaning up")
-		// Create a new context that's not cancelled.
-		if err := s.Stop(context.Background()); err != nil && err != context.Canceled {
+		if err := s.Stop(stopCtx); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
 			stopCh <- err
 			return
 		}
@@ -284,7 +291,8 @@ func stop(ctx context.Context, s Service) error {
 	}()
 
 	select {
-	case <-time.After(stopTimeout(s)):
+	case <-time.After(timeout):
+		stopCancel()
 		return ErrStopTimeout
 	case stopErr := <-stopCh:
 		if stopErr != nil {

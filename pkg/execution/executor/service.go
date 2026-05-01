@@ -315,9 +315,20 @@ func (s *svc) Run(ctx context.Context) error {
 func (s *svc) Stop(ctx context.Context) error {
 	s.exec.CloseLifecycleListeners(ctx)
 
-	// Wait for all in-flight queue runs to finish
-	s.wg.Wait()
-	return nil
+	// Wait for all in-flight queue runs to finish, but respect the
+	// context deadline so that the service framework's stop timeout
+	// is honoured instead of blocking indefinitely.
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *svc) handleQueueItem(ctx context.Context, item queue.Item) (bool, error) {
