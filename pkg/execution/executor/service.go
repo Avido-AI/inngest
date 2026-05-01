@@ -422,6 +422,9 @@ func (s *svc) handleScheduledBatch(ctx context.Context, item queue.Item) error {
 	if err != nil {
 		return err
 	}
+	if fn == nil {
+		return nil
+	}
 
 	if err := s.exec.RetrieveAndScheduleBatch(ctx, *fn, batch.ScheduleBatchPayload{
 		BatchID:         batchID,
@@ -447,6 +450,9 @@ func (s *svc) handleDebounce(ctx context.Context, item queue.Item) error {
 	fn, err := s.findFunctionByID(ctx, d.FunctionID)
 	if err != nil {
 		return err
+	}
+	if fn == nil {
+		return nil
 	}
 
 	di, err := s.debouncer.GetDebounceItem(ctx, d.DebounceID, d.AccountID)
@@ -582,6 +588,9 @@ func (s *svc) handleEagerCancelFinishTimeout(ctx context.Context, c cqrs.Cancell
 		l.Error("error finding most recent function state", "error", err.Error())
 		return err
 	}
+	if fn == nil {
+		return nil
+	}
 
 	if fn.Timeouts == nil || fn.Timeouts.Finish == nil {
 		// timeout was removed. do nothing
@@ -665,6 +674,9 @@ func (s *svc) handleEagerCancelStartTimeout(ctx context.Context, c cqrs.Cancella
 	if err != nil {
 		l.Error("error finding most recent function state", "error", err.Error())
 		return err
+	}
+	if fn == nil {
+		return nil
 	}
 
 	if fn.Timeouts == nil || fn.Timeouts.Start == nil {
@@ -1156,6 +1168,9 @@ func (s *svc) handleCron(ctx context.Context, item queue.Item) error {
 func (s *svc) findFunctionByID(ctx context.Context, fnID uuid.UUID) (*inngest.Function, error) {
 	fn, err := s.data.GetFunctionByInternalUUID(ctx, fnID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("error finding function by ID %s: %w", fnID, err)
 	}
 	return fn.InngestFunction()

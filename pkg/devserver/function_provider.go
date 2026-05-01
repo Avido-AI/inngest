@@ -28,19 +28,9 @@ func NewFunctionProvider(reader functionLookupReader) apiv2.FunctionProvider {
 }
 
 func (p *cqrsFunctionProvider) GetFunction(ctx context.Context, identifier string) (inngest.DeployedFunction, error) {
-	var fn *cqrs.Function
-
-	if id, err := uuid.Parse(identifier); err == nil {
-		fn, err = p.reader.GetFunctionByInternalUUID(ctx, id)
-		if err != nil {
-			return inngest.DeployedFunction{}, fmt.Errorf("function not found by ID: %w", err)
-		}
-	} else {
-		var err error
-		fn, err = p.reader.GetFunctionByExternalID(ctx, uuid.UUID{}, "", identifier)
-		if err != nil {
-			return inngest.DeployedFunction{}, fmt.Errorf("function not found by slug: %w", err)
-		}
+	fn, err := p.lookupFunction(ctx, identifier)
+	if err != nil {
+		return inngest.DeployedFunction{}, err
 	}
 
 	inngestFn, err := fn.InngestFunction()
@@ -55,4 +45,21 @@ func (p *cqrsFunctionProvider) GetFunction(ctx context.Context, identifier strin
 		EnvironmentID: consts.DevServerEnvID,
 		Function:      *inngestFn,
 	}, nil
+}
+
+func (p *cqrsFunctionProvider) lookupFunction(ctx context.Context, identifier string) (*cqrs.Function, error) {
+	id, err := uuid.Parse(identifier)
+	if err == nil {
+		fn, err := p.reader.GetFunctionByInternalUUID(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("function not found by ID: %w", err)
+		}
+		return fn, nil
+	}
+
+	fn, err := p.reader.GetFunctionByExternalID(ctx, uuid.UUID{}, "", identifier)
+	if err != nil {
+		return nil, fmt.Errorf("function not found by slug: %w", err)
+	}
+	return fn, nil
 }
