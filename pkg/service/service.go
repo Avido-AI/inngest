@@ -238,11 +238,19 @@ func isStopTimeoutOnly(err error) bool {
 	for len(stack) > 0 {
 		cur := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
+		// errors.Join produces interface{ Unwrap() []error }.
 		if joined, ok := cur.(interface{ Unwrap() []error }); ok {
 			stack = append(stack, joined.Unwrap()...)
 			continue
 		}
-		if !errors.Is(cur, ErrStopTimeout) {
+		// fmt.Errorf("%w", ...) produces interface{ Unwrap() error }.
+		if wrapper, ok := cur.(interface{ Unwrap() error }); ok {
+			stack = append(stack, wrapper.Unwrap())
+			continue
+		}
+		// Leaf error: use direct equality, not errors.Is, to avoid
+		// traversing into wrapped chains that may contain mixed errors.
+		if cur != ErrStopTimeout {
 			return false
 		}
 	}
