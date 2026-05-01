@@ -19,6 +19,7 @@ END $$;
 -- +goose Down
 ALTER TABLE functions DROP CONSTRAINT IF EXISTS functions_pkey;
 ALTER TABLE functions ALTER COLUMN id DROP NOT NULL;
+DROP INDEX CONCURRENTLY IF EXISTS functions_pkey;
 DROP INDEX CONCURRENTLY IF EXISTS idx_functions_app_id;
 DROP INDEX CONCURRENTLY IF EXISTS idx_functions_active;
 DROP INDEX CONCURRENTLY IF EXISTS idx_functions_slug;
