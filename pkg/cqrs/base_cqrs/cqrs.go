@@ -347,7 +347,7 @@ fragmentLoop:
 			}
 		}
 
-		if fragmentAttr, err := extractFragmentAttrs(fragment); err == nil {
+		if fragmentAttr, attrErr := extractFragmentAttrs(fragment); attrErr == nil {
 			maps.Copy(newSpan.RawOtelSpan.Attributes, fragmentAttr)
 
 			if outputRef, ok := fragment["output_span_id"].(string); ok && info != nil {
@@ -367,6 +367,8 @@ fragmentLoop:
 					info.dynamicRefs[dynamicSpanID.String] = &IODynamicRef{InputRef: inputRef}
 				}
 			}
+		} else if fragment["attributes"] != nil {
+			logger.StdlibLogger(ctx).Error("error extracting span attributes", "error", attrErr)
 		}
 	}
 
@@ -578,6 +580,9 @@ func rollupSpanMetadataFromFragments(ctx context.Context, fragments []map[string
 			continue
 		}
 
+		// Roundtrip through JSON is intentional: Scope and Opcode are enumer-
+		// generated int types with custom JSON unmarshalers that convert string
+		// representations (e.g. "step") to typed values.
 		attrsBytes, err := json.Marshal(attrsMap)
 		if err != nil {
 			logger.StdlibLogger(ctx).Error("error marshalling metadata span attributes", "error", err)
