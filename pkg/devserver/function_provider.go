@@ -32,6 +32,9 @@ func (p *cqrsFunctionProvider) GetFunction(ctx context.Context, identifier strin
 	if err != nil {
 		return inngest.DeployedFunction{}, err
 	}
+	if fn == nil {
+		return inngest.DeployedFunction{}, fmt.Errorf("function not found: %s", identifier)
+	}
 
 	inngestFn, err := fn.InngestFunction()
 	if err != nil {
