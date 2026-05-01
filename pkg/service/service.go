@@ -104,11 +104,7 @@ func StartAll(ctx context.Context, all ...Service) (err error) {
 				isTrigger = true
 				// First service to exit — this is the cascade trigger.
 				if err != nil && err != context.Canceled {
-					if isStopTimeoutOnly(err) {
-						l.Warn("service exited with stop timeout, canceling all services", "service", svc.Name(), "error", err)
-					} else {
-						l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
-					}
+					l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
 				} else {
 					l.Info("service exited, canceling all services", "service", svc.Name())
 				}
@@ -155,11 +151,7 @@ func Start(ctx context.Context, s Service) (err error) {
 		err = errors.Join(err, runErr)
 	}
 	if stopErr := stop(ctx, s); stopErr != nil {
-		if errors.Is(stopErr, ErrStopTimeout) {
-			l.Warn("service cleanup timed out", "error", stopErr)
-		} else {
-			l.Error("service cleanup errored", "error", stopErr)
-		}
+		l.Error("service cleanup errored", "error", stopErr)
 		err = errors.Join(err, stopErr)
 	}
 	l.Info("service run finished", "err", err)
@@ -225,40 +217,6 @@ func run(ctx context.Context, stop func(), s Service) error {
 	}
 	return nil
 }
-
-// isStopTimeoutOnly returns true when every error in the (possibly joined)
-// chain is ErrStopTimeout.  This lets callers downgrade log severity for
-// the common case where a service simply exceeded its cleanup deadline
-// during a rolling restart.
-func isStopTimeoutOnly(err error) bool {
-	if err == nil {
-		return false
-	}
-	stack := []error{err}
-	for len(stack) > 0 {
-		cur := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		// errors.Join produces interface{ Unwrap() []error }.
-		if joined, ok := cur.(interface{ Unwrap() []error }); ok {
-			stack = append(stack, joined.Unwrap()...)
-			continue
-		}
-		// fmt.Errorf("%w", ...) produces interface{ Unwrap() error }.
-		if wrapper, ok := cur.(interface{ Unwrap() error }); ok {
-			stack = append(stack, wrapper.Unwrap())
-			continue
-		}
-		// Leaf error: use direct equality, not errors.Is, to avoid
-		// traversing into wrapped chains that may contain mixed errors.
-		if cur != ErrStopTimeout {
-			return false
-		}
-	}
-	return true
-}
-
-// IsStopTimeoutOnly is the exported form of isStopTimeoutOnly.
-func IsStopTimeoutOnly(err error) bool { return isStopTimeoutOnly(err) }
 
 func stop(ctx context.Context, s Service) error {
 	l := logger.StdlibLogger(ctx).With("service", s.Name())

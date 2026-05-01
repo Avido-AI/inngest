@@ -809,11 +809,7 @@ func start(ctx context.Context, opts StartOpts) error {
 	}
 
 	if err := service.StartAll(ctx, services...); err != nil {
-		if service.IsStopTimeoutOnly(err) {
-			l.Warn("all services stopped", "error", err)
-		} else {
-			l.Error("all services stopped", "error", err)
-		}
+		l.Error("all services stopped", "error", err)
 		return err
 	}
 	return nil
