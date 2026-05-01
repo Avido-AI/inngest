@@ -18,7 +18,8 @@ import (
 var (
 	defaultTimeout = 30 * time.Second
 
-	ErrPreTimeout = fmt.Errorf("service.Pre did not end within the given timeout")
+	ErrPreTimeout  = fmt.Errorf("service.Pre did not end within the given timeout")
+	ErrStopTimeout = errors.New("service did not clean up within timeout")
 )
 
 var wg conc.WaitGroup
@@ -103,7 +104,11 @@ func StartAll(ctx context.Context, all ...Service) (err error) {
 				isTrigger = true
 				// First service to exit — this is the cascade trigger.
 				if err != nil && err != context.Canceled {
-					l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
+					if isStopTimeoutOnly(err) {
+						l.Warn("service exited with stop timeout, canceling all services", "service", svc.Name(), "error", err)
+					} else {
+						l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
+					}
 				} else {
 					l.Info("service exited, canceling all services", "service", svc.Name())
 				}
@@ -150,7 +155,11 @@ func Start(ctx context.Context, s Service) (err error) {
 		err = errors.Join(err, runErr)
 	}
 	if stopErr := stop(ctx, s); stopErr != nil {
-		l.Error("service cleanup errored", "error", stopErr)
+		if errors.Is(stopErr, ErrStopTimeout) {
+			l.Warn("service cleanup timed out", "error", stopErr)
+		} else {
+			l.Error("service cleanup errored", "error", stopErr)
+		}
 		err = errors.Join(err, stopErr)
 	}
 	l.Info("service run finished", "err", err)
@@ -217,6 +226,29 @@ func run(ctx context.Context, stop func(), s Service) error {
 	return nil
 }
 
+// isStopTimeoutOnly returns true when every error in the (possibly joined)
+// chain is ErrStopTimeout.  This lets callers downgrade log severity for
+// the common case where a service simply exceeded its cleanup deadline
+// during a rolling restart.
+func isStopTimeoutOnly(err error) bool {
+	if err == nil {
+		return false
+	}
+	// errors.Join produces an interface{ Unwrap() []error }.
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range joined.Unwrap() {
+			if !isStopTimeoutOnly(e) {
+				return false
+			}
+		}
+		return true
+	}
+	return errors.Is(err, ErrStopTimeout)
+}
+
+// IsStopTimeoutOnly is the exported form of isStopTimeoutOnly.
+func IsStopTimeoutOnly(err error) bool { return isStopTimeoutOnly(err) }
+
 func stop(ctx context.Context, s Service) error {
 	l := logger.StdlibLogger(ctx).With("service", s.Name())
 	stopCh := make(chan error)
@@ -242,7 +274,7 @@ func stop(ctx context.Context, s Service) error {
 
 	select {
 	case <-time.After(stopTimeout(s)):
-		return fmt.Errorf("service did not clean up within timeout")
+		return ErrStopTimeout
 	case stopErr := <-stopCh:
 		if stopErr != nil {
 			return stopErr
