@@ -240,7 +240,7 @@ func (w wrapper) bulkInsert(
 		if err != nil {
 			return fmt.Errorf("error building bulk %s insert: %w", table, err)
 		}
-		if _, err := w.adapter.Conn().ExecContext(ctx, sqlStr, args...); err != nil {
+		if _, err := w.adapter.ExecContext(ctx, sqlStr, args...); err != nil {
 			return err
 		}
 	}

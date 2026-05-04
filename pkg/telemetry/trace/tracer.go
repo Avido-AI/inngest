@@ -287,7 +287,11 @@ func TracerSetup(svc string, ttype TracerType) (func(), error) {
 	)
 
 	return func() {
-		tracer.Shutdown(ctx)
+		// Bound shutdown so an unreachable OTLP server can't pin the process
+		// for the full per-request export timeout (otlptracehttp.WithTimeout).
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tracer.Shutdown(shutdownCtx)
 	}, nil
 }
 
