@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -68,15 +69,27 @@ func (w wrapper) InsertTraceRuns(ctx context.Context, runs []*cqrs.TraceRun) err
 		return nil
 	}
 	dialect := w.dialect()
-	rows := make([][]any, len(runs))
-	for i, r := range runs {
+	rows := make([][]any, 0, len(runs))
+	// Per-row build errors (e.g. malformed RunID ULID) skip that row but
+	// must not abort the batch; the legacy single-row path logged the error
+	// and continued, and the goal of switching to bulk inserts is to *avoid*
+	// dropping otherwise-valid telemetry. Collected build errors are joined
+	// and returned alongside the bulk insert error so callers can surface
+	// them.
+	var buildErrs []error
+	for _, r := range runs {
 		params, err := buildInsertTraceRunParams(r)
 		if err != nil {
-			return err
+			buildErrs = append(buildErrs, fmt.Errorf("run_id=%q: %w", r.RunID, err))
+			continue
 		}
-		rows[i] = traceRunParamsToRow(params, dialect)
+		rows = append(rows, traceRunParamsToRow(params, dialect))
 	}
-	return w.bulkInsert(ctx, "trace_runs", traceRunCols, rows, w.traceRunUpsert())
+	var insertErr error
+	if len(rows) > 0 {
+		insertErr = w.bulkInsert(ctx, "trace_runs", traceRunCols, rows, w.traceRunUpsert())
+	}
+	return errors.Join(append(buildErrs, insertErr)...)
 }
 
 func buildInsertTraceParams(span *cqrs.Span) *dbpkg.InsertTraceParams {

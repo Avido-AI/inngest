@@ -1617,6 +1617,68 @@ func TestCQRSInsertTraceRunsBatch(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.True(t, got[0].HasAI, "HasAI should remain true after upsert")
 	})
+
+	t.Run("malformed run id does not drop the rest of the batch", func(t *testing.T) {
+		triggerID := ulid.Make()
+		validIDs := []string{ulid.Make().String(), ulid.Make().String()}
+		runs := []*cqrs.TraceRun{
+			{
+				AccountID:   accountID,
+				WorkspaceID: workspaceID,
+				AppID:       appID,
+				FunctionID:  functionID,
+				TraceID:     "trace-good-1-" + validIDs[0],
+				RunID:       validIDs[0],
+				QueuedAt:    time.Now(),
+				StartedAt:   time.Now(),
+				EndedAt:     time.Now(),
+				TriggerIDs:  []string{triggerID.String()},
+				Status:      1,
+			},
+			{
+				AccountID:   accountID,
+				WorkspaceID: workspaceID,
+				AppID:       appID,
+				FunctionID:  functionID,
+				TraceID:     "trace-bad-" + ulid.Make().String(),
+				RunID:       "not-a-ulid",
+				QueuedAt:    time.Now(),
+				StartedAt:   time.Now(),
+				EndedAt:     time.Now(),
+				TriggerIDs:  []string{triggerID.String()},
+				Status:      1,
+			},
+			{
+				AccountID:   accountID,
+				WorkspaceID: workspaceID,
+				AppID:       appID,
+				FunctionID:  functionID,
+				TraceID:     "trace-good-2-" + validIDs[1],
+				RunID:       validIDs[1],
+				QueuedAt:    time.Now(),
+				StartedAt:   time.Now(),
+				EndedAt:     time.Now(),
+				TriggerIDs:  []string{triggerID.String()},
+				Status:      1,
+			},
+		}
+
+		err := cm.InsertTraceRuns(ctx, runs)
+		require.Error(t, err, "malformed run should surface a per-row build error")
+		require.Contains(t, err.Error(), "not-a-ulid")
+
+		got, err := cm.GetTraceRunsByTriggerID(ctx, triggerID)
+		require.NoError(t, err)
+		require.Len(t, got, 2, "valid runs surrounding the bad one should still persist")
+
+		gotIDs := make([]string, len(got))
+		for i, r := range got {
+			gotIDs[i] = r.RunID
+		}
+		for _, id := range validIDs {
+			assert.Contains(t, gotIDs, id)
+		}
+	})
 }
 
 func TestCQRSInsertSpansBatch(t *testing.T) {
