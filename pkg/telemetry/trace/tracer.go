@@ -48,6 +48,18 @@ var (
 	onceSystem   sync.Once
 )
 
+// otlpHTTPExportTimeout caps both:
+//   - per-export HTTP requests issued by the OTLP HTTP client
+//     (otlptracehttp.WithTimeout)
+//   - the shutdown deadline used to flush + close the tracer
+//     in TracerSetup
+//
+// Aligning these ensures a slow but still-progressing export at
+// process exit can complete instead of being cut short, while an
+// unreachable OTLP server can still pin the process for at most
+// this duration (one in-flight request) before the SDK gives up.
+const otlpHTTPExportTimeout = 60 * time.Second
+
 // Tracer is a wrapper around the otel's tracing library to allow combining
 // usage with the official library or workarounds that are necessary that the
 // official library and spec doesn't support for our use cases.
@@ -287,11 +299,13 @@ func TracerSetup(svc string, ttype TracerType) (func(), error) {
 	)
 
 	return func() {
-		// Bound shutdown so an unreachable OTLP server can't pin the process
-		// for the full per-request export timeout (otlptracehttp.WithTimeout).
-		// Shutdown returns a closure that performs the actual flush+close;
-		// it must be invoked or no shutdown work runs.
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Bound shutdown so an unreachable OTLP server can't pin the
+		// process indefinitely. Aligned with the per-export HTTP timeout
+		// (otlpHTTPExportTimeout) so a still-progressing in-flight batch
+		// has the same budget to complete that the export client itself
+		// allows. Shutdown returns a closure that performs the actual
+		// flush+close; it must be invoked or no shutdown work runs.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), otlpHTTPExportTimeout)
 		defer cancel()
 		tracer.Shutdown(shutdownCtx)()
 	}, nil
@@ -401,7 +415,7 @@ func newOTLPHTTPTraceProvider(ctx context.Context, opts TracerOpts) (Tracer, err
 		// fan-out load bursts that round-trip can exceed 10s, causing the
 		// client to cancel mid-batch and (combined with database/sql's
 		// fail-fast on a canceled ctx) drop the rest of the spans.
-		otlptracehttp.WithTimeout(60*time.Second),
+		otlptracehttp.WithTimeout(otlpHTTPExportTimeout),
 	)
 
 	exp, err := otlptrace.New(ctx, client)
