@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -648,16 +647,16 @@ func (a devapi) OTLPTrace(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Use a detached context for the DB writes so a client disconnect
+	// (which cancels r.Context()) does not abort in-flight inserts and
+	// drop telemetry. Once we have parsed and accepted the OTLP batch we
+	// must finish persisting it; the OTel exporter cannot reliably retry
+	// once we've started consuming the request body. Same pattern as
+	// CheckpointNewRun in pkg/api/apiv1.
+	insertCtx := context.WithoutCancel(ctx)
+
 	for _, s := range handler.Spans() {
-		if err := a.devserver.Data.InsertSpan(ctx, s); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				// The OTLP request context was canceled (client disconnect or
-				// timeout). Subsequent inserts will fail the same way, so log
-				// once at Warn level and abort the batch to avoid flooding the
-				// error log.
-				l.Warn("context canceled while inserting spans; aborting batch", "error", err)
-				return
-			}
+		if err := a.devserver.Data.InsertSpan(insertCtx, s); err != nil {
 			l.Error("error inserting span", "error", err, "span", *s)
 		}
 	}
@@ -665,11 +664,7 @@ func (a devapi) OTLPTrace(w http.ResponseWriter, r *http.Request) {
 	for _, r := range handler.TraceRuns() {
 		// l.Debug("trace run", "run", r)
 		r.HasAI = hasAI
-		if err := a.devserver.Data.InsertTraceRun(ctx, r); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				l.Warn("context canceled while inserting trace runs; aborting batch", "error", err)
-				return
-			}
+		if err := a.devserver.Data.InsertTraceRun(insertCtx, r); err != nil {
 			l.Error("error inserting trace run", "error", err, "trace_run", r)
 		}
 	}
