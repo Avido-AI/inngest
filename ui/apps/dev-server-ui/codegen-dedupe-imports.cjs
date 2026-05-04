@@ -28,8 +28,7 @@ const importRe =
   /^import type \{\s*([^}]+?)\s*\} from ['"]([^'"]+)['"];\s*$/gm;
 const bySource = new Map();
 const order = [];
-let match;
-while ((match = importRe.exec(src)) !== null) {
+for (const match of src.matchAll(importRe)) {
   const source = match[2];
   const symbols = match[1]
     .split(',')
