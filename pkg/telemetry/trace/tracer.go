@@ -389,6 +389,13 @@ func newOTLPHTTPTraceProvider(ctx context.Context, opts TracerOpts) (Tracer, err
 		otlptracehttp.WithEndpoint(endpoint),
 		otlptracehttp.WithURLPath(urlpath),
 		otlptracehttp.WithInsecure(),
+		// Override the SDK's 10s default. A single batch can contain up to
+		// 512 spans (BSP default MaxExportBatchSize) and the receiving
+		// /dev/traces handler persists each row to Postgres. Under
+		// fan-out load bursts that round-trip can exceed 10s, causing the
+		// client to cancel mid-batch and (combined with database/sql's
+		// fail-fast on a canceled ctx) drop the rest of the spans.
+		otlptracehttp.WithTimeout(60*time.Second),
 	)
 
 	exp, err := otlptrace.New(ctx, client)

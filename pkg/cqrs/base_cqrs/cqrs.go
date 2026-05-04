@@ -1627,6 +1627,40 @@ func toCQRSRun(run dbpkg.FunctionRun, finish dbpkg.FunctionFinish) *cqrs.Functio
 //
 
 func (w wrapper) InsertSpan(ctx context.Context, span *cqrs.Span) error {
+	params := buildInsertTraceParams(span)
+	return w.q.InsertTrace(ctx, *params)
+}
+
+func (w wrapper) InsertTraceRun(ctx context.Context, run *cqrs.TraceRun) error {
+	params, err := buildInsertTraceRunParams(run)
+	if err != nil {
+		return err
+	}
+	return w.q.InsertTraceRun(ctx, *params)
+}
+
+// traceCols and traceRunCols list columns in the same order as their
+// generated single-row INSERT statements (postgres) so that bulk INSERTs
+// produce equivalent SQL on either dialect.
+var traceCols = []any{
+	"timestamp", "timestamp_unix_ms", "trace_id", "span_id", "parent_span_id",
+	"trace_state", "span_name", "span_kind", "service_name", "resource_attributes",
+	"scope_name", "scope_version", "span_attributes", "duration", "status_code",
+	"status_message", "events", "links", "run_id",
+}
+
+var traceRunCols = []any{
+	"account_id", "workspace_id", "app_id", "function_id", "trace_id",
+	"run_id", "queued_at", "started_at", "ended_at", "status",
+	"source_id", "trigger_ids", "output", "batch_id", "is_debounce",
+	"cron_schedule", "has_ai",
+}
+
+// traceBulkChunkSize bounds the number of rows per INSERT so we stay under
+// Postgres' 65535 bound parameters per query (19 cols * 500 rows = 9500 args).
+const traceBulkChunkSize = 500
+
+func buildInsertTraceParams(span *cqrs.Span) *dbpkg.InsertTraceParams {
 	params := &dbpkg.InsertTraceParams{
 		Timestamp:       span.Timestamp,
 		TimestampUnixMs: span.Timestamp.UnixMilli(),
@@ -1640,7 +1674,6 @@ func (w wrapper) InsertSpan(ctx context.Context, span *cqrs.Span) error {
 		Duration:        int64(span.Duration / time.Millisecond),
 		StatusCode:      span.StatusCode,
 	}
-
 	if span.RunID != nil {
 		params.RunID = *span.RunID
 	}
@@ -1665,17 +1698,16 @@ func (w wrapper) InsertSpan(ctx context.Context, span *cqrs.Span) error {
 	if span.StatusMessage != nil {
 		params.StatusMessage = sql.NullString{String: *span.StatusMessage, Valid: true}
 	}
-
-	return w.q.InsertTrace(ctx, *params)
+	return params
 }
 
-func (w wrapper) InsertTraceRun(ctx context.Context, run *cqrs.TraceRun) error {
+func buildInsertTraceRunParams(run *cqrs.TraceRun) (*dbpkg.InsertTraceRunParams, error) {
 	runid, err := ulid.Parse(run.RunID)
 	if err != nil {
-		return fmt.Errorf("error parsing runID as ULID: %w", err)
+		return nil, fmt.Errorf("error parsing runID as ULID: %w", err)
 	}
 
-	params := dbpkg.InsertTraceRunParams{
+	params := &dbpkg.InsertTraceRunParams{
 		AccountID:   run.AccountID,
 		WorkspaceID: run.WorkspaceID,
 		AppID:       run.AppID,
@@ -1692,7 +1724,6 @@ func (w wrapper) InsertTraceRun(ctx context.Context, run *cqrs.TraceRun) error {
 		IsDebounce:  run.IsDebounce,
 		HasAi:       run.HasAI,
 	}
-
 	if run.BatchID != nil {
 		params.BatchID = *run.BatchID
 	}
@@ -1702,8 +1733,127 @@ func (w wrapper) InsertTraceRun(ctx context.Context, run *cqrs.TraceRun) error {
 	if len(run.TriggerIDs) > 0 {
 		params.TriggerIds = []byte(strings.Join(run.TriggerIDs, ","))
 	}
+	return params, nil
+}
 
-	return w.q.InsertTraceRun(ctx, params)
+// Match the per-dialect querier wrappers in pkg/db/{postgres,sqlite}/querier.go:
+// pgQuerier converts ulid.ULID via .String() before passing to sqlc (the
+// postgres run_id column is CHAR(26)); sqliteQuerier passes the ulid.ULID
+// through unchanged (run_id is bound as the binary Valuer payload).
+func traceParamsToRow(p *dbpkg.InsertTraceParams, dialect string) []any {
+	runID := runIDForDialect(p.RunID, dialect)
+	return []any{
+		p.Timestamp, p.TimestampUnixMs, p.TraceID, p.SpanID, p.ParentSpanID,
+		p.TraceState, p.SpanName, p.SpanKind, p.ServiceName, p.ResourceAttributes,
+		p.ScopeName, p.ScopeVersion, p.SpanAttributes, p.Duration, p.StatusCode,
+		p.StatusMessage, p.Events, p.Links, runID,
+	}
+}
+
+func traceRunParamsToRow(p *dbpkg.InsertTraceRunParams, dialect string) []any {
+	runID := runIDForDialect(p.RunID, dialect)
+	return []any{
+		p.AccountID, p.WorkspaceID, p.AppID, p.FunctionID, p.TraceID,
+		runID, p.QueuedAt, p.StartedAt, p.EndedAt, p.Status,
+		p.SourceID, p.TriggerIds, p.Output, p.BatchID, p.IsDebounce,
+		p.CronSchedule, p.HasAi,
+	}
+}
+
+func runIDForDialect(id ulid.ULID, dialect string) any {
+	if dialect == "postgres" {
+		return id.String()
+	}
+	return id
+}
+
+func (w wrapper) InsertSpans(ctx context.Context, spans []*cqrs.Span) error {
+	if len(spans) == 0 {
+		return nil
+	}
+	dialect := w.dialect()
+	rows := make([][]any, len(spans))
+	for i, s := range spans {
+		rows[i] = traceParamsToRow(buildInsertTraceParams(s), dialect)
+	}
+	return w.bulkInsert(ctx, "traces", traceCols, rows, nil)
+}
+
+func (w wrapper) InsertTraceRuns(ctx context.Context, runs []*cqrs.TraceRun) error {
+	if len(runs) == 0 {
+		return nil
+	}
+	dialect := w.dialect()
+	rows := make([][]any, len(runs))
+	for i, r := range runs {
+		params, err := buildInsertTraceRunParams(r)
+		if err != nil {
+			return err
+		}
+		rows[i] = traceRunParamsToRow(params, dialect)
+	}
+	return w.bulkInsert(ctx, "trace_runs", traceRunCols, rows, w.traceRunUpsert())
+}
+
+// traceRunUpsert returns an ON CONFLICT (run_id) DO UPDATE clause matching
+// the existing single-row InsertTraceRun query for both postgres and sqlite.
+// has_ai uses a CASE expression so a later upsert never clears an earlier
+// HasAI=true; the boolean literal differs per dialect.
+func (w wrapper) traceRunUpsert() sqexp.ConflictExpression {
+	rec := sq.Record{
+		"account_id":    sq.L("EXCLUDED.account_id"),
+		"workspace_id":  sq.L("EXCLUDED.workspace_id"),
+		"app_id":        sq.L("EXCLUDED.app_id"),
+		"function_id":   sq.L("EXCLUDED.function_id"),
+		"trace_id":      sq.L("EXCLUDED.trace_id"),
+		"queued_at":     sq.L("EXCLUDED.queued_at"),
+		"started_at":    sq.L("EXCLUDED.started_at"),
+		"ended_at":      sq.L("EXCLUDED.ended_at"),
+		"status":        sq.L("EXCLUDED.status"),
+		"source_id":     sq.L("EXCLUDED.source_id"),
+		"trigger_ids":   sq.L("EXCLUDED.trigger_ids"),
+		"output":        sq.L("EXCLUDED.output"),
+		"batch_id":      sq.L("EXCLUDED.batch_id"),
+		"is_debounce":   sq.L("EXCLUDED.is_debounce"),
+		"cron_schedule": sq.L("EXCLUDED.cron_schedule"),
+	}
+	switch w.dialect() {
+	case "postgres":
+		rec["has_ai"] = sq.L("CASE WHEN trace_runs.has_ai = TRUE THEN TRUE ELSE EXCLUDED.has_ai END")
+	default:
+		rec["has_ai"] = sq.L("CASE WHEN trace_runs.has_ai = 1 THEN 1 ELSE EXCLUDED.has_ai END")
+	}
+	return sq.DoUpdate("run_id", rec)
+}
+
+func (w wrapper) bulkInsert(
+	ctx context.Context,
+	table string,
+	cols []any,
+	rows [][]any,
+	onConflict sqexp.ConflictExpression,
+) error {
+	for i := 0; i < len(rows); i += traceBulkChunkSize {
+		end := i + traceBulkChunkSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		ds := sq.Dialect(w.dialect()).
+			Insert(table).
+			Cols(cols...).
+			Vals(rows[i:end]...)
+		if onConflict != nil {
+			ds = ds.OnConflict(onConflict)
+		}
+		sqlStr, args, err := ds.ToSQL()
+		if err != nil {
+			return fmt.Errorf("error building bulk %s insert: %w", table, err)
+		}
+		if _, err := w.adapter.Conn().ExecContext(ctx, sqlStr, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type traceRunCursorFilter struct {

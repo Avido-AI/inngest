@@ -1534,6 +1534,157 @@ func TestCQRSGetTraceRunsByTriggerID(t *testing.T) {
 	})
 }
 
+func TestCQRSInsertTraceRunsBatch(t *testing.T) {
+	ctx := context.Background()
+	appID := uuid.New()
+
+	cm, cleanup := initCQRS(t, withInitCQRSOptApp(appID))
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	functionID := uuid.New()
+
+	t.Run("empty batch is a no-op", func(t *testing.T) {
+		require.NoError(t, cm.InsertTraceRuns(ctx, nil))
+		require.NoError(t, cm.InsertTraceRuns(ctx, []*cqrs.TraceRun{}))
+	})
+
+	t.Run("inserts multiple runs in one call", func(t *testing.T) {
+		triggerID := ulid.Make()
+		runs := make([]*cqrs.TraceRun, 3)
+		runIDs := make([]string, 3)
+		for i := range runs {
+			runID := ulid.Make()
+			runIDs[i] = runID.String()
+			runs[i] = &cqrs.TraceRun{
+				AccountID:   accountID,
+				WorkspaceID: workspaceID,
+				AppID:       appID,
+				FunctionID:  functionID,
+				TraceID:     "trace-batch-" + runID.String(),
+				RunID:       runID.String(),
+				QueuedAt:    time.Now(),
+				StartedAt:   time.Now(),
+				EndedAt:     time.Now(),
+				TriggerIDs:  []string{triggerID.String()},
+				Status:      1,
+			}
+		}
+
+		require.NoError(t, cm.InsertTraceRuns(ctx, runs))
+
+		got, err := cm.GetTraceRunsByTriggerID(ctx, triggerID)
+		require.NoError(t, err)
+		require.Len(t, got, 3)
+
+		gotIDs := make([]string, len(got))
+		for i, r := range got {
+			gotIDs[i] = r.RunID
+		}
+		for _, id := range runIDs {
+			assert.Contains(t, gotIDs, id)
+		}
+	})
+
+	t.Run("upsert preserves has_ai=true on conflict", func(t *testing.T) {
+		runID := ulid.Make()
+		triggerID := ulid.Make()
+		base := &cqrs.TraceRun{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			AppID:       appID,
+			FunctionID:  functionID,
+			TraceID:     "trace-upsert-" + runID.String(),
+			RunID:       runID.String(),
+			QueuedAt:    time.Now(),
+			StartedAt:   time.Now(),
+			EndedAt:     time.Now(),
+			TriggerIDs:  []string{triggerID.String()},
+			Status:      1,
+			HasAI:       true,
+		}
+		require.NoError(t, cm.InsertTraceRuns(ctx, []*cqrs.TraceRun{base}))
+
+		// Upsert the same run with HasAI=false; the CASE expression in the
+		// ON CONFLICT clause should preserve the existing HasAI=true value.
+		updated := *base
+		updated.HasAI = false
+		require.NoError(t, cm.InsertTraceRuns(ctx, []*cqrs.TraceRun{&updated}))
+
+		got, err := cm.GetTraceRunsByTriggerID(ctx, triggerID)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.True(t, got[0].HasAI, "HasAI should remain true after upsert")
+	})
+}
+
+func TestCQRSInsertSpansBatch(t *testing.T) {
+	ctx := context.Background()
+	appID := uuid.New()
+
+	cm, cleanup := initCQRS(t, withInitCQRSOptApp(appID))
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	functionID := uuid.New()
+
+	t.Run("empty batch is a no-op", func(t *testing.T) {
+		require.NoError(t, cm.InsertSpans(ctx, nil))
+		require.NoError(t, cm.InsertSpans(ctx, []*cqrs.Span{}))
+	})
+
+	t.Run("inserts multiple spans in one call", func(t *testing.T) {
+		// Seed a trace run so GetTraceSpansByRun has something to look up.
+		runID := ulid.Make()
+		traceID := "trace-spans-" + runID.String()
+		require.NoError(t, cm.InsertTraceRun(ctx, &cqrs.TraceRun{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			AppID:       appID,
+			FunctionID:  functionID,
+			TraceID:     traceID,
+			RunID:       runID.String(),
+			QueuedAt:    time.Now(),
+			StartedAt:   time.Now(),
+			EndedAt:     time.Now(),
+			TriggerIDs:  []string{ulid.Make().String()},
+			Status:      1,
+		}))
+
+		baseTime := time.Now().UTC().Truncate(time.Millisecond)
+		spans := make([]*cqrs.Span, 3)
+		for i := range spans {
+			rid := runID
+			spans[i] = &cqrs.Span{
+				Timestamp:          baseTime.Add(time.Duration(i) * time.Millisecond),
+				TraceID:            traceID,
+				SpanID:             fmt.Sprintf("span-%d-%s", i, runID.String()),
+				SpanName:           fmt.Sprintf("span %d", i),
+				SpanKind:           "INTERNAL",
+				ServiceName:        "test",
+				ScopeName:          "test",
+				ScopeVersion:       "0.0.0",
+				StatusCode:         "OK",
+				Duration:           time.Millisecond,
+				ResourceAttributes: map[string]string{"key": "value"},
+				SpanAttributes:     map[string]string{"k": "v"},
+				RunID:              &rid,
+			}
+		}
+
+		require.NoError(t, cm.InsertSpans(ctx, spans))
+
+		got, err := cm.GetTraceSpansByRun(ctx, cqrs.TraceRunIdentifier{
+			TraceID: traceID,
+			RunID:   runID,
+		})
+		require.NoError(t, err)
+		assert.Len(t, got, 3)
+	})
+}
+
 func TestCQRSGetTraceRunsPagination(t *testing.T) {
 	// This test verifies that cursor-based pagination works correctly for the GetSpanRuns
 	ctx := context.Background()

@@ -655,18 +655,17 @@ func (a devapi) OTLPTrace(w http.ResponseWriter, r *http.Request) {
 	// CheckpointNewRun in pkg/api/apiv1.
 	insertCtx := context.WithoutCancel(ctx)
 
-	for _, s := range handler.Spans() {
-		if err := a.devserver.Data.InsertSpan(insertCtx, s); err != nil {
-			l.Error("error inserting span", "error", err, "span", *s)
-		}
+	spans := handler.Spans()
+	if err := a.devserver.Data.InsertSpans(insertCtx, spans); err != nil {
+		l.Error("error inserting spans", "error", err, "count", len(spans))
 	}
 
-	for _, r := range handler.TraceRuns() {
-		// l.Debug("trace run", "run", r)
+	runs := handler.TraceRuns()
+	for _, r := range runs {
 		r.HasAI = hasAI
-		if err := a.devserver.Data.InsertTraceRun(insertCtx, r); err != nil {
-			l.Error("error inserting trace run", "error", err, "trace_run", r)
-		}
+	}
+	if err := a.devserver.Data.InsertTraceRuns(insertCtx, runs); err != nil {
+		l.Error("error inserting trace runs", "error", err, "count", len(runs))
 	}
 }
 
