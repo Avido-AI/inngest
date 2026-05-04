@@ -1,12 +1,24 @@
 /**
- * Dedupes `import type { ... } from '...';` statements in a codegen output.
+ * Post-processes a graphql-codegen output:
  *
- * The typescript and typescript-operations plugins both emit scalar-mapped
- * imports (e.g. `import type { SpanMetadataKind } from '@inngest/components/...';`)
- * when they share a single output file. With `useTypeImports: true` this leads
- * to duplicate identifier errors in TS strict mode. This hook merges all
- * `import type` lines for the same source path into one and drops duplicate
- * imported symbols.
+ *   1. Dedupes `import type { ... } from '...';` lines that share a source
+ *      path. The typescript and typescript-operations plugins both emit
+ *      scalar-mapped imports (e.g.
+ *      `import type { SpanMetadataKind } from '@inngest/components/...';`)
+ *      when they share an output file. With `useTypeImports: true` this
+ *      causes "Duplicate identifier" errors under TS strict mode. The hook
+ *      merges all imports of the same source into a single statement and
+ *      drops duplicate symbols.
+ *
+ *   2. Strips a self-referential namespace import the typescript-operations
+ *      plugin emits when `importSchemaTypesFrom` points at the same file
+ *      it is generating (we use this to suppress its enum/input emission
+ *      so they do not duplicate the typescript plugin's). The import looks
+ *      like `import type * as Types from './generated-types';` inside
+ *      `generated-types.ts` itself; TS allows it but it triggers
+ *      noUnusedLocals warnings and reads as obviously circular. We rewrite
+ *      `Types.<name>` references back to bare `<name>` and remove the
+ *      import line.
  */
 const fs = require('fs');
 const path = require('path');
@@ -22,6 +34,22 @@ try {
   src = fs.readFileSync(absPath, 'utf8');
 } catch {
   process.exit(0);
+}
+
+// (2) Strip the self-referential namespace import emitted by
+// typescript-operations when importSchemaTypesFrom points at this same file.
+const fileBaseName = path.basename(absPath).replace(/\.[cm]?[jt]sx?$/, '');
+const selfImportRe = new RegExp(
+  String.raw`^import type \* as (\w+) from ['"]\.\/${fileBaseName}['"];\s*$`,
+  'm',
+);
+const selfImportMatch = src.match(selfImportRe);
+if (selfImportMatch) {
+  const ns = selfImportMatch[1];
+  src = src.replace(selfImportRe, '');
+  // Replace `Types.Foo` with `Foo`. The namespace alias is a TS identifier so
+  // a word-boundary match is sufficient here.
+  src = src.replace(new RegExp(String.raw`\b${ns}\.`, 'g'), '');
 }
 
 const importRe =
@@ -45,6 +73,7 @@ for (const match of src.matchAll(importRe)) {
 }
 
 if (order.length === 0) {
+  fs.writeFileSync(absPath, src);
   process.exit(0);
 }
 
