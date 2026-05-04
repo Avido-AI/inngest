@@ -153,7 +153,7 @@ func UserTracer() Tracer {
 
 func CloseUserTracer(ctx context.Context) error {
 	if userTracer != nil {
-		userTracer.Shutdown(ctx)
+		userTracer.Shutdown(ctx)()
 	}
 	return nil
 }
@@ -180,7 +180,7 @@ func SystemTracer() Tracer {
 
 func CloseSystemTracer(ctx context.Context) error {
 	if systemTracer != nil {
-		systemTracer.Shutdown(ctx)
+		systemTracer.Shutdown(ctx)()
 	}
 	return nil
 }
