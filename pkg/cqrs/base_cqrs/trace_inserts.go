@@ -237,6 +237,13 @@ func (w wrapper) bulkInsert(
 	rows [][]any,
 	onConflict sqexp.ConflictExpression,
 ) error {
+	// Continue past chunk-level failures to preserve the legacy
+	// log-and-continue behavior of the per-row InsertSpan/InsertTraceRun
+	// loops this function replaces. A single bad chunk (e.g. a unique
+	// constraint violation on one row, or a transient DB error) should
+	// not drop telemetry from subsequent chunks. All chunk errors are
+	// collected and joined so the caller still sees them.
+	var chunkErrs []error
 	for i := 0; i < len(rows); i += traceBulkChunkSize {
 		end := i + traceBulkChunkSize
 		if end > len(rows) {
@@ -251,11 +258,13 @@ func (w wrapper) bulkInsert(
 		}
 		sqlStr, args, err := ds.ToSQL()
 		if err != nil {
-			return fmt.Errorf("error building bulk %s insert: %w", table, err)
+			chunkErrs = append(chunkErrs, fmt.Errorf("error building bulk %s insert (chunk %d-%d): %w", table, i, end, err))
+			continue
 		}
 		if _, err := w.adapter.ExecContext(ctx, sqlStr, args...); err != nil {
-			return err
+			chunkErrs = append(chunkErrs, fmt.Errorf("error executing bulk %s insert (chunk %d-%d): %w", table, i, end, err))
+			continue
 		}
 	}
-	return nil
+	return errors.Join(chunkErrs...)
 }
