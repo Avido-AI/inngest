@@ -168,25 +168,27 @@ func buildInsertTraceRunParams(run *cqrs.TraceRun) (*dbpkg.InsertTraceRunParams,
 	return params, nil
 }
 
-// Match the per-dialect querier wrappers in pkg/db/{postgres,sqlite}/querier.go:
-// pgQuerier converts ulid.ULID via .String() before passing to sqlc (the
-// postgres run_id column is CHAR(26)); sqliteQuerier passes the ulid.ULID
-// through unchanged (run_id is bound as the binary Valuer payload).
+// traceParamsToRow / traceRunParamsToRow flatten the per-dialect *Params
+// structs into row slices for goqu bulk inserts. run_id needs an explicit
+// dialect conversion because the postgres column is CHAR(26): pgQuerier
+// passes runID.String() in the single-row path. batch_id is bytea on
+// postgres and the ulid binary blob on sqlite, but ulid.ULID's driver.Valuer
+// implementation returns MarshalBinary() ([]byte) so it round-trips
+// correctly to bytea without an explicit conversion (goqu prepared-mode
+// calls Value() before binding).
 func traceParamsToRow(p *dbpkg.InsertTraceParams, dialect string) []any {
-	runID := runIDForDialect(p.RunID, dialect)
 	return []any{
 		p.Timestamp, p.TimestampUnixMs, p.TraceID, p.SpanID, p.ParentSpanID,
 		p.TraceState, p.SpanName, p.SpanKind, p.ServiceName, p.ResourceAttributes,
 		p.ScopeName, p.ScopeVersion, p.SpanAttributes, p.Duration, p.StatusCode,
-		p.StatusMessage, p.Events, p.Links, runID,
+		p.StatusMessage, p.Events, p.Links, runIDForDialect(p.RunID, dialect),
 	}
 }
 
 func traceRunParamsToRow(p *dbpkg.InsertTraceRunParams, dialect string) []any {
-	runID := runIDForDialect(p.RunID, dialect)
 	return []any{
 		p.AccountID, p.WorkspaceID, p.AppID, p.FunctionID, p.TraceID,
-		runID, p.QueuedAt, p.StartedAt, p.EndedAt, p.Status,
+		runIDForDialect(p.RunID, dialect), p.QueuedAt, p.StartedAt, p.EndedAt, p.Status,
 		p.SourceID, p.TriggerIds, p.Output, p.BatchID, p.IsDebounce,
 		p.CronSchedule, p.HasAi,
 	}

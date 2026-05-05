@@ -1618,6 +1618,38 @@ func TestCQRSInsertTraceRunsBatch(t *testing.T) {
 		assert.True(t, got[0].HasAI, "HasAI should remain true after upsert")
 	})
 
+	t.Run("batch_id round-trips through bulk insert", func(t *testing.T) {
+		// Postgres' trace_runs.batch_id column is BYTEA; the single-row path in
+		// pkg/db/postgres/querier.go:646 converts ulid.ULID -> []byte via [:].
+		// Without an equivalent dialect-aware conversion in the bulk path,
+		// the postgres driver would reject ulid.ULID's Valuer (string)
+		// against BYTEA and drop the whole batch.
+		runID := ulid.Make()
+		batchID := ulid.Make()
+		triggerID := ulid.Make()
+		run := &cqrs.TraceRun{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			AppID:       appID,
+			FunctionID:  functionID,
+			TraceID:     "trace-batchid-" + runID.String(),
+			RunID:       runID.String(),
+			QueuedAt:    time.Now(),
+			StartedAt:   time.Now(),
+			EndedAt:     time.Now(),
+			TriggerIDs:  []string{triggerID.String()},
+			Status:      1,
+			BatchID:     &batchID,
+		}
+		require.NoError(t, cm.InsertTraceRuns(ctx, []*cqrs.TraceRun{run}))
+
+		got, err := cm.GetTraceRunsByTriggerID(ctx, triggerID)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].BatchID)
+		assert.Equal(t, batchID.String(), got[0].BatchID.String())
+	})
+
 	t.Run("malformed run id does not drop the rest of the batch", func(t *testing.T) {
 		triggerID := ulid.Make()
 		validIDs := []string{ulid.Make().String(), ulid.Make().String()}
