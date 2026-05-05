@@ -6,6 +6,7 @@ settings:
 
 overrides:
   h3@<1.15.6: '>=1.15.6 <2'
+  inngest@<=4.2.5: 4.2.5
 
 importers:
 
