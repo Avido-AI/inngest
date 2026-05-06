@@ -76,9 +76,19 @@ func TestSDKRetry(t *testing.T) {
 			return nil
 		}),
 
-		// Server retries the function. Step re-executes inline (succeeds),
-		// function continues and succeeds this time.
+		// Server retries the function. It persists the step result from the
+		// previous execution (even though the function failed) and includes it
+		// in the next request's stack/steps.
 		test.Printf("Awaiting function call retry"),
+		test.AddRequestStack(driver.FunctionStack{
+			Stack:   []string{"98bf98df193bcce7c33e6bc50927cf2ac21206cb"},
+			Current: 0,
+		}),
+		test.AddRequestSteps(map[string]any{
+			"98bf98df193bcce7c33e6bc50927cf2ac21206cb": map[string]any{
+				"data": "yes",
+			},
+		}),
 		test.ExpectRequest("Final call", "step", 45*time.Second, func(r *driver.SDKRequestContext) {
 			r.Attempt = 2
 		}),
