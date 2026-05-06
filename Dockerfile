@@ -3,8 +3,8 @@ RUN apk upgrade --no-cache && apk add --no-cache build-base
 WORKDIR /app
 COPY vendor vendor
 COPY . .
-# Ensure embedded docs directory exists (website/ is not in the fork)
-RUN mkdir -p website/pages/docs && echo "placeholder" > website/pages/docs/placeholder.md
+# Ensure embedded docs directory exists (website/ submodule is not checked out)
+RUN mkdir -p internal/embeddocs/website/pages/docs && echo "placeholder" > internal/embeddocs/website/pages/docs/placeholder.md
 ARG TARGETARCH
 ARG TARGETOS
 RUN --mount=type=cache,target=/root/.cache/go-build \
