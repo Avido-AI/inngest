@@ -23,8 +23,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: ./go.mod
+
+      - name: Create placeholder files for embeds
+        run: |
+          # Website submodule (internal/embeddocs) - not checked out in CI
+          mkdir -p internal/embeddocs/website/pages/docs
+          echo "placeholder" > internal/embeddocs/website/pages/docs/placeholder.md
+          # Dev server UI static assets - not built in CI
+          echo "placeholder" > pkg/devserver/static/placeholder.txt
+
+      - name: Generate code
+        run: go generate ./...
+
+      - name: Build binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o inngest ./cmd/
 
       - name: Extract branch tag
         id: tag
@@ -33,13 +50,15 @@ jobs:
           TAG="${BRANCH//\//-}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.goreleaser
           push: true
           tags: |
             ghcr.io/avido-ai/inngest:${{ steps.tag.outputs.tag }}
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
