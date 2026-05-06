@@ -3,9 +3,8 @@ import { inngest } from "@/inngest/client";
 let attempt = 0;
 
 export const testRetry = inngest.createFunction(
-  { id: "retry-test" },
-  { event: "tests/retry.test" },
-  async ({ event, step, publish }) => {
+  { id: "retry-test", triggers: [{ event: "tests/retry.test" }] },
+  async ({ event, step }) => {
 
     const data = await step.run("first step", async () => {
       attempt += 1;
