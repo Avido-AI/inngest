@@ -22,7 +22,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       inngest:
         specifier: 4.2.6
-        version: 4.2.6(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(h3@1.15.11)(next@16.2.3(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(zod@3.22.4)
+        version: 4.2.6(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(h3@1.15.11)(next@16.2.3(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(zod@4.4.3)
       next:
         specifier: 16.2.3
         version: 16.2.3(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -35,6 +35,9 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
 packages:
 
@@ -1288,8 +1291,8 @@ packages:
     resolution: {integrity: sha512-7dSzzRQ++CKnNI/krKnYRV7JKKPUXMEh61soaHKg9mrWEhzFWhFnxPxGl+69cD1Ou63C13NUPCnmIcrvqCuM6w==}
     engines: {node: '>=12'}
 
-  zod@3.22.4:
-    resolution: {integrity: sha512-iC+8Io04lddc+mVqQ9AZ7OQ2MrUKGN+oIQyq1vemgt46jwCwLfhq7/pwnBnNXXXZb8VTVLKwp9EDkx+ryxIWmg==}
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
 
@@ -2389,7 +2392,7 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  inngest@4.2.6(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(h3@1.15.11)(next@16.2.3(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(zod@3.22.4):
+  inngest@4.2.6(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(h3@1.15.11)(next@16.2.3(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(typescript@5.9.3)(zod@4.4.3):
     dependencies:
       '@bufbuild/protobuf': 2.12.0
       '@inngest/ai': 0.1.7
@@ -2414,7 +2417,7 @@ snapshots:
       serialize-error-cjs: 0.1.4
       temporal-polyfill: 0.2.5
       ulid: 2.4.0
-      zod: 3.22.4
+      zod: 4.4.3
     optionalDependencies:
       h3: 1.15.11
       next: 16.2.3(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -2701,4 +2704,4 @@ snapshots:
       y18n: 5.0.8
       yargs-parser: 21.1.1
 
-  zod@3.22.4: {}
+  zod@4.4.3: {}
