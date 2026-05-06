@@ -165,6 +165,17 @@ func (s *PauseStore) DeletePauseByID(ctx context.Context, pauseID uuid.UUID, wor
 		// bubble the error up we can safely retry the whole process
 		return err
 	}
+	corrID := ""
+	if pause.InvokeCorrelationID != nil {
+		corrID = *pause.InvokeCorrelationID
+	}
+	logger.StdlibLogger(ctx).Warn("[diag] DeletePauseByID: deleting pause",
+		"pause_id", pauseID.String(),
+		"run_id", pause.Identifier.RunID.String(),
+		"data_key", pause.DataKey,
+		"invoke_correlation_id", corrID,
+		"has_invoke_correlation_id", pause.InvokeCorrelationID != nil,
+	)
 	return s.DeletePause(ctx, *pause)
 }
 
@@ -202,6 +213,12 @@ func (s *PauseStore) DeletePausesForRun(ctx context.Context, runID ulid.ULID, wo
 	if err != nil {
 		return err
 	}
+
+	logger.StdlibLogger(ctx).Warn("[diag] DeletePausesForRun: deleting pauses",
+		"run_id", runID.String(),
+		"workspace_id", workspaceID.String(),
+		"pause_count", len(pauseIDs),
+	)
 
 	for _, pauseID := range pauseIDs {
 		if err := s.DeletePauseByID(ctx, pauseID, workspaceID); err != nil {
@@ -329,11 +346,26 @@ func (s *PauseStore) PauseByInvokeCorrelationID(ctx context.Context, wsID uuid.U
 	cmd := global.Client().B().Hget().Key(key).Field(correlationID).Build()
 	pauseIDstr, err := global.Client().Do(ctx, cmd).ToString()
 	if err == rueidis.Nil {
+		logger.StdlibLogger(ctx).Warn("[diag] PauseByInvokeCorrelationID: NOT FOUND in Redis hash",
+			"correlation_id", correlationID,
+			"redis_key", key,
+			"workspace_id", wsID.String(),
+		)
 		return nil, state.ErrInvokePauseNotFound
 	}
 	if err != nil {
+		logger.StdlibLogger(ctx).Error("[diag] PauseByInvokeCorrelationID: Redis error",
+			"error", err,
+			"correlation_id", correlationID,
+			"redis_key", key,
+		)
 		return nil, err
 	}
+
+	logger.StdlibLogger(ctx).Warn("[diag] PauseByInvokeCorrelationID: FOUND pause ID in hash",
+		"correlation_id", correlationID,
+		"pause_id", pauseIDstr,
+	)
 
 	pauseID, err := uuid.Parse(pauseIDstr)
 	if err != nil {

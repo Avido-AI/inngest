@@ -2732,8 +2732,20 @@ func (e *executor) HandleInvokeFinish(ctx context.Context, evt event.TrackedEven
 	// find the pause with correlationID
 	pause, err := e.pm.PauseByInvokeCorrelationID(ctx, wsID, correlationID)
 	if err != nil {
+		l.Warn("[diag] invoke pause LOOKUP failed",
+			"error", err,
+			"correlation_id", correlationID,
+			"workspace_id", wsID.String(),
+			"event_name", evt.GetEvent().Name,
+		)
 		return err
 	}
+	l.Warn("[diag] invoke pause FOUND",
+		"pause_id", pause.ID.String(),
+		"correlation_id", correlationID,
+		"run_id", pause.Identifier.RunID.String(),
+		"data_key", pause.DataKey,
+	)
 	if pause.Event != nil {
 		eventName = *pause.Event
 	}
@@ -2988,11 +3000,26 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 
 	md, err := e.smv2.LoadMetadata(ctx, sv2id)
 	if err == state.ErrRunNotFound {
+		logger.StdlibLogger(ctx).Warn("[diag] Resume: parent run NOT FOUND (deleted?)",
+			"run_id", sv2id.RunID.String(),
+			"function_id", sv2id.FunctionID.String(),
+			"pause_id", pause.ID.String(),
+		)
 		return err
 	}
 	if err != nil {
+		logger.StdlibLogger(ctx).Error("[diag] Resume: LoadMetadata error",
+			"error", err,
+			"run_id", sv2id.RunID.String(),
+		)
 		return fmt.Errorf("error loading metadata to resume from pause: %w", err)
 	}
+	logger.StdlibLogger(ctx).Warn("[diag] Resume: metadata loaded OK",
+		"run_id", sv2id.RunID.String(),
+		"function_id", sv2id.FunctionID.String(),
+		"pause_id", pause.ID.String(),
+		"pause_data_key", pause.DataKey,
+	)
 
 	err = util.Crit(ctx, "consume pause", func(ctx context.Context) error {
 		if pause.OnTimeout && r.EventID != nil {
@@ -3015,8 +3042,23 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 			Data: r.With,
 		})
 		if err != nil {
+			logger.StdlibLogger(ctx).Error("[diag] Resume: ConsumePause FAILED",
+				"error", err,
+				"pause_id", pause.ID.String(),
+				"run_id", pause.Identifier.RunID.String(),
+				"data_key", pause.DataKey,
+			)
 			return fmt.Errorf("error consuming pause via event: %w", err)
 		}
+
+		logger.StdlibLogger(ctx).Warn("[diag] Resume: ConsumePause result",
+			"did_consume", consumeResult.DidConsume,
+			"has_pending_steps", consumeResult.HasPendingSteps,
+			"pause_id", pause.ID.String(),
+			"run_id", pause.Identifier.RunID.String(),
+			"data_key", pause.DataKey,
+			"will_enqueue", shouldEnqueueDiscovery(consumeResult.HasPendingSteps, pause.ParallelMode),
+		)
 
 		e.log.Debug("resuming from pause",
 			"error", err,
@@ -4766,12 +4808,35 @@ func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx exe
 	// to avoid duplicate invokes instead.
 	if err != nil {
 		if errors.Is(err, state.ErrPauseAlreadyExists) {
+			logger.StdlibLogger(ctx).Warn("[diag] invoke pause already exists",
+				"pause_id", pauseID.String(),
+				"correlation_id", correlationID,
+				"run_id", runCtx.Metadata().ID.RunID.String(),
+				"step_id", gen.ID,
+				"target_fn", opts.FunctionID,
+			)
 			if span != nil {
 				span.Drop()
 			}
 		} else {
+			logger.StdlibLogger(ctx).Error("[diag] invoke pause creation FAILED",
+				"error", err,
+				"pause_id", pauseID.String(),
+				"correlation_id", correlationID,
+				"run_id", runCtx.Metadata().ID.RunID.String(),
+				"step_id", gen.ID,
+			)
 			return err
 		}
+	} else {
+		logger.StdlibLogger(ctx).Warn("[diag] invoke pause CREATED",
+			"pause_id", pauseID.String(),
+			"correlation_id", correlationID,
+			"run_id", runCtx.Metadata().ID.RunID.String(),
+			"step_id", gen.ID,
+			"target_fn", opts.FunctionID,
+			"workspace_id", runCtx.Metadata().ID.Tenant.EnvID.String(),
+		)
 	}
 
 	err = e.queue.Enqueue(ctx, nextItem, expires, queue.EnqueueOpts{})

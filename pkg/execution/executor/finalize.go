@@ -117,6 +117,10 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 	}
 
 	// Delete the function state in every case.
+	l.Warn("[diag] finalize: DELETING state + pauses",
+		"run_id", opts.Metadata.ID.RunID.String(),
+		"function_id", opts.Metadata.ID.FunctionID.String(),
+	)
 	err = e.smv2.Delete(ctx, opts.Metadata.ID)
 	if err != nil {
 		l.Error(
@@ -125,6 +129,10 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 			"run_id", opts.Metadata.ID.RunID,
 		)
 	}
+	l.Warn("[diag] finalize: state deleted, calling finalizeEvents",
+		"run_id", opts.Metadata.ID.RunID.String(),
+		"function_id", opts.Metadata.ID.FunctionID.String(),
+	)
 
 	metrics.IncrRunFinalizedCounter(ctx, metrics.CounterOpt{
 		PkgName: pkgName,
@@ -345,6 +353,11 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 	// listener which _also_ attempts to do this;  however, this introduces
 	// some small delay due to message stream latency.
 	if isInvoke {
+		logger.From(ctx).Warn("[diag] finalizeEvents: spawning fast-resume goroutines",
+			"run_id", opts.Metadata.ID.RunID.String(),
+			"function_id", opts.Metadata.ID.FunctionID.String(),
+			"event_count", len(freshEvents),
+		)
 		for _, evt := range freshEvents {
 			tracked := event.BaseTrackedEvent{
 				ID:          ulid.MustParse(evt.ID),
@@ -353,9 +366,20 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 				WorkspaceID: opts.Metadata.ID.Tenant.EnvID,
 			}
 			service.Go(func() {
+				logger.From(ctx).Warn("[diag] fast-resume goroutine STARTING",
+					"event_id", evt.ID,
+					"child_run_id", opts.Metadata.ID.RunID.String(),
+					"child_function_id", opts.Metadata.ID.FunctionID.String(),
+				)
 				err := e.HandleInvokeFinish(context.WithoutCancel(ctx), tracked)
 				if err != nil && !errors.Is(err, ErrNoCorrelationID) {
-					logger.From(ctx).Error("error fast resuming invoke", "error", err)
+					logger.From(ctx).Error("[diag] fast-resume goroutine FAILED", "error", err,
+						"child_run_id", opts.Metadata.ID.RunID.String(),
+					)
+				} else if err == nil {
+					logger.From(ctx).Warn("[diag] fast-resume goroutine SUCCEEDED",
+						"child_run_id", opts.Metadata.ID.RunID.String(),
+					)
 				}
 			})
 		}
