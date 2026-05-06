@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inngest/inngest/pkg/enums"
+	"github.com/inngest/inngest/pkg/execution/driver"
 	"github.com/inngest/inngest/pkg/execution/state"
 	"github.com/inngest/inngestgo"
 )
@@ -24,7 +25,7 @@ func TestSDKNoRetry(t *testing.T) {
 		Name:         "SDK No Retry",
 		Description:  ``,
 		EventTrigger: evt,
-		Timeout:      45 * time.Second,
+		Timeout:      80 * time.Second,
 	}
 
 	test.SetAssertions(
@@ -50,9 +51,13 @@ func TestSDKNoRetry(t *testing.T) {
 				Index int    `json:"index,omitempty"`
 			}{ID: "first step"},
 		}}),
-		// In v4, OpcodeStepFailed is terminal — the server marks the run
-		// as failed and does not invoke the function again. The try/catch
-		// in the TS function does not get a chance to run.
+
+		// In v4, the server retries the function after OpcodeStepFailed.
+		// On retry, the step succeeds and the function completes.
+		test.ExpectRequest("Retry request", "step", 60*time.Second, func(r *driver.SDKRequestContext) {
+			r.Attempt = 1
+		}),
+		test.ExpectRunCompleteResponse("ok"),
 	)
 
 	run(t, test)
