@@ -47,7 +47,7 @@ func TestSDKNoRetry(t *testing.T) {
 				Name:    "Error",
 				Message: "no retry plz",
 			},
-			Data: []byte(`{"__serialized":true,"message":"no retry plz","name":"Error","stack":""}`),
+			Data: []byte(`{"__serialized":true,"name":"Error","message":"no retry plz","stack":""}`),
 			Opts: map[string]any{},
 			Userland: &struct {
 				ID    string `json:"id"`

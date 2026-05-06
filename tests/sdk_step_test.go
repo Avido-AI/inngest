@@ -68,13 +68,14 @@ func TestSDKSteps(t *testing.T) {
 				Index int    `json:"index,omitempty"`
 			}{ID: "for 2s"},
 		}}),
-		// Update stack and state with sleep result
+		// The server tracks both the inline-executed first step and the sleep
 		test.AddRequestStack(driver.FunctionStack{
-			Stack:   []string{hashes["sleep"]},
-			Current: 1,
+			Stack:   []string{hashes["first step"], hashes["sleep"]},
+			Current: 2,
 		}),
 		test.AddRequestSteps(map[string]any{
-			hashes["sleep"]: nil,
+			hashes["first step"]: map[string]any{"data": "first step"},
+			hashes["sleep"]:      nil,
 		}),
 
 		// After the sleep, the SDK re-executes the function. The first step
