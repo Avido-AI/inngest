@@ -4,7 +4,7 @@ WORKDIR /app
 COPY vendor vendor
 COPY . .
 # Ensure embedded docs directory exists (website/ is not in the fork)
-RUN mkdir -p website/pages/docs && echo "placeholder" > website/pages/docs/.gitkeep
+RUN mkdir -p website/pages/docs && echo "placeholder" > website/pages/docs/placeholder.md
 ARG TARGETARCH
 ARG TARGETOS
 RUN --mount=type=cache,target=/root/.cache/go-build \
