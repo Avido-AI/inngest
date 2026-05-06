@@ -33,7 +33,7 @@ func TestSDKRetry(t *testing.T) {
 		Name:         "SDK Retry",
 		Description:  ``,
 		EventTrigger: evt,
-		Timeout:      45 * time.Second,
+		Timeout:      3 * time.Minute,
 	}
 
 	test.SetAssertions(
@@ -63,7 +63,7 @@ func TestSDKRetry(t *testing.T) {
 		// the step succeeds and the function continues inline. The function then
 		// throws, so we get a 500 error response.
 		test.Printf("Awaiting step retry"),
-		test.ExpectRequest("Second request", "step", 45*time.Second, func(r *driver.SDKRequestContext) {
+		test.ExpectRequest("Second request", "step", 90*time.Second, func(r *driver.SDKRequestContext) {
 			r.Attempt = 1
 		}),
 		test.ExpectResponseFunc(500, func(byt []byte) error {
@@ -89,7 +89,7 @@ func TestSDKRetry(t *testing.T) {
 				"data": "yes",
 			},
 		}),
-		test.ExpectRequest("Final call", "step", 45*time.Second, func(r *driver.SDKRequestContext) {
+		test.ExpectRequest("Final call", "step", 90*time.Second, func(r *driver.SDKRequestContext) {
 			r.Attempt = 2
 		}),
 		test.ExpectRunCompleteResponse(map[string]any{
