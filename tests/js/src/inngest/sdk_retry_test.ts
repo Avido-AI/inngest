@@ -24,6 +24,7 @@ export const testRetry = inngest.createFunction(
       throw new Error("broken func");
     }
     funcAttempt = 0;
+    stepFirstCall = true;
 
     return { name: event.name, body: "ok" };
   }
