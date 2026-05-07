@@ -27,13 +27,12 @@ type WorkspaceEnvironmentFields = Pick<
   | 'parentID'
   | 'test'
   | 'type'
+  | 'webhookSigningKey'
   | 'createdAt'
   | 'isArchived'
   | 'isAutoArchiveEnabled'
   | 'lastDeployedAt'
-> & {
-  webhookSigningKey?: Workspace['webhookSigningKey'];
-};
+>;
 
 export function getActiveEnvironment(
   environments: NonEmptyArray<Environment>,
@@ -164,7 +163,7 @@ export function workspaceToEnvironment(
     slug,
     type: workspace.type,
     hasParent: Boolean(workspace.parentID),
-    webhookSigningKey: workspace.webhookSigningKey ?? '',
+    webhookSigningKey: workspace.webhookSigningKey,
     createdAt: workspace.createdAt,
     isArchived: workspace.isArchived,
     isAutoArchiveEnabled: workspace.isAutoArchiveEnabled,

@@ -72,6 +72,7 @@ const GetDefaultEnvironmentDocument = graphql(`
       type
       createdAt
       lastDeployedAt
+      webhookSigningKey
       isArchived
       isAutoArchiveEnabled
     }
