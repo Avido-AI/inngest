@@ -106,7 +106,7 @@ export const useEnvironment = (
       return;
     }
 
-    return workspaceToEnvironment(data.envBySlug as Workspace);
+    return workspaceToEnvironment(data.envBySlug);
   }, [data?.envBySlug]);
 
   return [{ data: environment, fetching, error, stale, hasNext: false }, refetch];
