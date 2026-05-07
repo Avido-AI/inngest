@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { useQuery, type UseQueryResponse } from 'urql';
 
 import { graphql } from '@/gql';
-import type { Workspace } from '@/gql/graphql';
 import {
   workspaceToEnvironment,
   workspacesToEnvironments,
@@ -20,7 +19,7 @@ export function useDefaultEnvironment(): UseQueryResponse<Environment> {
       return;
     }
 
-    return workspaceToEnvironment(data.defaultEnv as Workspace);
+    return workspaceToEnvironment(data.defaultEnv);
   }, [data?.defaultEnv]);
 
   return [{ data: environment, fetching, error, stale, hasNext: false }, refetch];
