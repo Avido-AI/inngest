@@ -6,7 +6,7 @@ allowBuilds:
   "@sentry/cli": true
   esbuild: true
   "@parcel/watcher": true
-  protobufjs: true
+  protobufjs: false
   sharp: true
   unrs-resolver: true
   "@clerk/shared": false
