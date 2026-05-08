@@ -1825,6 +1825,35 @@ func (w wrapper) GetTraceRun(ctx context.Context, id cqrs.TraceRunIdentifier) (*
 	return &trun, nil
 }
 
+// unwrapSpanOutput processes raw output bytes by extracting the wrapped
+// "data" or "error" payload. waitForEvent output is left as-is because
+// it is not wrapped.
+func unwrapSpanOutput(ctx context.Context, raw json.RawMessage, spanID string) (data json.RawMessage, isError bool) {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return raw, false
+	}
+
+	if isWaitForEventOutput(m) {
+		return raw, false
+	}
+
+	if errData, ok := m["error"]; ok {
+		marshaled, _ := json.Marshal(errData)
+		return marshaled, true
+	}
+	if successData, ok := m["data"]; ok {
+		marshaled, _ := json.Marshal(successData)
+		return marshaled, false
+	}
+
+	sanitizedSpanID := strings.ReplaceAll(spanID, "\n", "")
+	sanitizedSpanID = strings.ReplaceAll(sanitizedSpanID, "\r", "")
+	logger.StdlibLogger(ctx).Error("span output is not keyed, assuming success", "spanID", sanitizedSpanID)
+
+	return raw, false
+}
+
 func (w wrapper) GetSpanOutput(ctx context.Context, opts cqrs.SpanIdentifier) (*cqrs.SpanOutput, error) {
 	if opts.SpanID == "" && (opts.InputSpanID == nil || *opts.InputSpanID == "") {
 		return nil, fmt.Errorf("span ID or input span ID is required to retrieve output")
@@ -1843,31 +1872,8 @@ func (w wrapper) GetSpanOutput(ctx context.Context, opts cqrs.SpanIdentifier) (*
 			if len(row.Input) > 0 {
 				so.Input = row.Input
 			}
-
 			if len(row.Output) > 0 {
-				var m map[string]any
-
-				so.Data = row.Output
-				if err := json.Unmarshal(so.Data, &m); err == nil && m != nil {
-					// NOTE: By default, we wrap errors and data.  However, unfortunately
-					// step.waitForEvent is _not_ wrapped, so we check to see if there's
-					// both "data" and "name";  if so, we keep the data wholesale
-					// (no unwrapping). We do NOT return early here because we still
-					// need to fetch input from InputSpanID below.
-					if !isWaitForEventOutput(m) {
-						if errData, ok := m["error"]; ok {
-							so.IsError = true
-							so.Data, _ = json.Marshal(errData)
-						} else if successData, ok := m["data"]; ok {
-							so.Data, _ = json.Marshal(successData)
-						} else {
-							sanitizedSpanID := strings.ReplaceAll(opts.SpanID, "\n", "")
-							sanitizedSpanID = strings.ReplaceAll(sanitizedSpanID, "\r", "")
-
-							logger.StdlibLogger(ctx).Error("span output is not keyed, assuming success", "spanID", sanitizedSpanID)
-						}
-					}
-				}
+				so.Data, so.IsError = unwrapSpanOutput(ctx, row.Output, opts.SpanID)
 			}
 		}
 	}
@@ -1889,7 +1895,7 @@ func (w wrapper) GetSpanOutput(ctx context.Context, opts cqrs.SpanIdentifier) (*
 			// When SpanID is empty (no dedicated output span), fall back to
 			// reading output from the input span to preserve prior behavior.
 			if opts.SpanID == "" && len(row.Output) > 0 {
-				so.Data = row.Output
+				so.Data, so.IsError = unwrapSpanOutput(ctx, row.Output, *opts.InputSpanID)
 			}
 		}
 	}
