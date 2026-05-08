@@ -79,4 +79,4 @@ overrides:
   "zod@>=3.0.0 <4.0.0": ">=3.25.76 <5.0.0"
   "@tanstack/router-generator>zod": "3.25.76"
   "@tanstack/router-plugin>zod": "3.25.76"
-  "@tanstack/start-plugin-core>zod": "3.25.76"
+  "@tanstack/start-plugin-core>zod": "4.4.3"

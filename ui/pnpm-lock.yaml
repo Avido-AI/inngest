@@ -71,7 +71,7 @@ overrides:
   zod@>=3.0.0 <4.0.0: '>=3.25.76 <5.0.0'
   '@tanstack/router-generator>zod': 3.25.76
   '@tanstack/router-plugin>zod': 3.25.76
-  '@tanstack/start-plugin-core>zod': 3.25.76
+  '@tanstack/start-plugin-core>zod': 4.4.3
 
 importers:
 
@@ -16407,7 +16407,7 @@ snapshots:
       ufo: 1.6.4
       vitefu: 1.1.3(vite@8.0.10(@types/node@24.12.2)(esbuild@0.28.0)(jiti@1.21.7)(terser@5.46.2)(yaml@2.8.4))
       xmlbuilder2: 4.0.3
-      zod: 3.25.76
+      zod: 4.4.3
     optionalDependencies:
       '@rsbuild/core': 2.0.3
       vite: 8.0.10(@types/node@24.12.2)(esbuild@0.28.0)(jiti@1.21.7)(terser@5.46.2)(yaml@2.8.4)
@@ -16442,7 +16442,7 @@ snapshots:
       ufo: 1.6.4
       vitefu: 1.1.3(vite@8.0.10(@types/node@24.12.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.46.2)(yaml@2.8.4))
       xmlbuilder2: 4.0.3
-      zod: 3.25.76
+      zod: 4.4.3
     optionalDependencies:
       '@rsbuild/core': 2.0.3
       vite: 8.0.10(@types/node@24.12.2)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.46.2)(yaml@2.8.4)
