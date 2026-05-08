@@ -1849,30 +1849,30 @@ func (w wrapper) GetSpanOutput(ctx context.Context, opts cqrs.SpanIdentifier) (*
 
 				so.Data = row.Output
 				if err := json.Unmarshal(so.Data, &m); err == nil && m != nil {
-					// NOTE: By default, we wrap errors and data.  However, unforutnately
+					// NOTE: By default, we wrap errors and data.  However, unfortunately
 					// step.waitForEvent is _not_ wrapped, so we check to see if there's
-					// both "data" and "name";  if so, we return the data wholesale.
-					if isWaitForEventOutput(m) {
-						return so, nil
-					}
+					// both "data" and "name";  if so, we keep the data wholesale
+					// (no unwrapping). We do NOT return early here because we still
+					// need to fetch input from InputSpanID below.
+					if !isWaitForEventOutput(m) {
+						if errData, ok := m["error"]; ok {
+							so.IsError = true
+							so.Data, _ = json.Marshal(errData)
+						} else if successData, ok := m["data"]; ok {
+							so.Data, _ = json.Marshal(successData)
+						} else {
+							sanitizedSpanID := strings.ReplaceAll(opts.SpanID, "\n", "")
+							sanitizedSpanID = strings.ReplaceAll(sanitizedSpanID, "\r", "")
 
-					if errData, ok := m["error"]; ok {
-						so.IsError = true
-						so.Data, _ = json.Marshal(errData)
-					} else if successData, ok := m["data"]; ok {
-						so.Data, _ = json.Marshal(successData)
-					} else {
-						sanitizedSpanID := strings.ReplaceAll(opts.SpanID, "\n", "")
-						sanitizedSpanID = strings.ReplaceAll(sanitizedSpanID, "\r", "")
-
-						logger.StdlibLogger(ctx).Error("span output is not keyed, assuming success", "spanID", sanitizedSpanID)
+							logger.StdlibLogger(ctx).Error("span output is not keyed, assuming success", "spanID", sanitizedSpanID)
+						}
 					}
 				}
 			}
 		}
 	}
 
-	// If a separate input span is specified, fetch input data from it.
+	// If a separate input span is specified, fetch data from it.
 	// This must be queried independently to avoid the input span's output
 	// data from overwriting the correct output fetched above.
 	if opts.InputSpanID != nil && *opts.InputSpanID != "" && *opts.InputSpanID != opts.SpanID {
@@ -1884,6 +1884,12 @@ func (w wrapper) GetSpanOutput(ctx context.Context, opts cqrs.SpanIdentifier) (*
 		for _, row := range inputRows {
 			if len(row.Input) > 0 {
 				so.Input = row.Input
+			}
+
+			// When SpanID is empty (no dedicated output span), fall back to
+			// reading output from the input span to preserve prior behavior.
+			if opts.SpanID == "" && len(row.Output) > 0 {
+				so.Data = row.Output
 			}
 		}
 	}
