@@ -138,8 +138,10 @@ func TestFunctionFailureHandlingWithRateLimit(t *testing.T) {
 		Data: map[string]any{"number": 10},
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return atomic.LoadInt32(&failed) == 1 }, 15*time.Second, 100*time.Millisecond)
-	require.Eventually(t, func() bool { return atomic.LoadInt32(&handled) == 1 }, 15*time.Second, 100*time.Millisecond)
+	// Both counters are already 1; use Never to verify the rate-limited event
+	// is not processed during a 3s observation window.
+	require.Never(t, func() bool { return atomic.LoadInt32(&failed) > 1 }, 3*time.Second, 100*time.Millisecond)
+	require.Never(t, func() bool { return atomic.LoadInt32(&handled) > 1 }, 3*time.Second, 100*time.Millisecond)
 
 	// send a different payload
 	_, err = inngestClient.Send(ctx, inngestgo.Event{
