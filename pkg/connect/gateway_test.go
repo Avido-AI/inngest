@@ -1006,33 +1006,17 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 		_ = svc.Stop(context.Background())
 	})
 
-	// Wait until fake API is up
-	maxAttempts := 10
-	for i := 0; i <= maxAttempts; i++ {
-		if i == maxAttempts {
-			require.Fail(t, "failed to connect to fake api")
-		}
-
+	// Wait until fake API is up.
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(fakeApiBaseUrl + "/ready")
-		if err == nil && resp.StatusCode == http.StatusOK {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+		return err == nil && resp.StatusCode == http.StatusOK
+	}, 15*time.Second, 100*time.Millisecond, "failed to connect to fake api")
 
-	// Wait until gateway is up
-	maxAttempts = 10
-	for i := 0; i <= maxAttempts; i++ {
-		if i == maxAttempts {
-			require.Fail(t, "failed to connect to gateway")
-		}
-
+	// Wait until gateway is up.
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/ready", gwPort))
-		if err == nil && resp.StatusCode == http.StatusOK {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+		return err == nil && resp.StatusCode == http.StatusOK
+	}, 15*time.Second, 100*time.Millisecond, "failed to connect to gateway")
 
 	var ws *websocket.Conn
 	if len(params) == 0 || !params[0].noConnect {
