@@ -18,6 +18,7 @@ import (
 	"github.com/aws/smithy-go/ptr"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	connectconfig "github.com/inngest/inngest/pkg/config/connect"
 	"github.com/inngest/inngest/pkg/connect/auth"
 	"github.com/inngest/inngest/pkg/connect/state"
 	"github.com/inngest/inngest/pkg/connect/types"
@@ -939,7 +940,12 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 		},
 	}
 
+	grpcGatewayPort := freePort()
+	grpcExecutorPort := freePort()
+	grpcConfig := connectconfig.NewGRPCConfig(ctx, "127.0.0.1", grpcGatewayPort, "127.0.0.1", grpcExecutorPort)
+
 	opts := []gatewayOpt{
+		WithGRPCConfig(grpcConfig),
 		WithGatewayAuthHandler(func(ctx context.Context, data *connect.WorkerConnectRequestData) (*auth.Response, error) {
 			l.Info("got auth request", "data", data)
 

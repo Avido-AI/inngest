@@ -59,8 +59,9 @@ func TestFunctionFailure(t *testing.T) {
 	_, err = inngestClient.Send(ctx, evt)
 	require.NoError(t, err)
 
-	<-time.After(5 * time.Second)
-
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&counter) >= 1
+	}, 15*time.Second, 100*time.Millisecond)
 	require.EqualValues(t, counter, 1)
 
 	t.Run("trace run should have appropriate data", func(t *testing.T) {
@@ -133,8 +134,9 @@ func TestFunctionFailureWithRetries(t *testing.T) {
 	_, err = inngestClient.Send(ctx, evt)
 	require.NoError(t, err)
 
-	<-time.After(5 * time.Second)
-
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&counter) >= 1
+	}, 15*time.Second, 100*time.Millisecond)
 	require.EqualValues(t, counter, 1)
 
 	t.Run("in progress run", func(t *testing.T) {
