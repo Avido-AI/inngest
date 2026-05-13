@@ -7,7 +7,7 @@ settings:
 overrides:
   h3@<1.15.6: '>=1.15.6 <2'
   cjs-module-lexer@<=2.2.0: 2.2.0
-  next@<=16.2.5: 16.2.5
+  next@<16.2.5: 16.2.5
 
 importers:
 
