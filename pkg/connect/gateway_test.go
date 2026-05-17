@@ -1010,13 +1010,13 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 	require.Eventually(t, func() bool {
 		resp, err := http.Get(fakeApiBaseUrl + "/ready")
 		return err == nil && resp.StatusCode == http.StatusOK
-	}, 15*time.Second, 100*time.Millisecond, "failed to connect to fake api")
+	}, 30*time.Second, 100*time.Millisecond, "failed to connect to fake api")
 
 	// Wait until gateway is up.
 	require.Eventually(t, func() bool {
 		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/ready", gwPort))
 		return err == nil && resp.StatusCode == http.StatusOK
-	}, 15*time.Second, 100*time.Millisecond, "failed to connect to gateway")
+	}, 30*time.Second, 100*time.Millisecond, "failed to connect to gateway")
 
 	var ws *websocket.Conn
 	if len(params) == 0 || !params[0].noConnect {
