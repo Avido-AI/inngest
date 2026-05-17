@@ -84,3 +84,16 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: unit,kq-${{ matrix.experimentalKeyQueues }},db-${{ matrix.database }}
+
+  ci:
+    name: CI
+    if: always()
+    needs: [golangci, gen, test-linux-race]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more jobs failed or were cancelled"
+            exit 1
+          fi
