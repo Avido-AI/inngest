@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write # for cosign keyless signing via GitHub OIDC
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ghcr.io/avido-ai/inngest
@@ -16,6 +11,10 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # for cosign keyless signing via GitHub OIDC
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
