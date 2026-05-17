@@ -3,11 +3,7 @@ name: Go
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "ui/**"
   pull_request:
-    paths-ignore:
-      - "ui/**"
 
 permissions:
   contents: read
