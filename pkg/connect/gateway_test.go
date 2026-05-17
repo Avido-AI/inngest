@@ -873,7 +873,11 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 
 	var fakeApiBaseUrl string
 	{
-		fakeApiPort := freePort()
+		// Bind the listener directly to avoid the TOCTOU race in freePort()
+		// where another process can grab the port between finding and using it.
+		fakeApiListener, listenErr := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, listenErr)
+		fakeApiPort := fakeApiListener.Addr().(*net.TCPAddr).Port
 
 		fakeApiBaseUrl = fmt.Sprintf("http://127.0.0.1:%d", fakeApiPort)
 
@@ -881,11 +885,10 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 
 		srv := http.Server{
 			Handler: mux,
-			Addr:    fmt.Sprintf("127.0.0.1:%d", fakeApiPort),
 		}
 
 		go func() {
-			_ = srv.ListenAndServe()
+			_ = srv.Serve(fakeApiListener)
 		}()
 		t.Cleanup(func() {
 			_ = srv.Shutdown(ctx)
