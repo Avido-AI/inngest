@@ -51,223 +51,184 @@ func (e *dbExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlyS
 	return nil
 }
 
-func (e *dbExporter) parseSpan(ctx context.Context, span sdktrace.ReadOnlySpan) (dbpkg.InsertSpanParams, bool) {
-	traceID := span.SpanContext().TraceID().String()
-	spanID := span.SpanContext().SpanID().String()
-	parentID := span.Parent().SpanID().String()
+// spanFields holds the extracted metadata from a span's attributes.
+type spanFields struct {
+	traceID        string
+	spanID         string
+	parentID       string
+	envID          string
+	accountID      string
+	appID          string
+	dynamicSpanID  string
+	functionID     string
+	output         any
+	input          any
+	runID          string
+	debugSessionID string
+	debugRunID     string
+	status         string
+	eventIdsByt    []byte
+	attrs          map[string]any
+}
+
+// extractSpanFields iterates over a span's attributes and extracts known
+// metadata fields into a spanFields struct. Generic attributes are collected
+// into the attrs map.
+func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFields {
+	sf := spanFields{
+		traceID:  span.SpanContext().TraceID().String(),
+		spanID:   span.SpanContext().SpanID().String(),
+		parentID: span.Parent().SpanID().String(),
+		attrs:    make(map[string]any),
+	}
 	isExtensionSpan := span.Name() == meta.SpanNameDynamicExtension
-	var envID string
-	var accountID string
-	var appID string
-	var dynamicSpanID string
-	var functionID string
-	var output any
-	var input any
-	var runID string
-	var debugSessionID string
-	var debugRunID string
-	var status string
-	var eventIdsByt []byte
 
-	attrs := make(map[string]any)
 	for _, attr := range span.Attributes() {
-		if string(attr.Key) == meta.Attrs.StepOutput.Key() {
-			output = attr.Value.AsInterface()
-			continue
-		}
+		key := string(attr.Key)
 
-		if string(attr.Key) == meta.Attrs.EventsInput.Key() || string(attr.Key) == meta.Attrs.StepInput.Key() {
-			input = attr.Value.AsInterface()
+		switch key {
+		case meta.Attrs.StepOutput.Key():
+			sf.output = attr.Value.AsInterface()
 			continue
-		}
-
-		if string(attr.Key) == meta.Attrs.EventIDs.Key() {
-			var err error
-			if eventIdsByt, err = json.Marshal(attr.Value.AsStringSlice()); err != nil {
+		case meta.Attrs.EventsInput.Key(), meta.Attrs.StepInput.Key():
+			sf.input = attr.Value.AsInterface()
+			continue
+		case meta.Attrs.EventIDs.Key():
+			if byt, err := json.Marshal(attr.Value.AsStringSlice()); err != nil {
 				logger.StdlibLogger(ctx).Error("failed to marshal event IDs",
-					"span_id", spanID,
-					"trace_id", traceID,
-					"parent_id", parentID,
-					"name", span.Name(),
-					"start_time", span.StartTime(),
-					"end_time", span.EndTime(),
-					"app_id", appID,
-					"function_id", functionID,
+					"span_id", sf.spanID, "trace_id", sf.traceID,
+					"name", span.Name(), "error", err,
 				)
+			} else {
+				sf.eventIdsByt = byt
 			}
-			if cleanAttrs {
+		case meta.Attrs.AccountID.Key():
+			sf.accountID = attr.Value.AsString()
+		case meta.Attrs.EnvID.Key():
+			sf.envID = attr.Value.AsString()
+		case meta.Attrs.RunID.Key():
+			sf.runID = attr.Value.AsString()
+		case meta.Attrs.AppID.Key():
+			sf.appID = attr.Value.AsString()
+		case meta.Attrs.FunctionID.Key():
+			sf.functionID = attr.Value.AsString()
+		case meta.Attrs.DynamicTraceID.Key():
+			sf.traceID = attr.Value.AsString()
+		case meta.Attrs.DynamicSpanID.Key():
+			sf.dynamicSpanID = attr.Value.AsString()
+		case meta.Attrs.DebugSessionID.Key():
+			sf.debugSessionID = attr.Value.AsString()
+		case meta.Attrs.DebugRunID.Key():
+			sf.debugRunID = attr.Value.AsString()
+		case meta.Attrs.DynamicStatus.Key():
+			sf.status = attr.Value.AsString()
+		}
+
+		if cleanAttrs {
+			switch key {
+			case meta.Attrs.EventIDs.Key(),
+				meta.Attrs.AccountID.Key(),
+				meta.Attrs.EnvID.Key(),
+				meta.Attrs.RunID.Key(),
+				meta.Attrs.AppID.Key(),
+				meta.Attrs.FunctionID.Key(),
+				meta.Attrs.DynamicTraceID.Key(),
+				meta.Attrs.DynamicSpanID.Key(),
+				meta.Attrs.DebugSessionID.Key(),
+				meta.Attrs.DebugRunID.Key(),
+				meta.Attrs.DynamicStatus.Key(),
+				meta.Attrs.UserlandSpanID.Key():
+				continue
+			}
+			if isExtensionSpan && key == meta.Attrs.DropSpan.Key() {
 				continue
 			}
 		}
 
-		if string(attr.Key) == meta.Attrs.AccountID.Key() {
-			accountID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.EnvID.Key() {
-			envID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.RunID.Key() {
-			runID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.AppID.Key() {
-			appID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.FunctionID.Key() {
-			functionID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.DynamicTraceID.Key() {
-			traceID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.DynamicSpanID.Key() {
-			dynamicSpanID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if isExtensionSpan && string(attr.Key) == meta.Attrs.DropSpan.Key() {
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.DebugSessionID.Key() {
-			debugSessionID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.DebugRunID.Key() {
-			debugRunID = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.DynamicStatus.Key() {
-			status = attr.Value.AsString()
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		if string(attr.Key) == meta.Attrs.UserlandSpanID.Key() {
-			if cleanAttrs {
-				continue
-			}
-		}
-
-		attrs[string(attr.Key)] = attr.Value.AsInterface()
+		sf.attrs[key] = attr.Value.AsInterface()
 	}
+	return sf
+}
 
-	if runID == "" {
-		logger.StdlibLogger(ctx).Error("span missing run ID",
-			"span_id", spanID,
-			"trace_id", traceID,
-			"parent_id", parentID,
-			"name", span.Name(),
-			"start_time", span.StartTime(),
-			"end_time", span.EndTime(),
-			"app_id", appID,
-			"function_id", functionID,
-		)
-		return dbpkg.InsertSpanParams{}, false
-	}
-
-	attrsByt, err := json.Marshal(attrs)
+// marshalSpanJSON marshals the attributes map and links slice, returning the
+// serialised bytes. Returns an error on marshal failure.
+func marshalSpanJSON(ctx context.Context, sf spanFields, span sdktrace.ReadOnlySpan) (attrsByt, linksByt []byte, err error) {
+	attrsByt, err = json.Marshal(sf.attrs)
 	if err != nil {
 		logger.StdlibLogger(ctx).Error("failed to marshal span attributes",
-			"span_id", spanID,
-			"trace_id", traceID,
-			"parent_id", parentID,
-			"name", span.Name(),
-			"start_time", span.StartTime(),
-			"end_time", span.EndTime(),
-			"app_id", appID,
-			"function_id", functionID,
-			"error", err,
+			"span_id", sf.spanID, "trace_id", sf.traceID,
+			"name", span.Name(), "error", err,
 		)
-		return dbpkg.InsertSpanParams{}, false
+		return nil, nil, err
 	}
 
-	linksByt, err := json.Marshal(span.Links())
+	linksByt, err = json.Marshal(span.Links())
 	if err != nil {
 		logger.StdlibLogger(ctx).Error("failed to marshal span links",
-			"span_id", spanID,
-			"trace_id", traceID,
-			"parent_id", parentID,
-			"name", span.Name(),
-			"start_time", span.StartTime(),
-			"end_time", span.EndTime(),
-			"app_id", appID,
-			"function_id", functionID,
-			"error", err,
+			"span_id", sf.spanID, "trace_id", sf.traceID,
+			"name", span.Name(), "error", err,
 		)
-		return dbpkg.InsertSpanParams{}, false
+		return nil, nil, err
 	}
+	return attrsByt, linksByt, nil
+}
 
-	outputByt := anyToBytes(output)
-	inputByt := anyToBytes(input)
-
+// buildInsertSpanParams constructs the DB insert params from the extracted
+// fields and serialised JSON payloads.
+func buildInsertSpanParams(sf spanFields, span sdktrace.ReadOnlySpan, attrsByt, linksByt []byte) dbpkg.InsertSpanParams {
 	return dbpkg.InsertSpanParams{
-		SpanID:       spanID,
-		TraceID:      traceID,
-		ParentSpanID: sql.NullString{String: parentID, Valid: parentID != ""},
+		SpanID:       sf.spanID,
+		TraceID:      sf.traceID,
+		ParentSpanID: sql.NullString{String: sf.parentID, Valid: sf.parentID != ""},
 		Name:         span.Name(),
 		StartTime:    span.StartTime().Round(0),
 		EndTime:      span.EndTime().Round(0),
-		RunID:        runID,
-		AppID:        appID,
-		FunctionID:   functionID,
+		RunID:        sf.runID,
+		AppID:        sf.appID,
+		FunctionID:   sf.functionID,
 		Attributes:   attrsByt,
 		Links:        linksByt,
 		DynamicSpanID: sql.NullString{
-			String: dynamicSpanID,
-			Valid:  dynamicSpanID != "",
+			String: sf.dynamicSpanID,
+			Valid:  sf.dynamicSpanID != "",
 		},
-		AccountID: accountID,
-		EnvID:     envID,
-		Output:    outputByt,
-		Input:     inputByt,
+		AccountID: sf.accountID,
+		EnvID:     sf.envID,
+		Output:    anyToBytes(sf.output),
+		Input:     anyToBytes(sf.input),
 		DebugSessionID: sql.NullString{
-			String: debugSessionID,
-			Valid:  debugSessionID != "",
+			String: sf.debugSessionID,
+			Valid:  sf.debugSessionID != "",
 		},
 		DebugRunID: sql.NullString{
-			String: debugRunID,
-			Valid:  debugRunID != "",
+			String: sf.debugRunID,
+			Valid:  sf.debugRunID != "",
 		},
 		Status: sql.NullString{
-			String: status,
-			Valid:  status != "",
+			String: sf.status,
+			Valid:  sf.status != "",
 		},
-		EventIds: eventIdsByt,
-	}, true
+		EventIds: sf.eventIdsByt,
+	}
+}
+
+func (e *dbExporter) parseSpan(ctx context.Context, span sdktrace.ReadOnlySpan) (dbpkg.InsertSpanParams, bool) {
+	sf := extractSpanFields(ctx, span)
+
+	if sf.runID == "" {
+		logger.StdlibLogger(ctx).Error("span missing run ID",
+			"span_id", sf.spanID, "trace_id", sf.traceID,
+			"name", span.Name(),
+		)
+		return dbpkg.InsertSpanParams{}, false
+	}
+
+	attrsByt, linksByt, err := marshalSpanJSON(ctx, sf, span)
+	if err != nil {
+		return dbpkg.InsertSpanParams{}, false
+	}
+
+	return buildInsertSpanParams(sf, span, attrsByt, linksByt), true
 }
 
 func (e *dbExporter) Shutdown(context.Context) error { return nil }
