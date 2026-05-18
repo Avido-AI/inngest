@@ -159,7 +159,20 @@ func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []t
 
 	errs = bs.EnqueueItemBatch(ctx, qis, effectiveAts, opts)
 	q.emitBatchMetrics(ctx, items, errs, shard)
+	q.maybeEnqueueBatchPromotionJobs(ctx, qis, errs)
 	return errs
+}
+
+// maybeEnqueueBatchPromotionJobs schedules promotion jobs for successfully batch-enqueued
+// items that require them, matching the single-item Enqueue path behavior.
+func (q *queueProcessor) maybeEnqueueBatchPromotionJobs(ctx context.Context, qis []QueueItem, errs []error) {
+	l := logger.StdlibLogger(ctx)
+	for idx := range qis {
+		if errs[idx] != nil {
+			continue
+		}
+		q.maybeEnqueuePromotionJob(ctx, l, qis[idx])
+	}
 }
 
 // prepareQueueItems converts Items to QueueItems using the shared buildQueueItem helper.
