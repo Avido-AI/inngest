@@ -63,7 +63,7 @@ func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
 
 	if w.fnCache != nil && !w.noFnCache {
 		w.fnCache.mu.Lock()
-		w.fnCache.functions = funcs
+		w.fnCache.functions = slices.Clone(funcs)
 		w.fnCache.updatedAt = time.Now()
 		w.fnCache.mu.Unlock()
 	}

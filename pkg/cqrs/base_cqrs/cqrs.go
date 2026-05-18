@@ -61,7 +61,7 @@ func NewCQRS(adapter adapterWithHelpers) cqrs.Manager {
 	return wrapper{
 		adapter: adapter,
 		q:       adapter.Q(),
-		fnCache: &functionsCache{ttl: 5 * time.Second},
+		fnCache: &functionsCache{ttl: 60 * time.Second},
 	}
 }
 
