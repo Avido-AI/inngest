@@ -16,10 +16,11 @@ import (
 // []inngest.Function slice returned by Functions(). This eliminates
 // repeated full table scans of the functions table on every incoming event.
 type functionsCache struct {
-	mu        sync.Mutex
-	functions []inngest.Function
-	updatedAt time.Time
-	ttl       time.Duration
+	mu         sync.Mutex
+	functions  []inngest.Function
+	updatedAt  time.Time
+	ttl        time.Duration
+	generation uint64 // incremented on invalidate; prevents stale write-back
 }
 
 func (c *functionsCache) invalidate() {
@@ -29,6 +30,7 @@ func (c *functionsCache) invalidate() {
 	c.mu.Lock()
 	c.functions = nil
 	c.updatedAt = time.Time{}
+	c.generation++
 	c.mu.Unlock()
 }
 
@@ -49,6 +51,7 @@ func (w wrapper) invalidateFnCache() {
 // Functions returns all functions as inngest functions, using a short-lived
 // in-memory cache to avoid repeated full table scans.
 func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
+	var genAtMiss uint64
 	if w.fnCache != nil && !w.noFnCache {
 		w.fnCache.mu.Lock()
 		if !w.fnCache.updatedAt.IsZero() && time.Since(w.fnCache.updatedAt) < w.fnCache.ttl {
@@ -56,6 +59,7 @@ func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
 			w.fnCache.mu.Unlock()
 			return result, nil
 		}
+		genAtMiss = w.fnCache.generation
 		w.fnCache.mu.Unlock()
 	}
 
@@ -75,8 +79,10 @@ func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
 
 	if w.fnCache != nil && !w.noFnCache {
 		w.fnCache.mu.Lock()
-		w.fnCache.functions = slices.Clone(funcs)
-		w.fnCache.updatedAt = time.Now()
+		if w.fnCache.generation == genAtMiss {
+			w.fnCache.functions = slices.Clone(funcs)
+			w.fnCache.updatedAt = time.Now()
+		}
 		w.fnCache.mu.Unlock()
 	}
 
