@@ -161,41 +161,62 @@ func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []t
 		return nil
 	}
 
-	// Prepare QueueItems from Items (same logic as Enqueue but batched).
+	qis, effectiveAts, prepErr := q.prepareQueueItems(items, ats, opts)
+	if prepErr != nil {
+		return prepErr
+	}
+
+	shard, errs := q.selectBatchShard(ctx, opts, qis[0], len(items))
+	if errs != nil {
+		return errs
+	}
+
+	bs, ok := shard.(batchEnqueueShard)
+	if !ok {
+		return q.enqueueFallback(ctx, items, ats, opts)
+	}
+
+	errs = bs.EnqueueItemBatch(ctx, qis, effectiveAts, opts)
+	q.emitBatchMetrics(ctx, items, errs, shard)
+	return errs
+}
+
+// prepareQueueItems converts Items to QueueItems without mutating the input slice.
+func (q *queueProcessor) prepareQueueItems(items []Item, ats []time.Time, opts EnqueueOpts) ([]QueueItem, []time.Time, []error) {
 	qis := make([]QueueItem, len(items))
 	effectiveAts := make([]time.Time, len(items))
 
 	for idx := range items {
-		item := &items[idx]
-		if item.Metadata == nil {
-			item.Metadata = map[string]any{}
+		workingItem := items[idx]
+		if workingItem.Metadata == nil {
+			workingItem.Metadata = map[string]any{}
 		}
 
 		id := ""
-		if item.JobID != nil {
-			id = *item.JobID
+		if workingItem.JobID != nil {
+			id = *workingItem.JobID
 		}
 
-		if item.QueueName == nil {
-			if name, ok := q.queueKindMapping[item.Kind]; ok {
-				item.QueueName = &name
+		if workingItem.QueueName == nil {
+			if name, ok := q.queueKindMapping[workingItem.Kind]; ok {
+				workingItem.QueueName = &name
 			}
 		}
 
 		qi := QueueItem{
 			ID:          id,
 			AtMS:        ats[idx].UnixMilli(),
-			WorkspaceID: item.WorkspaceID,
-			FunctionID:  item.Identifier.WorkflowID,
-			Data:        *item,
-			QueueName:   item.QueueName,
+			WorkspaceID: workingItem.WorkspaceID,
+			FunctionID:  workingItem.Identifier.WorkflowID,
+			Data:        workingItem,
+			QueueName:   workingItem.QueueName,
 			WallTimeMS:  ats[idx].UnixMilli(),
 		}
 
-		if item.QueueName == nil && qi.FunctionID == uuid.Nil {
+		if workingItem.QueueName == nil && qi.FunctionID == uuid.Nil {
 			errs := make([]error, len(items))
 			errs[idx] = fmt.Errorf("queue name or function ID must be set")
-			return errs
+			return nil, nil, errs
 		}
 
 		if opts.IdempotencyPeriod != nil {
@@ -211,38 +232,42 @@ func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []t
 		qis[idx] = qi
 	}
 
-	// Select shard using the first item (batch invoke items all share the same shard).
-	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, qis[0])
+	return qis, effectiveAts, nil
+}
+
+// selectBatchShard selects a Redis shard for the batch and validates it.
+func (q *queueProcessor) selectBatchShard(ctx context.Context, opts EnqueueOpts, firstItem QueueItem, count int) (QueueShard, []error) {
+	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, firstItem)
 	if err != nil {
-		errs := make([]error, len(items))
+		errs := make([]error, count)
 		for i := range errs {
 			errs[i] = err
 		}
-		return errs
+		return nil, errs
 	}
 
 	if shard.Kind() != enums.QueueShardKindRedis {
-		errs := make([]error, len(items))
+		errs := make([]error, count)
 		for i := range errs {
 			errs[i] = fmt.Errorf("batch enqueue only supported on Redis shards")
 		}
-		return errs
+		return nil, errs
 	}
 
-	// Type-assert to batch-capable shard.
-	bs, ok := shard.(batchEnqueueShard)
-	if !ok {
-		// Fallback: enqueue sequentially.
-		errs := make([]error, len(items))
-		for idx := range items {
-			errs[idx] = q.Enqueue(ctx, items[idx], ats[idx], opts)
-		}
-		return errs
+	return shard, nil
+}
+
+// enqueueFallback enqueues items sequentially when batch is not supported.
+func (q *queueProcessor) enqueueFallback(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
+	errs := make([]error, len(items))
+	for idx := range items {
+		errs[idx] = q.Enqueue(ctx, items[idx], ats[idx], opts)
 	}
+	return errs
+}
 
-	errs := bs.EnqueueItemBatch(ctx, qis, effectiveAts, opts)
-
-	// Emit metrics for each item.
+// emitBatchMetrics emits per-item enqueue metrics after a batch operation.
+func (q *queueProcessor) emitBatchMetrics(ctx context.Context, items []Item, errs []error, shard QueueShard) {
 	for idx := range items {
 		status := "enqueued"
 		if errs[idx] != nil {
@@ -261,6 +286,4 @@ func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []t
 			},
 		})
 	}
-
-	return errs
 }

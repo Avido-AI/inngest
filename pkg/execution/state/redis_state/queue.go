@@ -316,113 +316,17 @@ func (q *queue) EnqueueItemBatch(ctx context.Context, items []osqueue.QueueItem,
 		return nil
 	}
 
-	kg := q.RedisClient.kg
 	now := q.Clock.Now()
 
 	multi := make([]rueidis.LuaExec, 0, len(items))
-
 	for idx := range items {
-		i := &items[idx]
-
-		if len(i.ID) == 0 {
-			i.SetID(ctx, ulid.MustNew(ulid.Now(), rnd).String())
-		} else {
-			if !opts.PassthroughJobId {
-				i.SetID(ctx, i.ID)
-			}
-		}
-
-		at := ats[idx]
-
-		if i.WallTimeMS == 0 {
-			i.WallTimeMS = at.UnixMilli()
-		}
-
-		if at.Before(now) {
-			i.WallTimeMS = now.UnixMilli()
-		}
-
-		if i.AtMS == 0 {
-			i.AtMS = at.UnixMilli()
-		}
-
-		if i.Data.JobID == nil {
-			i.Data.JobID = &i.ID
-		}
-
-		partitionTime := at
-		if at.Before(now) {
-			partitionTime = q.Clock.Now()
-		}
-
-		i.EnqueuedAt = now.UnixMilli()
-
-		defaultPartition := osqueue.ItemPartition(ctx, *i)
-		enqueueToBacklogs := q.QueueOptions.ItemEnableKeyQueues(ctx, *i)
-
-		var backlog osqueue.QueueBacklog
-		var shadowPartition osqueue.QueueShadowPartition
-		if enqueueToBacklogs {
-			backlog = osqueue.ItemBacklog(ctx, *i)
-			shadowPartition = osqueue.ItemShadowPartition(ctx, *i)
-		}
-
-		keys := []string{
-			kg.QueueItem(),
-			kg.PartitionItem(),
-			kg.GlobalPartitionIndex(),
-			kg.GlobalAccountIndex(),
-			kg.AccountPartitionIndex(i.Data.Identifier.AccountID),
-			kg.Idempotency(i.ID),
-			partitionZsetKey(defaultPartition, kg),
-			kg.BacklogSet(backlog.BacklogID),
-			kg.BacklogMeta(),
-			kg.GlobalShadowPartitionSet(),
-			kg.ShadowPartitionSet(shadowPartition.PartitionID),
-			kg.ShadowPartitionMeta(),
-			kg.GlobalAccountShadowPartitions(),
-			kg.AccountShadowPartitions(i.Data.Identifier.AccountID),
-			kg.BacklogSet(opts.NormalizeFromBacklogID),
-			kg.PartitionNormalizeSet(shadowPartition.PartitionID),
-			kg.AccountNormalizeSet(i.Data.Identifier.AccountID),
-			kg.GlobalAccountNormalizeSet(),
-			kg.SingletonRunKey(i.Data.Identifier.RunID.String()),
-			kg.SingletonKey(i.Data.Singleton),
-		}
-		for _, idx := range q.itemIndexer(ctx, *i, q.RedisClient.kg) {
-			if idx != "" {
-				keys = append(keys, idx)
-			}
-		}
-
-		enqueueToBacklogsVal := "0"
-		if enqueueToBacklogs {
-			enqueueToBacklogsVal = "1"
-		}
-
-		args, err := StrSlice([]any{
-			*i,
-			i.ID,
-			at.UnixMilli(),
-			partitionTime.Unix(),
-			now.UnixMilli(),
-			defaultPartition,
-			defaultPartition.ID,
-			i.Data.Identifier.AccountID.String(),
-			i.Data.Identifier.RunID.String(),
-			enqueueToBacklogsVal,
-			shadowPartition,
-			backlog,
-			backlog.BacklogID,
-			opts.NormalizeFromBacklogID,
-		})
+		exec, err := q.prepareEnqueueLuaExec(ctx, &items[idx], ats[idx], now, opts)
 		if err != nil {
 			errs := make([]error, len(items))
-			errs[idx] = fmt.Errorf("error building args for item %d: %w", idx, err)
+			errs[idx] = err
 			return errs
 		}
-
-		multi = append(multi, rueidis.LuaExec{Keys: keys, Args: args})
+		multi = append(multi, exec)
 	}
 
 	results := scripts["queue/enqueue"].ExecMulti(
@@ -431,7 +335,108 @@ func (q *queue) EnqueueItemBatch(ctx context.Context, items []osqueue.QueueItem,
 		multi...,
 	)
 
-	errs := make([]error, len(items))
+	return interpretEnqueueBatchResults(results, len(items))
+}
+
+// prepareEnqueueLuaExec builds the LuaExec entry (keys + args) for a single queue item.
+func (q *queue) prepareEnqueueLuaExec(ctx context.Context, i *osqueue.QueueItem, at time.Time, now time.Time, opts osqueue.EnqueueOpts) (rueidis.LuaExec, error) {
+	kg := q.RedisClient.kg
+
+	if len(i.ID) == 0 {
+		i.SetID(ctx, ulid.MustNew(ulid.Now(), rnd).String())
+	} else if !opts.PassthroughJobId {
+		i.SetID(ctx, i.ID)
+	}
+
+	if i.WallTimeMS == 0 {
+		i.WallTimeMS = at.UnixMilli()
+	}
+	if at.Before(now) {
+		i.WallTimeMS = now.UnixMilli()
+	}
+	if i.AtMS == 0 {
+		i.AtMS = at.UnixMilli()
+	}
+	if i.Data.JobID == nil {
+		i.Data.JobID = &i.ID
+	}
+
+	partitionTime := at
+	if at.Before(now) {
+		partitionTime = q.Clock.Now()
+	}
+
+	i.EnqueuedAt = now.UnixMilli()
+
+	defaultPartition := osqueue.ItemPartition(ctx, *i)
+	enqueueToBacklogs := q.QueueOptions.ItemEnableKeyQueues(ctx, *i)
+
+	var backlog osqueue.QueueBacklog
+	var shadowPartition osqueue.QueueShadowPartition
+	if enqueueToBacklogs {
+		backlog = osqueue.ItemBacklog(ctx, *i)
+		shadowPartition = osqueue.ItemShadowPartition(ctx, *i)
+	}
+
+	keys := []string{
+		kg.QueueItem(),
+		kg.PartitionItem(),
+		kg.GlobalPartitionIndex(),
+		kg.GlobalAccountIndex(),
+		kg.AccountPartitionIndex(i.Data.Identifier.AccountID),
+		kg.Idempotency(i.ID),
+		partitionZsetKey(defaultPartition, kg),
+		kg.BacklogSet(backlog.BacklogID),
+		kg.BacklogMeta(),
+		kg.GlobalShadowPartitionSet(),
+		kg.ShadowPartitionSet(shadowPartition.PartitionID),
+		kg.ShadowPartitionMeta(),
+		kg.GlobalAccountShadowPartitions(),
+		kg.AccountShadowPartitions(i.Data.Identifier.AccountID),
+		kg.BacklogSet(opts.NormalizeFromBacklogID),
+		kg.PartitionNormalizeSet(shadowPartition.PartitionID),
+		kg.AccountNormalizeSet(i.Data.Identifier.AccountID),
+		kg.GlobalAccountNormalizeSet(),
+		kg.SingletonRunKey(i.Data.Identifier.RunID.String()),
+		kg.SingletonKey(i.Data.Singleton),
+	}
+	for _, idx := range q.itemIndexer(ctx, *i, q.RedisClient.kg) {
+		if idx != "" {
+			keys = append(keys, idx)
+		}
+	}
+
+	enqueueToBacklogsVal := "0"
+	if enqueueToBacklogs {
+		enqueueToBacklogsVal = "1"
+	}
+
+	args, err := StrSlice([]any{
+		*i,
+		i.ID,
+		at.UnixMilli(),
+		partitionTime.Unix(),
+		now.UnixMilli(),
+		defaultPartition,
+		defaultPartition.ID,
+		i.Data.Identifier.AccountID.String(),
+		i.Data.Identifier.RunID.String(),
+		enqueueToBacklogsVal,
+		shadowPartition,
+		backlog,
+		backlog.BacklogID,
+		opts.NormalizeFromBacklogID,
+	})
+	if err != nil {
+		return rueidis.LuaExec{}, fmt.Errorf("error building args: %w", err)
+	}
+
+	return rueidis.LuaExec{Keys: keys, Args: args}, nil
+}
+
+// interpretEnqueueBatchResults maps ExecMulti results to per-item errors.
+func interpretEnqueueBatchResults(results []rueidis.RedisResult, count int) []error {
+	errs := make([]error, count)
 	for idx, res := range results {
 		status, err := res.AsInt64()
 		if err != nil {
@@ -449,7 +454,6 @@ func (q *queue) EnqueueItemBatch(ctx context.Context, items []osqueue.QueueItem,
 			errs[idx] = fmt.Errorf("unknown response enqueueing item %d: %v", idx, status)
 		}
 	}
-
 	return errs
 }
 

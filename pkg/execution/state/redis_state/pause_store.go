@@ -166,78 +166,14 @@ func (s *PauseStore) SavePauseBatch(ctx context.Context, pauses []state.Pause) [
 	}
 
 	multi := make([]rueidis.LuaExec, 0, len(pauses))
-
 	for idx := range pauses {
-		p := &pauses[idx]
-
-		evt := ""
-		if p.Event != nil && (p.InvokeCorrelationID == nil || *p.InvokeCorrelationID == "") {
-			evt = *p.Event
-		}
-
-		invokeCorrId := ""
-		if p.InvokeCorrelationID != nil {
-			invokeCorrId = *p.InvokeCorrelationID
-		}
-
-		signalCorrId := ""
-		if p.SignalID != nil {
-			signalCorrId = *p.SignalID
-		}
-
-		extendedExpiry := time.Until(p.Expires.Time().Add(10 * time.Minute)).Seconds()
-
-		createdAt := p.CreatedAt
-		if createdAt.IsZero() {
-			createdAt = time.Now()
-		}
-
-		nowUnixSeconds := createdAt.Unix()
-		p.CreatedAt = createdAt
-
-		packed, err := json.Marshal(p)
+		exec, err := s.preparePauseLuaExec(ctx, &pauses[idx])
 		if err != nil {
 			errs := make([]error, len(pauses))
-			errs[idx] = fmt.Errorf("error marshalling pause %d: %w", idx, err)
+			errs[idx] = err
 			return errs
 		}
-
-		pause := s.unsharded.Pauses()
-		global := s.unsharded.Global()
-
-		keys := []string{
-			pause.kg.Pause(ctx, p.ID),
-			pause.kg.PauseEvent(ctx, p.WorkspaceID, evt),
-			global.kg.Invoke(ctx, p.WorkspaceID),
-			global.kg.Signal(ctx, p.WorkspaceID),
-			pause.kg.PauseIndex(ctx, "add", p.WorkspaceID, evt),
-			pause.kg.PauseIndex(ctx, "exp", p.WorkspaceID, evt),
-			pause.kg.RunPauses(ctx, p.Identifier.RunID),
-			pause.kg.GlobalPauseIndex(ctx),
-		}
-
-		replaceSignalOnConflict := "0"
-		if p.ReplaceSignalOnConflict {
-			replaceSignalOnConflict = "1"
-		}
-
-		args, err := StrSlice([]any{
-			string(packed),
-			p.ID.String(),
-			evt,
-			invokeCorrId,
-			signalCorrId,
-			int(extendedExpiry),
-			nowUnixSeconds,
-			replaceSignalOnConflict,
-		})
-		if err != nil {
-			errs := make([]error, len(pauses))
-			errs[idx] = fmt.Errorf("error building args for pause %d: %w", idx, err)
-			return errs
-		}
-
-		multi = append(multi, rueidis.LuaExec{Keys: keys, Args: args})
+		multi = append(multi, exec)
 	}
 
 	pause := s.unsharded.Pauses()
@@ -247,7 +183,78 @@ func (s *PauseStore) SavePauseBatch(ctx context.Context, pauses []state.Pause) [
 		multi...,
 	)
 
-	errs := make([]error, len(pauses))
+	return interpretPauseBatchResults(results, len(pauses))
+}
+
+// preparePauseLuaExec builds the LuaExec entry (keys + args) for a single pause.
+func (s *PauseStore) preparePauseLuaExec(ctx context.Context, p *state.Pause) (rueidis.LuaExec, error) {
+	evt := ""
+	if p.Event != nil && (p.InvokeCorrelationID == nil || *p.InvokeCorrelationID == "") {
+		evt = *p.Event
+	}
+
+	invokeCorrId := ""
+	if p.InvokeCorrelationID != nil {
+		invokeCorrId = *p.InvokeCorrelationID
+	}
+
+	signalCorrId := ""
+	if p.SignalID != nil {
+		signalCorrId = *p.SignalID
+	}
+
+	extendedExpiry := time.Until(p.Expires.Time().Add(10 * time.Minute)).Seconds()
+
+	createdAt := p.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+	p.CreatedAt = createdAt
+
+	packed, err := json.Marshal(p)
+	if err != nil {
+		return rueidis.LuaExec{}, fmt.Errorf("error marshalling pause: %w", err)
+	}
+
+	pause := s.unsharded.Pauses()
+	global := s.unsharded.Global()
+
+	keys := []string{
+		pause.kg.Pause(ctx, p.ID),
+		pause.kg.PauseEvent(ctx, p.WorkspaceID, evt),
+		global.kg.Invoke(ctx, p.WorkspaceID),
+		global.kg.Signal(ctx, p.WorkspaceID),
+		pause.kg.PauseIndex(ctx, "add", p.WorkspaceID, evt),
+		pause.kg.PauseIndex(ctx, "exp", p.WorkspaceID, evt),
+		pause.kg.RunPauses(ctx, p.Identifier.RunID),
+		pause.kg.GlobalPauseIndex(ctx),
+	}
+
+	replaceSignalOnConflict := "0"
+	if p.ReplaceSignalOnConflict {
+		replaceSignalOnConflict = "1"
+	}
+
+	args, err := StrSlice([]any{
+		string(packed),
+		p.ID.String(),
+		evt,
+		invokeCorrId,
+		signalCorrId,
+		int(extendedExpiry),
+		createdAt.Unix(),
+		replaceSignalOnConflict,
+	})
+	if err != nil {
+		return rueidis.LuaExec{}, fmt.Errorf("error building args for pause: %w", err)
+	}
+
+	return rueidis.LuaExec{Keys: keys, Args: args}, nil
+}
+
+// interpretPauseBatchResults maps ExecMulti results to per-pause errors.
+func interpretPauseBatchResults(results []rueidis.RedisResult, count int) []error {
+	errs := make([]error, count)
 	for idx, res := range results {
 		status, err := res.AsInt64()
 		if err != nil {
@@ -262,7 +269,6 @@ func (s *PauseStore) SavePauseBatch(ctx context.Context, pauses []state.Pause) [
 			errs[idx] = state.ErrPauseAlreadyExists
 		}
 	}
-
 	return errs
 }
 
