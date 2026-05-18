@@ -3278,21 +3278,37 @@ func (e *executor) HandleGeneratorResponse(ctx context.Context, i *runInstance, 
 }
 
 func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, group OpcodeGroup, resp *state.DriverResponse) error {
-	eg := errgroup.Group{}
+	// Separate invoke opcodes from others so we can batch-process invocations.
+	var invokeOps []batchInvokeInput
+	var otherOps []state.GeneratorOpcode
+
 	for _, op := range group.Opcodes {
 		if op == nil {
-			// This is clearly an error.
 			if e.log != nil {
 				e.log.Error("error handling generator", "error", "nil generator returned")
 			}
 			continue
 		}
 		copied := *op
+		groupID := i.item.GroupID
 		if group.ShouldStartHistoryGroup {
-			// Give each opcode its own group ID, since we want to track each
-			// parallel step individually.
-			i.item.GroupID = uuid.New().String()
+			groupID = uuid.New().String()
 		}
+		if copied.Op == enums.OpcodeInvokeFunction {
+			invokeOps = append(invokeOps, batchInvokeInput{gen: copied, groupID: groupID})
+		} else {
+			// Set the group ID on the run instance for non-invoke opcodes
+			// (preserves existing behavior).
+			i.item.GroupID = groupID
+			otherOps = append(otherOps, copied)
+		}
+	}
+
+	eg := errgroup.Group{}
+
+	// Process non-invoke opcodes concurrently via the existing path.
+	for _, op := range otherOps {
+		copied := op
 		eg.Go(func() error {
 			defer func() {
 				if r := recover(); r != nil {
@@ -3306,6 +3322,39 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 			return e.HandleGenerator(ctx, i, copied)
 		})
 	}
+
+	// Batch-process invoke opcodes when there are multiple.
+	if len(invokeOps) > 1 {
+		eg.Go(func() error {
+			defer func() {
+				if r := recover(); r != nil {
+					e.log.Error(
+						"panic in handleBatchInvokeFunctions",
+						"error", r,
+						"stack", string(debug.Stack()),
+					)
+				}
+			}()
+			return e.handleBatchInvokeFunctions(ctx, i, invokeOps)
+		})
+	} else if len(invokeOps) == 1 {
+		// Single invoke: use the existing per-opcode path.
+		op := invokeOps[0]
+		i.item.GroupID = op.groupID
+		eg.Go(func() error {
+			defer func() {
+				if r := recover(); r != nil {
+					e.log.Error(
+						"panic in handleGenerator",
+						"error", r,
+						"stack", string(debug.Stack()),
+					)
+				}
+			}()
+			return e.HandleGenerator(ctx, i, op.gen)
+		})
+	}
+
 	if err := eg.Wait(); err != nil {
 		if errors.Is(err, state.ErrStateOverflowed) {
 			return err
@@ -4744,6 +4793,229 @@ func (e *executor) handleGeneratorWaitForSignal(ctx context.Context, runCtx exec
 	}
 
 	return err
+}
+
+// batchInvokeInput holds pre-computed input data for a single invoke opcode
+// within a batch.
+type batchInvokeInput struct {
+	gen     state.GeneratorOpcode
+	groupID string
+}
+
+// batchInvokeItem holds all the pre-computed data structures for a single
+// invoke opcode, ready for batched I/O operations.
+type batchInvokeItem struct {
+	gen     state.GeneratorOpcode
+	groupID string
+	pause   state.Pause
+	item    queue.Item
+	evt     event.TrackedEvent
+	span    *tracing.DroppableSpan
+	expires time.Time
+}
+
+// handleBatchInvokeFunctions processes multiple OpcodeInvokeFunction opcodes in
+// batch, reducing per-opcode I/O overhead. Instead of N independent goroutines
+// each writing a pause + enqueuing a timeout + publishing an event, this method:
+//
+//  1. Pre-computes all data structures (pauses, queue items, events, spans)
+//  2. Batch-writes all pauses in a single pm.Write() call
+//  3. Enqueues timeout jobs sequentially (avoids goroutine-per-item overhead)
+//  4. Publishes invocation events
+//  5. Fires lifecycle hooks
+func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstance, inputs []batchInvokeInput) error {
+	if e.handleInvokeEvent == nil {
+		return fmt.Errorf("no handleSendingEvent function specified")
+	}
+
+	lifecycleItem := i.LifecycleItem()
+	edge, ok := lifecycleItem.Payload.(queue.PayloadEdge)
+	if !ok {
+		return fmt.Errorf("unknown queue item type handling generator: %T", lifecycleItem.Payload)
+	}
+
+	now := e.now()
+	eventName := event.FnFinishedName
+	pauseIdx := pauses.Index{WorkspaceID: i.md.ID.Tenant.EnvID, EventName: eventName}
+
+	// Phase 1: Pre-compute all data structures (no I/O).
+	items := make([]batchInvokeItem, 0, len(inputs))
+	allPauses := make([]*state.Pause, 0, len(inputs))
+
+	for _, input := range inputs {
+		gen := input.gen
+		groupID := input.groupID
+
+		opts, err := gen.InvokeFunctionOpts()
+		if err != nil {
+			return fmt.Errorf("unable to parse invoke function opts: %w", err)
+		}
+		expires, err := opts.Expires()
+		if err != nil {
+			return fmt.Errorf("unable to parse invoke function expires: %w", err)
+		}
+
+		correlationID := i.md.ID.RunID.String() + "." + gen.ID
+		strExpr := fmt.Sprintf("async.data.%s == %s", consts.InvokeCorrelationId, strconv.Quote(correlationID))
+		_, err = e.newExpressionEvaluator(ctx, strExpr)
+		if err != nil {
+			return execError{err: fmt.Errorf("failed to create expression to wait for invoked function completion: %w", err)}
+		}
+
+		pauseID := inngest.DeterministicSha1UUID(i.md.ID.RunID.String() + gen.ID)
+		opcode := gen.Op.String()
+
+		sid := run.NewSpanID(ctx)
+		carrier := itrace.NewTraceCarrier(
+			itrace.WithTraceCarrierTimestamp(now),
+			itrace.WithTraceCarrierSpanID(&sid),
+		)
+		itrace.UserTracer().Propagator().Inject(ctx, propagation.MapCarrier(carrier.Context))
+
+		evt := event.NewInvocationEvent(event.NewInvocationEventOpts{
+			AccountID:       i.md.ID.Tenant.AccountID,
+			EnvID:           i.md.ID.Tenant.EnvID,
+			Event:           *opts.Payload,
+			FnID:            opts.FunctionID,
+			CorrelationID:   &correlationID,
+			TraceCarrier:    carrier,
+			ExpiresAt:       expires.UnixMilli(),
+			GroupID:         groupID,
+			DisplayName:     gen.UserDefinedName(),
+			SourceAppID:     i.md.ID.Tenant.AppID.String(),
+			SourceFnID:      i.md.ID.FunctionID.String(),
+			SourceFnVersion: i.md.Config.FunctionVersion,
+		})
+
+		pause := state.Pause{
+			ID:                  pauseID,
+			WorkspaceID:         i.md.ID.Tenant.EnvID,
+			Identifier:          sv2.NewPauseIdentifier(i.md.ID),
+			GroupID:             groupID,
+			Outgoing:            gen.ID,
+			Incoming:            edge.Edge.Incoming,
+			StepName:            gen.UserDefinedName(),
+			Opcode:              &opcode,
+			Expires:             state.Time(expires),
+			Event:               &eventName,
+			Expression:          &strExpr,
+			DataKey:             gen.ID,
+			InvokeCorrelationID: &correlationID,
+			TriggeringEventID:   &evt.Event.ID,
+			InvokeTargetFnID:    &opts.FunctionID,
+			MaxAttempts:         i.MaxAttempts(),
+			Metadata: map[string]any{
+				consts.OtelPropagationKey: carrier,
+			},
+			ParallelMode: gen.ParallelMode(),
+			CreatedAt:    now,
+		}
+
+		jobID := fmt.Sprintf("%s-%s", i.md.IdempotencyKey(), gen.ID)
+		nextItem := queue.Item{
+			JobID:       &jobID,
+			WorkspaceID: i.md.ID.Tenant.EnvID,
+			GroupID:     groupID,
+			Kind:        queue.KindPause,
+			Identifier:  sv2.V1FromMetadata(i.md),
+			PriorityFactor:        i.PriorityFactor(),
+			CustomConcurrencyKeys: i.ConcurrencyKeys(),
+			MaxAttempts:           i.MaxAttempts(),
+			Payload: queue.PayloadPauseTimeout{
+				PauseID: pauseID,
+				Pause:   pause,
+			},
+			Metadata:     make(map[string]any),
+			ParallelMode: gen.ParallelMode(),
+		}
+
+		span, err := e.tracerProvider.CreateDroppableSpan(
+			ctx,
+			meta.SpanNameStep,
+			&tracing.CreateSpanOptions{
+				Carriers:    []map[string]any{pause.Metadata, nextItem.Metadata},
+				StartTime:   now,
+				FollowsFrom: tracing.SpanRefFromQueueItem(&lifecycleItem),
+				Debug:       &tracing.SpanDebugData{Location: "executor.handleBatchInvokeFunctions"},
+				Metadata:    &i.md,
+				QueueItem:   &nextItem,
+				Parent:      tracing.RunSpanRefFromMetadata(&i.md),
+				Attributes: tracing.GeneratorAttrs(&gen).Merge(
+					meta.NewAttrSet(meta.Attr(meta.Attrs.StepInvokeTriggerEventID, &evt.ID)),
+				),
+			},
+		)
+		if err != nil {
+			e.log.Debug("error creating span for next step after InvokeFunction", "error", err)
+		}
+
+		items = append(items, batchInvokeItem{
+			gen:     gen,
+			groupID: groupID,
+			pause:   pause,
+			item:    nextItem,
+			evt:     evt,
+			span:    span,
+			expires: expires,
+		})
+		allPauses = append(allPauses, &items[len(items)-1].pause)
+	}
+
+	// Phase 2: Batch-write all pauses in a single operation.
+	_, err := util.WithRetry(ctx, "pause.handleBatchInvokeFunctions", func(ctx context.Context) (int, error) {
+		return e.pm.Write(ctx, pauseIdx, allPauses...)
+	}, util.NewRetryConf(util.WithRetryConfRetryableErrors(pauses.WritePauseRetryableError)))
+	if err != nil {
+		if errors.Is(err, state.ErrPauseAlreadyExists) {
+			// Drop all spans; pauses already exist (idempotent retry).
+			for idx := range items {
+				if items[idx].span != nil {
+					items[idx].span.Drop()
+				}
+			}
+		} else {
+			return err
+		}
+	}
+
+	// Phase 3: Enqueue all timeout jobs.
+	for idx := range items {
+		err := e.queue.Enqueue(ctx, items[idx].item, items[idx].expires, queue.EnqueueOpts{})
+		if err == queue.ErrQueueItemExists {
+			if items[idx].span != nil {
+				items[idx].span.Drop()
+			}
+			continue
+		}
+		if err != nil {
+			logger.StdlibLogger(ctx).Error(
+				"failed to enqueue invoke function pause timeout",
+				"error", err,
+				"run_id", i.md.ID.RunID,
+				"workspace_id", i.md.ID.Tenant.EnvID,
+			)
+		}
+		if items[idx].span != nil {
+			_ = items[idx].span.Send()
+		}
+	}
+
+	// Phase 4: Publish all invocation events.
+	for idx := range items {
+		err := e.handleInvokeEvent(ctx, items[idx].evt)
+		if err != nil {
+			return fmt.Errorf("error publishing internal invocation event: %w", err)
+		}
+	}
+
+	// Phase 5: Fire lifecycle hooks.
+	for idx := range items {
+		for _, l := range e.lifecycles {
+			go l.OnInvokeFunction(context.WithoutCancel(ctx), i.md, lifecycleItem, items[idx].gen, items[idx].evt.GetEvent())
+		}
+	}
+
+	return nil
 }
 
 func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge) error {
