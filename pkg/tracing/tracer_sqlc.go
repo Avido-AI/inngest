@@ -9,6 +9,7 @@ import (
 	dbpkg "github.com/inngest/inngest/pkg/db"
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/tracing/meta"
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -82,69 +83,72 @@ func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFiel
 		attrs:    make(map[string]any),
 	}
 	isExtensionSpan := span.Name() == meta.SpanNameDynamicExtension
-
 	for _, attr := range span.Attributes() {
-		key := string(attr.Key)
-		skipAttr := false
-
-		switch key {
-		case meta.Attrs.StepOutput.Key():
-			sf.output = attr.Value.AsInterface()
-			continue
-		case meta.Attrs.EventsInput.Key(), meta.Attrs.StepInput.Key():
-			sf.input = attr.Value.AsInterface()
-			continue
-		case meta.Attrs.EventIDs.Key():
-			if byt, err := json.Marshal(attr.Value.AsStringSlice()); err != nil {
-				logger.StdlibLogger(ctx).Error("failed to marshal event IDs",
-					"span_id", sf.spanID, "trace_id", sf.traceID,
-					"name", span.Name(), "error", err,
-				)
-			} else {
-				sf.eventIdsByt = byt
-			}
-			skipAttr = cleanAttrs
-		case meta.Attrs.AccountID.Key():
-			sf.accountID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.EnvID.Key():
-			sf.envID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.RunID.Key():
-			sf.runID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.AppID.Key():
-			sf.appID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.FunctionID.Key():
-			sf.functionID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.DynamicTraceID.Key():
-			sf.traceID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.DynamicSpanID.Key():
-			sf.dynamicSpanID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.DebugSessionID.Key():
-			sf.debugSessionID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.DebugRunID.Key():
-			sf.debugRunID = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.DynamicStatus.Key():
-			sf.status = attr.Value.AsString()
-			skipAttr = cleanAttrs
-		case meta.Attrs.UserlandSpanID.Key():
-			skipAttr = cleanAttrs
-		case meta.Attrs.DropSpan.Key():
-			skipAttr = cleanAttrs && isExtensionSpan
-		}
-
-		if !skipAttr {
-			sf.attrs[key] = attr.Value.AsInterface()
+		if store := assignSpanAttr(ctx, &sf, attr, span.Name(), isExtensionSpan); store {
+			sf.attrs[string(attr.Key)] = attr.Value.AsInterface()
 		}
 	}
 	return sf
+}
+
+// assignSpanAttr extracts a known attribute into the spanFields struct and
+// returns whether the attribute should also be stored in the generic attrs map.
+func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue, spanName string, isExtensionSpan bool) bool {
+	key := string(attr.Key)
+	switch key {
+	case meta.Attrs.StepOutput.Key():
+		sf.output = attr.Value.AsInterface()
+		return false
+	case meta.Attrs.EventsInput.Key(), meta.Attrs.StepInput.Key():
+		sf.input = attr.Value.AsInterface()
+		return false
+	case meta.Attrs.EventIDs.Key():
+		if byt, err := json.Marshal(attr.Value.AsStringSlice()); err != nil {
+			logger.StdlibLogger(ctx).Error("failed to marshal event IDs",
+				"span_id", sf.spanID, "trace_id", sf.traceID,
+				"name", spanName, "error", err,
+			)
+		} else {
+			sf.eventIdsByt = byt
+		}
+		return !cleanAttrs
+	case meta.Attrs.AccountID.Key():
+		sf.accountID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.EnvID.Key():
+		sf.envID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.RunID.Key():
+		sf.runID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.AppID.Key():
+		sf.appID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.FunctionID.Key():
+		sf.functionID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.DynamicTraceID.Key():
+		sf.traceID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.DynamicSpanID.Key():
+		sf.dynamicSpanID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.DebugSessionID.Key():
+		sf.debugSessionID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.DebugRunID.Key():
+		sf.debugRunID = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.DynamicStatus.Key():
+		sf.status = attr.Value.AsString()
+		return !cleanAttrs
+	case meta.Attrs.UserlandSpanID.Key():
+		return !cleanAttrs
+	case meta.Attrs.DropSpan.Key():
+		return !(cleanAttrs && isExtensionSpan)
+	default:
+		return true
+	}
 }
 
 // marshalSpanJSON marshals the attributes map and links slice, returning the
