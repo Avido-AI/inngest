@@ -506,6 +506,55 @@ func (pq *pgQuerier) InsertSpan(ctx context.Context, arg db.InsertSpanParams) er
 	})
 }
 
+func (pq *pgQuerier) InsertSpans(ctx context.Context, args []db.InsertSpanParams) error {
+	if len(args) == 0 {
+		return nil
+	}
+
+	const colCount = 20
+	const chunkSize = 500
+
+	for i := 0; i < len(args); i += chunkSize {
+		end := i + chunkSize
+		if end > len(args) {
+			end = len(args)
+		}
+		chunk := args[i:end]
+
+		query := "INSERT INTO spans (span_id, trace_id, parent_span_id, name, start_time, end_time, run_id, account_id, app_id, function_id, env_id, dynamic_span_id, attributes, links, output, input, debug_run_id, debug_session_id, status, event_ids) VALUES "
+		vals := make([]any, 0, len(chunk)*colCount)
+		for j, arg := range chunk {
+			if j > 0 {
+				query += ", "
+			}
+			base := j*colCount + 1
+			query += fmt.Sprintf(
+				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+				base, base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9,
+				base+10, base+11, base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19,
+			)
+
+			startTime := arg.StartTime.Round(0).UTC()
+			endTime := arg.EndTime.Round(0).UTC()
+			vals = append(vals,
+				arg.SpanID, arg.TraceID, arg.ParentSpanID,
+				arg.Name, startTime, endTime,
+				arg.RunID, arg.AccountID, arg.AppID,
+				arg.FunctionID, arg.EnvID, arg.DynamicSpanID,
+				bytesToNullRaw(arg.Attributes), bytesToNullRaw(arg.Links),
+				bytesToNullRaw(arg.Output), bytesToNullRaw(arg.Input),
+				arg.DebugRunID, arg.DebugSessionID, arg.Status,
+				bytesToNullRaw(arg.EventIds),
+			)
+		}
+
+		if _, err := pq.db.ExecContext(ctx, query, vals...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (pq *pgQuerier) GetSpansByRunID(ctx context.Context, runID string) ([]*db.SpanRow, error) {
 	rows, err := pq.q.GetSpansByRunID(ctx, runID)
 	if err != nil {
