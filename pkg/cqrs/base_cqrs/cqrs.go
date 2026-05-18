@@ -1208,21 +1208,24 @@ func (w wrapper) InsertEvents(ctx context.Context, events []cqrs.Event) error {
 	}
 
 	now := time.Now()
-	rows := make([][]interface{}, len(events))
-	for i, e := range events {
+	rows := make([][]interface{}, 0, len(events))
+	var skipped int
+	for _, e := range events {
 		data, err := json.Marshal(e.EventData)
 		if err != nil {
-			return fmt.Errorf("error marshalling event data at index %d: %w", i, err)
+			skipped++
+			continue
 		}
 		user, err := json.Marshal(e.EventUser)
 		if err != nil {
-			return fmt.Errorf("error marshalling event user at index %d: %w", i, err)
+			skipped++
+			continue
 		}
 		eventV := sql.NullString{
 			Valid:  e.EventVersion != "",
 			String: e.EventVersion,
 		}
-		rows[i] = []interface{}{
+		rows = append(rows, []interface{}{
 			e.ID,
 			now,
 			e.EventID,
@@ -1231,7 +1234,11 @@ func (w wrapper) InsertEvents(ctx context.Context, events []cqrs.Event) error {
 			string(user),
 			eventV,
 			time.UnixMilli(e.EventTS),
-		}
+		})
+	}
+
+	if len(rows) == 0 {
+		return fmt.Errorf("all %d events in batch failed to marshal", len(events))
 	}
 
 	ds := sq.Dialect(w.dialect()).Insert("events").Cols(
@@ -1242,8 +1249,14 @@ func (w wrapper) InsertEvents(ctx context.Context, events []cqrs.Event) error {
 	if err != nil {
 		return fmt.Errorf("error building bulk insert SQL: %w", err)
 	}
-	_, err = w.adapter.ExecContext(ctx, query, args...)
-	return err
+	if _, err = w.adapter.ExecContext(ctx, query, args...); err != nil {
+		return err
+	}
+
+	if skipped > 0 {
+		return fmt.Errorf("inserted %d events but skipped %d due to marshal errors", len(rows), skipped)
+	}
+	return nil
 }
 
 func (w wrapper) InsertEventBatch(ctx context.Context, eb cqrs.EventBatch) error {

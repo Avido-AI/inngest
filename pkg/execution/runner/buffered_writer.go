@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/inngest/inngest/pkg/cqrs"
@@ -32,10 +33,11 @@ type BufferedEventWriter struct {
 	flushInterval time.Duration
 	flushSize     int
 
-	mu     sync.Mutex
-	buf    []cqrs.Event
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu      sync.Mutex
+	buf     []cqrs.Event
+	cancel  context.CancelFunc
+	done    chan struct{}
+	stopped atomic.Bool
 }
 
 type BufferedEventWriterOpt func(*BufferedEventWriter)
@@ -74,6 +76,8 @@ func (w *BufferedEventWriter) Start(ctx context.Context) {
 }
 
 // Stop flushes remaining events and stops the background loop.
+// After Stop returns, any subsequent Write calls fall through to
+// synchronous single-event inserts so no events are orphaned.
 func (w *BufferedEventWriter) Stop(ctx context.Context) error {
 	if w.cancel != nil {
 		w.cancel()
@@ -81,12 +85,23 @@ func (w *BufferedEventWriter) Stop(ctx context.Context) error {
 	<-w.done
 	// Final flush with the provided context so remaining events are persisted.
 	w.flushNow(ctx)
+	w.stopped.Store(true)
 	return nil
 }
 
 // Write buffers an event for bulk insertion. If the buffer reaches
 // flushSize, an immediate flush is triggered.
+// After Stop has been called, Write falls through to a synchronous
+// single-event insert so that in-flight handleMessage goroutines
+// do not silently lose events.
 func (w *BufferedEventWriter) Write(ctx context.Context, e cqrs.Event) {
+	if w.stopped.Load() {
+		if err := w.writer.InsertEvent(ctx, e); err != nil {
+			w.log.Error("post-shutdown event insert failed", "error", err)
+		}
+		return
+	}
+
 	w.mu.Lock()
 	w.buf = append(w.buf, e)
 	needsFlush := len(w.buf) >= w.flushSize
