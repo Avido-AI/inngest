@@ -33,7 +33,14 @@ func (c *functionsCache) invalidate() {
 }
 
 // invalidateFnCache clears the functions cache after a successful mutation.
+// It is a no-op for transactional wrappers (noFnCache == true) to avoid
+// pre-commit invalidation racing with concurrent Functions() callers, which
+// would repopulate the shared cache with a snapshot that predates the
+// uncommitted write and hold it stale for up to the full TTL.
 func (w wrapper) invalidateFnCache() {
+	if w.noFnCache {
+		return
+	}
 	w.fnCache.invalidate()
 }
 

@@ -819,7 +819,11 @@ func (w wrapper) Commit(ctx context.Context) error {
 	if !ok {
 		panic("bug: Commit called on a non-transaction wrapper")
 	}
-	return txAdapter.Commit(ctx)
+	err := txAdapter.Commit(ctx)
+	if err == nil {
+		w.fnCache.invalidate()
+	}
+	return err
 }
 
 func (w wrapper) Rollback(ctx context.Context) error {
