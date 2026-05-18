@@ -195,21 +195,14 @@ func (q *queueProcessor) prepareQueueItems(items []Item, ats []time.Time, opts E
 	return qis, effectiveAts, nil
 }
 
-// selectBatchShard selects a Redis shard for the batch and validates it.
+// selectBatchShard selects a shard for the batch. Non-batch shards are handled
+// by the type assertion in EnqueueBatch, which falls back to enqueueFallback.
 func (q *queueProcessor) selectBatchShard(ctx context.Context, opts EnqueueOpts, firstItem QueueItem, count int) (QueueShard, []error) {
 	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, firstItem)
 	if err != nil {
 		errs := make([]error, count)
 		for i := range errs {
 			errs[i] = err
-		}
-		return nil, errs
-	}
-
-	if shard.Kind() != enums.QueueShardKindRedis {
-		errs := make([]error, count)
-		for i := range errs {
-			errs[i] = fmt.Errorf("batch enqueue only supported on Redis shards")
 		}
 		return nil, errs
 	}

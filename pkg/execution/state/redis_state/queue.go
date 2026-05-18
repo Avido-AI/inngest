@@ -133,7 +133,8 @@ func (q *queue) EnqueueItem(ctx context.Context, i osqueue.QueueItem, at time.Ti
 		return i, err
 	}
 
-	q.traceEnqueueItem(ctx, l, &i, at, now, opts)
+	endSpan := q.traceEnqueueItem(ctx, l, &i, at, now, opts)
+	defer endSpan()
 
 	status, err := scripts["queue/enqueue"].Exec(
 		redis_telemetry.WithScriptName(ctx, "enqueue"),
@@ -149,7 +150,9 @@ func (q *queue) EnqueueItem(ctx context.Context, i osqueue.QueueItem, at time.Ti
 }
 
 // traceEnqueueItem adds telemetry tracing and debug logging for a single enqueue call.
-func (q *queue) traceEnqueueItem(ctx context.Context, l logger.Logger, i *osqueue.QueueItem, at time.Time, now time.Time, opts osqueue.EnqueueOpts) {
+// It returns a cleanup function that ends the span; the caller must defer it so the span
+// wraps the subsequent Lua execution.
+func (q *queue) traceEnqueueItem(ctx context.Context, l logger.Logger, i *osqueue.QueueItem, at time.Time, now time.Time, opts osqueue.EnqueueOpts) func() {
 	defaultPartition := osqueue.ItemPartition(ctx, *i)
 	if defaultPartition.AccountID == uuid.Nil && !defaultPartition.IsSystem() {
 		l.Warn("attempting to enqueue item to non-system partition without account ID", "item", *i)
@@ -163,7 +166,6 @@ func (q *queue) traceEnqueueItem(ctx context.Context, l logger.Logger, i *osqueu
 
 	partitionID := defaultPartition.Identifier()
 	_, span := q.ConditionalTracer.NewSpan(ctx, "queue.EnqueueItem", partitionID.AccountID, partitionID.EnvID, partitionID.FunctionID)
-	defer span.End()
 	span.SetAttributes(attribute.String("partition_id", shadowPartition.PartitionID))
 	span.SetAttributes(attribute.String("item_id", i.ID))
 	span.SetAttributes(attribute.String("run_id", i.Data.Identifier.RunID.String()))
@@ -183,6 +185,8 @@ func (q *queue) traceEnqueueItem(ctx context.Context, l logger.Logger, i *osqueu
 		"partition", shadowPartition.PartitionID,
 		"backlog", enqueueToBacklogs,
 	)
+
+	return func() { span.End() }
 }
 
 // handleEnqueueStatus interprets the Lua script return status for a single enqueue.
