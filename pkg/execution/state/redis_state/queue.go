@@ -338,10 +338,8 @@ func (q *queue) EnqueueItemBatch(ctx context.Context, items []osqueue.QueueItem,
 	return interpretEnqueueBatchResults(results, len(items))
 }
 
-// prepareEnqueueLuaExec builds the LuaExec entry (keys + args) for a single queue item.
-func (q *queue) prepareEnqueueLuaExec(ctx context.Context, i *osqueue.QueueItem, at time.Time, now time.Time, opts osqueue.EnqueueOpts) (rueidis.LuaExec, error) {
-	kg := q.RedisClient.kg
-
+// normalizeQueueItem sets IDs and timestamps on an item before enqueueing.
+func (q *queue) normalizeQueueItem(ctx context.Context, i *osqueue.QueueItem, at time.Time, now time.Time, opts osqueue.EnqueueOpts) time.Time {
 	if len(i.ID) == 0 {
 		i.SetID(ctx, ulid.MustNew(ulid.Now(), rnd).String())
 	} else if !opts.PassthroughJobId {
@@ -365,8 +363,15 @@ func (q *queue) prepareEnqueueLuaExec(ctx context.Context, i *osqueue.QueueItem,
 	if at.Before(now) {
 		partitionTime = q.Clock.Now()
 	}
-
 	i.EnqueuedAt = now.UnixMilli()
+
+	return partitionTime
+}
+
+// prepareEnqueueLuaExec builds the LuaExec entry (keys + args) for a single queue item.
+func (q *queue) prepareEnqueueLuaExec(ctx context.Context, i *osqueue.QueueItem, at time.Time, now time.Time, opts osqueue.EnqueueOpts) (rueidis.LuaExec, error) {
+	kg := q.RedisClient.kg
+	partitionTime := q.normalizeQueueItem(ctx, i, at, now, opts)
 
 	defaultPartition := osqueue.ItemPartition(ctx, *i)
 	enqueueToBacklogs := q.QueueOptions.ItemEnableKeyQueues(ctx, *i)
