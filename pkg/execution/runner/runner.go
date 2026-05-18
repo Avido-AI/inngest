@@ -329,10 +329,14 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	// Errors are logged asynchronously by the buffered writer rather than
 	// returned here, since at incident scale (78K events) per-event
 	// round-trips overwhelm the database.
-	s.bufferedWriter.Write(
-		ctx,
-		cqrs.ConvertFromEvent(tracked.GetInternalID(), tracked.GetEvent()),
-	)
+	evt := cqrs.ConvertFromEvent(tracked.GetInternalID(), tracked.GetEvent())
+	if s.bufferedWriter != nil {
+		s.bufferedWriter.Write(ctx, evt)
+	} else {
+		if err := s.cqrs.InsertEvent(ctx, evt); err != nil {
+			return fmt.Errorf("error inserting event: %w", err)
+		}
+	}
 
 	l := s.log.With(
 		"event", tracked.GetEvent().Name,

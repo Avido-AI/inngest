@@ -1254,7 +1254,7 @@ func (w wrapper) InsertEvents(ctx context.Context, events []cqrs.Event) error {
 	}
 
 	if skipped > 0 {
-		return fmt.Errorf("inserted %d events but skipped %d due to marshal errors", len(rows), skipped)
+		return &cqrs.PartialInsertError{Inserted: len(rows), Skipped: skipped}
 	}
 	return nil
 }

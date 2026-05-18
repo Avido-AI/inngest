@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -137,15 +138,27 @@ func (w *BufferedEventWriter) flushNow(ctx context.Context) {
 	w.mu.Unlock()
 
 	if err := w.writer.InsertEvents(ctx, events); err != nil {
-		w.log.Error("buffered event writer flush failed",
-			"error", err,
-			"event_count", len(events),
-		)
-		metrics.IncrEventFlushErrorCounter(ctx, metrics.CounterOpt{
-			PkgName: pkgName,
-		})
-		metrics.IncrEventFlushDroppedCounter(ctx, int64(len(events)), metrics.CounterOpt{
-			PkgName: pkgName,
-		})
+		var partial *cqrs.PartialInsertError
+		if errors.As(err, &partial) {
+			w.log.Warn("buffered event writer partial flush",
+				"error", err,
+				"inserted", partial.Inserted,
+				"skipped", partial.Skipped,
+			)
+			metrics.IncrEventFlushDroppedCounter(ctx, int64(partial.Skipped), metrics.CounterOpt{
+				PkgName: pkgName,
+			})
+		} else {
+			w.log.Error("buffered event writer flush failed",
+				"error", err,
+				"event_count", len(events),
+			)
+			metrics.IncrEventFlushErrorCounter(ctx, metrics.CounterOpt{
+				PkgName: pkgName,
+			})
+			metrics.IncrEventFlushDroppedCounter(ctx, int64(len(events)), metrics.CounterOpt{
+				PkgName: pkgName,
+			})
+		}
 	}
 }
