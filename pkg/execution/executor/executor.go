@@ -4964,10 +4964,13 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 		}
 	}
 
-	// Phase 3: Enqueue all timeout jobs.
-	// Track which items already exist so we skip event publishing and lifecycle
-	// hooks for them (matching the single-opcode path's early-return on
-	// ErrQueueItemExists).
+	// Phase 3+4: Enqueue timeout and publish event per-item.
+	// These are interleaved (not separate loops) so that a failure publishing
+	// an event at item K does not prevent items K+1..N-1 from being processed
+	// on retry. If they were separate phases, a Phase 4 failure would leave
+	// items K+1..N-1 with timeouts already enqueued; on retry, Phase 3 would
+	// mark them as "skip" via ErrQueueItemExists, permanently preventing their
+	// event from being published.
 	skipItem := make([]bool, len(items))
 	for idx := range items {
 		err := e.queue.Enqueue(ctx, items[idx].item, items[idx].expires, queue.EnqueueOpts{})
@@ -4989,14 +4992,8 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 		if items[idx].span != nil {
 			_ = items[idx].span.Send()
 		}
-	}
 
-	// Phase 4: Publish invocation events (skip items that already existed).
-	for idx := range items {
-		if skipItem[idx] {
-			continue
-		}
-		err := e.handleInvokeEvent(ctx, items[idx].evt)
+		err = e.handleInvokeEvent(ctx, items[idx].evt)
 		if err != nil {
 			return fmt.Errorf("error publishing internal invocation event: %w", err)
 		}
