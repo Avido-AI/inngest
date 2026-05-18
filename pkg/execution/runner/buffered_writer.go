@@ -122,7 +122,13 @@ func (w *BufferedEventWriter) flushLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			w.flushNow(ctx)
+			// Use a detached context for DB writes so that loop
+			// cancellation does not abort in-flight inserts. When
+			// Stop() cancels ctx while a flush is executing, the
+			// ticker can fire before ctx.Done() is selected; passing
+			// the cancelled ctx would cause ExecContext to fail
+			// immediately, losing the buffered events.
+			w.flushNow(context.Background())
 		}
 	}
 }
