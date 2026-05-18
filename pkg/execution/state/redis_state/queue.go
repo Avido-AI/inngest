@@ -228,26 +228,38 @@ func (q *queue) EnqueueItemBatch(ctx context.Context, items []osqueue.QueueItem,
 		return nil
 	}
 
-	now := q.Clock.Now()
+	multi, prepErr := q.prepareBatchEnqueueExecs(ctx, items, ats, opts)
+	if prepErr != nil {
+		return prepErr
+	}
 
+	return q.executeBatchEnqueue(ctx, multi, len(items))
+}
+
+// prepareBatchEnqueueExecs builds LuaExec entries for all items in a batch.
+func (q *queue) prepareBatchEnqueueExecs(ctx context.Context, items []osqueue.QueueItem, ats []time.Time, opts osqueue.EnqueueOpts) ([]rueidis.LuaExec, []error) {
+	now := q.Clock.Now()
 	multi := make([]rueidis.LuaExec, 0, len(items))
 	for idx := range items {
 		exec, err := q.prepareEnqueueLuaExec(ctx, &items[idx], ats[idx], now, opts)
 		if err != nil {
 			errs := make([]error, len(items))
 			errs[idx] = err
-			return errs
+			return nil, errs
 		}
 		multi = append(multi, exec)
 	}
+	return multi, nil
+}
 
+// executeBatchEnqueue runs the Redis pipeline and interprets per-item results.
+func (q *queue) executeBatchEnqueue(ctx context.Context, multi []rueidis.LuaExec, count int) []error {
 	results := scripts["queue/enqueue"].ExecMulti(
 		redis_telemetry.WithScriptName(ctx, "enqueueBatch"),
 		q.RedisClient.Client(),
 		multi...,
 	)
-
-	return interpretEnqueueBatchResults(results, len(items))
+	return interpretEnqueueBatchResults(results, count)
 }
 
 // normalizeQueueItem sets IDs and timestamps on an item before enqueueing.
