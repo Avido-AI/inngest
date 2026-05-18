@@ -4804,10 +4804,9 @@ type batchInvokeItem struct {
 // each writing a pause + enqueuing a timeout + publishing an event, this method:
 //
 //  1. Pre-computes all data structures (pauses, queue items, events, spans)
-//  2. Batch-writes all pauses in a single pm.Write() call
-//  3. Enqueues timeout jobs sequentially (avoids goroutine-per-item overhead)
-//  4. Publishes invocation events
-//  5. Fires lifecycle hooks
+//  2. Writes each pause individually with per-pause retry
+//  3. Enqueues timeout + publishes event per-item (interleaved)
+//  4. Fires lifecycle hooks
 func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstance, inputs []batchInvokeInput) error {
 	if e.handleInvokeEvent == nil {
 		return fmt.Errorf("no handleSendingEvent function specified")
