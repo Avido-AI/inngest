@@ -31,6 +31,11 @@ func (c *functionsCache) invalidate() {
 	c.mu.Unlock()
 }
 
+// invalidateFnCache clears the functions cache after a successful mutation.
+func (w wrapper) invalidateFnCache() {
+	w.fnCache.invalidate()
+}
+
 // Functions returns all functions as inngest functions, using a short-lived
 // in-memory cache to avoid repeated full table scans.
 func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {

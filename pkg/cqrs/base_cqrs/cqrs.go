@@ -1152,14 +1152,14 @@ func (w wrapper) UpsertFunction(ctx context.Context, params cqrs.UpsertFunctionP
 		return nil, err
 	}
 
-	w.fnCache.invalidate()
+	w.invalidateFnCache()
 	return domainToCQRS(fn, domainFunction), nil
 }
 
 func (w wrapper) DeleteFunctionsByAppID(ctx context.Context, appID uuid.UUID) error {
 	err := w.q.DeleteFunctionsByAppID(ctx, appID)
 	if err == nil {
-		w.fnCache.invalidate()
+		w.invalidateFnCache()
 	}
 	return err
 }
@@ -1167,7 +1167,7 @@ func (w wrapper) DeleteFunctionsByAppID(ctx context.Context, appID uuid.UUID) er
 func (w wrapper) DeleteFunctionsByIDs(ctx context.Context, ids []uuid.UUID) error {
 	err := w.q.DeleteFunctionsByIDs(ctx, ids)
 	if err == nil {
-		w.fnCache.invalidate()
+		w.invalidateFnCache()
 	}
 	return err
 }
@@ -1181,7 +1181,7 @@ func (w wrapper) UpdateFunctionConfig(ctx context.Context, arg cqrs.UpdateFuncti
 		return nil, err
 	}
 
-	w.fnCache.invalidate()
+	w.invalidateFnCache()
 	return domainToCQRS(fn, domainFunction), nil
 }
 
