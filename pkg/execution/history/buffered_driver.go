@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/inngest/inngest/pkg/enums"
@@ -33,6 +34,7 @@ type BufferedDriver struct {
 
 	flushMu   sync.Mutex
 	wg        sync.WaitGroup
+	closing   atomic.Bool
 	closeOnce sync.Once
 	stopCh    chan struct{}
 	doneCh    chan struct{}
@@ -75,6 +77,7 @@ func (b *BufferedDriver) WriteBatch(ctx context.Context, items []History) error 
 }
 
 func (b *BufferedDriver) Close(ctx context.Context) error {
+	b.closing.Store(true)
 	b.closeOnce.Do(func() { close(b.stopCh) })
 	<-b.doneCh
 
@@ -149,6 +152,9 @@ func (b *BufferedDriver) flush() {
 }
 
 func (b *BufferedDriver) flushAsync() {
+	if b.closing.Load() {
+		return
+	}
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
