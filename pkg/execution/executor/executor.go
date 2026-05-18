@@ -240,6 +240,13 @@ func WithInvokeEventHandler(f execution.HandleInvokeEvent) ExecutorOpt {
 	}
 }
 
+func WithInvokeEventBatchHandler(f execution.HandleInvokeEventsBatch) ExecutorOpt {
+	return func(e execution.Executor) error {
+		e.(*executor).handleInvokeEventsBatch = f
+		return nil
+	}
+}
+
 func WithLifecycleListeners(l ...execution.LifecycleListener) ExecutorOpt {
 	return func(e execution.Executor) error {
 		for _, item := range l {
@@ -490,8 +497,9 @@ type executor struct {
 	evalFactory         func(ctx context.Context, expr string) (expressions.Evaluator, error)
 	finishHandler       execution.FinalizePublisher
 	invokeFailHandler   execution.InvokeFailHandler
-	handleInvokeEvent   execution.HandleInvokeEvent
-	cancellationChecker cancellation.Checker
+	handleInvokeEvent        execution.HandleInvokeEvent
+	handleInvokeEventsBatch execution.HandleInvokeEventsBatch
+	cancellationChecker     cancellation.Checker
 	httpClient          exechttp.RequestExecutor
 	// signingKeyLoader is used to load signing keys for an env.  This is required for the
 	// HTTPv2 driver.
@@ -5045,65 +5053,115 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 		})
 	}
 
-	// Phase 2: Write each pause individually with retry, matching the
-	// single-opcode path's per-pause semantics. redisAdapter.Write iterates
-	// sequentially and stops on the first error, so a single batch call would
-	// leave later pauses unwritten if an earlier one hits ErrPauseAlreadyExists
-	// on a retry after partial write.
-	for idx := range items {
-		_, err := util.WithRetry(ctx, "pause.handleBatchInvokeFunctions", func(ctx context.Context) (int, error) {
-			return e.pm.Write(ctx, pauseIdx, &items[idx].pause)
-		}, util.NewRetryConf(util.WithRetryConfRetryableErrors(pauses.WritePauseRetryableError)))
-		if err != nil {
-			if errors.Is(err, state.ErrPauseAlreadyExists) {
-				if items[idx].span != nil {
-					items[idx].span.Drop()
+	// Phase 2: Write pauses in batch via Redis pipeline when possible.
+	// Falls back to per-item writes if the pause manager doesn't implement
+	// BatchPauseWriter.
+	if bpw, ok := e.pm.(pauses.BatchPauseWriter); ok {
+		pauseSlice := make([]state.Pause, len(items))
+		for idx := range items {
+			pauseSlice[idx] = items[idx].pause
+		}
+		errs := bpw.WriteBatch(ctx, pauseIdx, pauseSlice)
+		for idx, err := range errs {
+			if err != nil {
+				if errors.Is(err, state.ErrPauseAlreadyExists) {
+					if items[idx].span != nil {
+						items[idx].span.Drop()
+					}
+				} else {
+					return err
 				}
-			} else {
-				return err
+			}
+		}
+	} else {
+		for idx := range items {
+			_, err := util.WithRetry(ctx, "pause.handleBatchInvokeFunctions", func(ctx context.Context) (int, error) {
+				return e.pm.Write(ctx, pauseIdx, &items[idx].pause)
+			}, util.NewRetryConf(util.WithRetryConfRetryableErrors(pauses.WritePauseRetryableError)))
+			if err != nil {
+				if errors.Is(err, state.ErrPauseAlreadyExists) {
+					if items[idx].span != nil {
+						items[idx].span.Drop()
+					}
+				} else {
+					return err
+				}
 			}
 		}
 	}
 
-	// Phase 3+4: Enqueue timeout and publish event per-item.
-	// These are interleaved (not separate loops) so that a failure publishing
-	// an event at item K does not prevent items K+1..N-1 from being processed
-	// on retry. If they were separate phases, a Phase 4 failure would leave
-	// items K+1..N-1 with timeouts already enqueued; on retry, Phase 3 would
-	// mark them as "skip" via ErrQueueItemExists, permanently preventing their
-	// event from being published.
+	// Phase 3: Enqueue timeout jobs in batch via Redis pipeline when possible.
+	// Falls back to per-item enqueue if the queue doesn't implement BatchEnqueuer.
 	skipItem := make([]bool, len(items))
-	for idx := range items {
-		err := e.queue.Enqueue(ctx, items[idx].item, items[idx].expires, queue.EnqueueOpts{})
-		if err == queue.ErrQueueItemExists {
-			if items[idx].span != nil {
-				items[idx].span.Drop()
-			}
-			skipItem[idx] = true
-			continue
+	if be, ok := e.queue.(queue.BatchEnqueuer); ok {
+		queueItems := make([]queue.Item, len(items))
+		queueAts := make([]time.Time, len(items))
+		for idx := range items {
+			queueItems[idx] = items[idx].item
+			queueAts[idx] = items[idx].expires
 		}
-		if err != nil {
-			logger.StdlibLogger(ctx).Error(
-				"failed to enqueue invoke function pause timeout",
-				"error", err,
-				"run_id", i.md.ID.RunID,
-				"workspace_id", i.md.ID.Tenant.EnvID,
-			)
+		errs := be.EnqueueBatch(ctx, queueItems, queueAts, queue.EnqueueOpts{})
+		for idx, err := range errs {
+			if err == queue.ErrQueueItemExists {
+				if items[idx].span != nil {
+					items[idx].span.Drop()
+				}
+				skipItem[idx] = true
+			} else if err != nil {
+				logger.StdlibLogger(ctx).Error(
+					"failed to enqueue invoke function pause timeout",
+					"error", err,
+					"run_id", i.md.ID.RunID,
+					"workspace_id", i.md.ID.Tenant.EnvID,
+				)
+			}
+		}
+	} else {
+		for idx := range items {
+			err := e.queue.Enqueue(ctx, items[idx].item, items[idx].expires, queue.EnqueueOpts{})
+			if err == queue.ErrQueueItemExists {
+				if items[idx].span != nil {
+					items[idx].span.Drop()
+				}
+				skipItem[idx] = true
+			} else if err != nil {
+				logger.StdlibLogger(ctx).Error(
+					"failed to enqueue invoke function pause timeout",
+					"error", err,
+					"run_id", i.md.ID.RunID,
+					"workspace_id", i.md.ID.Tenant.EnvID,
+				)
+			}
+		}
+	}
+
+	// Phase 4: Send spans and publish events for non-skipped items.
+	// Attach invoke span refs, then batch publish events if a batch handler is available.
+	evtsToPublish := make([]event.TrackedEvent, 0, len(items))
+	for idx := range items {
+		if skipItem[idx] {
+			continue
 		}
 		if items[idx].span != nil {
 			_ = items[idx].span.Send()
 		}
-
-		// Attach the v2 invoke span ref to the invocation event so the invoked
-		// function's Schedule can call UpdateSpan to write its runID onto this
-		// invoke span while the invoke is still in progress.
 		if items[idx].span != nil && items[idx].span.Ref != nil {
 			items[idx].evt.Event.SetInvokeSpanRef(items[idx].span.Ref) //nolint:gosec
 		}
+		evtsToPublish = append(evtsToPublish, items[idx].evt)
+	}
 
-		err = e.handleInvokeEvent(ctx, items[idx].evt)
-		if err != nil {
-			return fmt.Errorf("error publishing internal invocation event: %w", err)
+	if len(evtsToPublish) > 0 {
+		if e.handleInvokeEventsBatch != nil {
+			if err := e.handleInvokeEventsBatch(ctx, evtsToPublish); err != nil {
+				return fmt.Errorf("error batch publishing internal invocation events: %w", err)
+			}
+		} else {
+			for _, evt := range evtsToPublish {
+				if err := e.handleInvokeEvent(ctx, evt); err != nil {
+					return fmt.Errorf("error publishing internal invocation event: %w", err)
+				}
+			}
 		}
 	}
 

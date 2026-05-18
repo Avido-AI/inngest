@@ -12,6 +12,12 @@ import (
 	"github.com/inngest/inngest/pkg/telemetry/metrics"
 )
 
+// batchEnqueueShard is an optional interface for shards that support batch enqueue
+// via Redis pipeline.
+type batchEnqueueShard interface {
+	EnqueueItemBatch(ctx context.Context, items []QueueItem, ats []time.Time, opts EnqueueOpts) []error
+}
+
 const (
 	pkgName = "queue.processor"
 )
@@ -145,4 +151,116 @@ func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, o
 	default:
 		return fmt.Errorf("unknown shard kind: %s", string(shard.Kind()))
 	}
+}
+
+// EnqueueBatch enqueues multiple items in a single Redis pipeline roundtrip.
+// Returns a per-item error slice (nil = success). This satisfies the BatchEnqueuer
+// optional interface.
+func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	// Prepare QueueItems from Items (same logic as Enqueue but batched).
+	qis := make([]QueueItem, len(items))
+	effectiveAts := make([]time.Time, len(items))
+
+	for idx := range items {
+		item := &items[idx]
+		if item.Metadata == nil {
+			item.Metadata = map[string]any{}
+		}
+
+		id := ""
+		if item.JobID != nil {
+			id = *item.JobID
+		}
+
+		if item.QueueName == nil {
+			if name, ok := q.queueKindMapping[item.Kind]; ok {
+				item.QueueName = &name
+			}
+		}
+
+		qi := QueueItem{
+			ID:          id,
+			AtMS:        ats[idx].UnixMilli(),
+			WorkspaceID: item.WorkspaceID,
+			FunctionID:  item.Identifier.WorkflowID,
+			Data:        *item,
+			QueueName:   item.QueueName,
+			WallTimeMS:  ats[idx].UnixMilli(),
+		}
+
+		if item.QueueName == nil && qi.FunctionID == uuid.Nil {
+			errs := make([]error, len(items))
+			errs[idx] = fmt.Errorf("queue name or function ID must be set")
+			return errs
+		}
+
+		if opts.IdempotencyPeriod != nil {
+			qi.IdempotencyPeriod = opts.IdempotencyPeriod
+		}
+
+		effectiveAts[idx] = time.UnixMilli(qi.Score(q.Clock().Now()))
+
+		if factor := qi.Data.GetPriorityFactor(); factor != 0 {
+			qi.AtMS -= factor
+		}
+
+		qis[idx] = qi
+	}
+
+	// Select shard using the first item (batch invoke items all share the same shard).
+	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, qis[0])
+	if err != nil {
+		errs := make([]error, len(items))
+		for i := range errs {
+			errs[i] = err
+		}
+		return errs
+	}
+
+	if shard.Kind() != enums.QueueShardKindRedis {
+		errs := make([]error, len(items))
+		for i := range errs {
+			errs[i] = fmt.Errorf("batch enqueue only supported on Redis shards")
+		}
+		return errs
+	}
+
+	// Type-assert to batch-capable shard.
+	bs, ok := shard.(batchEnqueueShard)
+	if !ok {
+		// Fallback: enqueue sequentially.
+		errs := make([]error, len(items))
+		for idx := range items {
+			errs[idx] = q.Enqueue(ctx, items[idx], ats[idx], opts)
+		}
+		return errs
+	}
+
+	errs := bs.EnqueueItemBatch(ctx, qis, effectiveAts, opts)
+
+	// Emit metrics for each item.
+	for idx := range items {
+		status := "enqueued"
+		if errs[idx] != nil {
+			if errs[idx] == ErrQueueItemExists {
+				status = "exists"
+			} else {
+				status = "error"
+			}
+		}
+		metrics.IncrQueueItemStatusCounter(ctx, metrics.CounterOpt{
+			PkgName: pkgName,
+			Tags: map[string]any{
+				"status":      status,
+				"kind":        items[idx].Kind,
+				"queue_shard": shard.Name(),
+			},
+		})
+	}
+
+	return errs
 }

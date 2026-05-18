@@ -544,6 +544,7 @@ func start(ctx context.Context, opts StartOpts) error {
 		}),
 		executor.WithInvokeFailHandler(getInvokeFailHandler(ctx, pb, opts.Config.EventStream.Service.Concrete.TopicName())),
 		executor.WithInvokeEventHandler(getInvokeEventHandler(ctx, pb, opts.Config.EventStream.Service.Concrete.TopicName())),
+		executor.WithInvokeEventBatchHandler(getInvokeEventBatchHandler(ctx, pb, opts.Config.EventStream.Service.Concrete.TopicName())),
 		executor.WithDebouncer(debouncer),
 		executor.WithSingletonManager(sn),
 		executor.WithBatcher(batcher),
@@ -858,6 +859,42 @@ func getInvokeEventHandler(ctx context.Context, pb pubsub.Publisher, topic strin
 			return fmt.Errorf("error publishing invocation event: %w", err)
 		}
 
+		return nil
+	}
+}
+
+func getInvokeEventBatchHandler(ctx context.Context, pb pubsub.Publisher, topic string) execution.HandleInvokeEventsBatch {
+	return func(ctx context.Context, evts []event.TrackedEvent) error {
+		msgs := make([]pubsub.Message, 0, len(evts))
+		for _, evt := range evts {
+			byt, err := json.Marshal(evt)
+			if err != nil {
+				return fmt.Errorf("error marshalling invocation event: %w", err)
+			}
+
+			carrier := itrace.NewTraceCarrier()
+			itrace.UserTracer().Propagator().Inject(ctx, propagation.MapCarrier(carrier.Context))
+
+			msgs = append(msgs, pubsub.Message{
+				Name:      event.EventReceivedName,
+				Data:      string(byt),
+				Timestamp: time.Now(),
+				Metadata: map[string]any{
+					consts.OtelPropagationKey: carrier,
+				},
+			})
+		}
+
+		// Use batch publisher if available, otherwise fall back to sequential.
+		if bp, ok := pb.(pubsub.BatchPublisher); ok {
+			return bp.PublishBatch(ctx, topic, msgs)
+		}
+
+		for _, msg := range msgs {
+			if err := pb.Publish(ctx, topic, msg); err != nil {
+				return fmt.Errorf("error publishing invocation event: %w", err)
+			}
+		}
 		return nil
 	}
 }

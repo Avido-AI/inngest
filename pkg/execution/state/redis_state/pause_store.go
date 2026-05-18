@@ -154,6 +154,118 @@ func (s *PauseStore) SavePause(ctx context.Context, p state.Pause) (int64, error
 	}
 }
 
+// SavePauseBatch writes multiple pauses in a single Redis pipeline roundtrip
+// using ExecMulti. It returns a per-pause error slice (nil entry = success).
+// This is significantly more efficient than calling SavePause N times sequentially
+// when writing many pauses (e.g. batch invoke with hundreds of parallel steps).
+func (s *PauseStore) SavePauseBatch(ctx context.Context, pauses []state.Pause) []error {
+	ctx = redis_telemetry.WithScope(redis_telemetry.WithOpName(ctx, "SavePauseBatch"), redis_telemetry.ScopePauses)
+
+	if len(pauses) == 0 {
+		return nil
+	}
+
+	multi := make([]rueidis.LuaExec, 0, len(pauses))
+
+	for idx := range pauses {
+		p := &pauses[idx]
+
+		evt := ""
+		if p.Event != nil && (p.InvokeCorrelationID == nil || *p.InvokeCorrelationID == "") {
+			evt = *p.Event
+		}
+
+		invokeCorrId := ""
+		if p.InvokeCorrelationID != nil {
+			invokeCorrId = *p.InvokeCorrelationID
+		}
+
+		signalCorrId := ""
+		if p.SignalID != nil {
+			signalCorrId = *p.SignalID
+		}
+
+		extendedExpiry := time.Until(p.Expires.Time().Add(10 * time.Minute)).Seconds()
+
+		createdAt := p.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = time.Now()
+		}
+
+		nowUnixSeconds := createdAt.Unix()
+		p.CreatedAt = createdAt
+
+		packed, err := json.Marshal(p)
+		if err != nil {
+			errs := make([]error, len(pauses))
+			errs[idx] = fmt.Errorf("error marshalling pause %d: %w", idx, err)
+			return errs
+		}
+
+		pause := s.unsharded.Pauses()
+		global := s.unsharded.Global()
+
+		keys := []string{
+			pause.kg.Pause(ctx, p.ID),
+			pause.kg.PauseEvent(ctx, p.WorkspaceID, evt),
+			global.kg.Invoke(ctx, p.WorkspaceID),
+			global.kg.Signal(ctx, p.WorkspaceID),
+			pause.kg.PauseIndex(ctx, "add", p.WorkspaceID, evt),
+			pause.kg.PauseIndex(ctx, "exp", p.WorkspaceID, evt),
+			pause.kg.RunPauses(ctx, p.Identifier.RunID),
+			pause.kg.GlobalPauseIndex(ctx),
+		}
+
+		replaceSignalOnConflict := "0"
+		if p.ReplaceSignalOnConflict {
+			replaceSignalOnConflict = "1"
+		}
+
+		args, err := StrSlice([]any{
+			string(packed),
+			p.ID.String(),
+			evt,
+			invokeCorrId,
+			signalCorrId,
+			int(extendedExpiry),
+			nowUnixSeconds,
+			replaceSignalOnConflict,
+		})
+		if err != nil {
+			errs := make([]error, len(pauses))
+			errs[idx] = fmt.Errorf("error building args for pause %d: %w", idx, err)
+			return errs
+		}
+
+		multi = append(multi, rueidis.LuaExec{Keys: keys, Args: args})
+	}
+
+	pause := s.unsharded.Pauses()
+	results := scripts["savePause"].ExecMulti(
+		redis_telemetry.WithScriptName(ctx, "savePauseBatch"),
+		pause.Client(),
+		multi...,
+	)
+
+	errs := make([]error, len(pauses))
+	for idx, res := range results {
+		status, err := res.AsInt64()
+		if err != nil {
+			if err.Error() == "ErrSignalConflict" {
+				errs[idx] = state.ErrSignalConflict
+			} else {
+				errs[idx] = fmt.Errorf("error saving pause %d: %w", idx, err)
+			}
+			continue
+		}
+		if status == -1 {
+			errs[idx] = state.ErrPauseAlreadyExists
+		}
+	}
+
+	return errs
+}
+
 func (s *PauseStore) DeletePauseByID(ctx context.Context, pauseID uuid.UUID, workspaceID uuid.UUID) error {
 	// Attempt to fetch this pause.
 	pause, err := s.PauseByID(ctx, pauseID)
