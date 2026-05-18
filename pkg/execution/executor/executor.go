@@ -5125,6 +5125,7 @@ func (e *executor) writeBatchPauses(ctx context.Context, items []batchInvokeItem
 				if errors.Is(err, state.ErrPauseAlreadyExists) {
 					if items[idx].span != nil {
 						items[idx].span.Drop()
+						items[idx].span = nil
 					}
 				} else {
 					return err
@@ -5142,6 +5143,7 @@ func (e *executor) writeBatchPauses(ctx context.Context, items []batchInvokeItem
 			if errors.Is(err, state.ErrPauseAlreadyExists) {
 				if items[idx].span != nil {
 					items[idx].span.Drop()
+					items[idx].span = nil
 				}
 			} else {
 				return err

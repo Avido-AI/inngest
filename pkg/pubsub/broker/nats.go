@@ -141,41 +141,6 @@ func (c *NatsConnector) Publish(ctx context.Context, sub string, data []byte) er
 	return c.conn.Publish(sub, data)
 }
 
-// PublishBatch publishes multiple messages in a single batch, reducing roundtrips.
-// For JetStream, uses PublishAsync to pipeline all publishes and then waits for acks.
-// For raw NATS, publishes sequentially (already fire-and-forget with no per-message ack).
-func (c *NatsConnector) PublishBatch(ctx context.Context, sub string, data [][]byte) error {
-	if c.js != nil {
-		futures := make([]jetstream.PubAckFuture, 0, len(data))
-		for _, d := range data {
-			f, err := c.js.PublishAsync(sub, d)
-			if err != nil {
-				return fmt.Errorf("error in batch publish async: %w", err)
-			}
-			futures = append(futures, f)
-		}
-		// Wait for all acks.
-		for _, f := range futures {
-			select {
-			case <-f.Ok():
-			case err := <-f.Err():
-				return fmt.Errorf("error in batch publish ack: %w", err)
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		return nil
-	}
-
-	// Raw NATS: publish sequentially (no ack required).
-	for _, d := range data {
-		if err := c.conn.Publish(sub, d); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (c *NatsConnector) JSConn() (jetstream.JetStream, error) {
 	if c.js == nil {
 		return nil, fmt.Errorf("jetstream connection not available")
