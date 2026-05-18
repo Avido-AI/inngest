@@ -85,6 +85,7 @@ func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFiel
 
 	for _, attr := range span.Attributes() {
 		key := string(attr.Key)
+		skipAttr := false
 
 		switch key {
 		case meta.Attrs.StepOutput.Key():
@@ -102,50 +103,46 @@ func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFiel
 			} else {
 				sf.eventIdsByt = byt
 			}
+			skipAttr = cleanAttrs
 		case meta.Attrs.AccountID.Key():
 			sf.accountID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.EnvID.Key():
 			sf.envID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.RunID.Key():
 			sf.runID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.AppID.Key():
 			sf.appID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.FunctionID.Key():
 			sf.functionID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.DynamicTraceID.Key():
 			sf.traceID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.DynamicSpanID.Key():
 			sf.dynamicSpanID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.DebugSessionID.Key():
 			sf.debugSessionID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.DebugRunID.Key():
 			sf.debugRunID = attr.Value.AsString()
+			skipAttr = cleanAttrs
 		case meta.Attrs.DynamicStatus.Key():
 			sf.status = attr.Value.AsString()
+			skipAttr = cleanAttrs
+		case meta.Attrs.UserlandSpanID.Key():
+			skipAttr = cleanAttrs
+		case meta.Attrs.DropSpan.Key():
+			skipAttr = cleanAttrs && isExtensionSpan
 		}
 
-		if cleanAttrs {
-			switch key {
-			case meta.Attrs.EventIDs.Key(),
-				meta.Attrs.AccountID.Key(),
-				meta.Attrs.EnvID.Key(),
-				meta.Attrs.RunID.Key(),
-				meta.Attrs.AppID.Key(),
-				meta.Attrs.FunctionID.Key(),
-				meta.Attrs.DynamicTraceID.Key(),
-				meta.Attrs.DynamicSpanID.Key(),
-				meta.Attrs.DebugSessionID.Key(),
-				meta.Attrs.DebugRunID.Key(),
-				meta.Attrs.DynamicStatus.Key(),
-				meta.Attrs.UserlandSpanID.Key():
-				continue
-			}
-			if isExtensionSpan && key == meta.Attrs.DropSpan.Key() {
-				continue
-			}
+		if !skipAttr {
+			sf.attrs[key] = attr.Value.AsInterface()
 		}
-
-		sf.attrs[key] = attr.Value.AsInterface()
 	}
 	return sf
 }
