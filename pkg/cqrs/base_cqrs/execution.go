@@ -3,6 +3,7 @@ package base_cqrs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -57,7 +58,9 @@ func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
 	funcs := make([]inngest.Function, len(all))
 	for n, i := range all {
 		f := inngest.Function{}
-		_ = json.Unmarshal([]byte(i.Config), &f)
+		if err := json.Unmarshal([]byte(i.Config), &f); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal function config for %s: %w", i.ID, err)
+		}
 		funcs[n] = f
 	}
 
