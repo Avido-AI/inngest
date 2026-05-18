@@ -22,8 +22,8 @@ const (
 	pkgName = "queue.processor"
 )
 
-// buildQueueItem converts an Item to a QueueItem and computes its effective enqueue time.
-func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpts) (QueueItem, time.Time) {
+// buildQueueItem converts an Item to a QueueItem, validates it, and computes its effective enqueue time.
+func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpts) (QueueItem, time.Time, error) {
 	if item.Metadata == nil {
 		item.Metadata = map[string]any{}
 	}
@@ -49,6 +49,10 @@ func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpt
 		WallTimeMS:  at.UnixMilli(),
 	}
 
+	if qi.Data.QueueName == nil && qi.FunctionID == uuid.Nil {
+		return QueueItem{}, time.Time{}, fmt.Errorf("queue name or function ID must be set")
+	}
+
 	if opts.IdempotencyPeriod != nil {
 		qi.IdempotencyPeriod = opts.IdempotencyPeriod
 	}
@@ -59,7 +63,7 @@ func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpt
 		qi.AtMS -= factor
 	}
 
-	return qi, effectiveAt
+	return qi, effectiveAt, nil
 }
 
 // Enqueue adds an item to the queue to be processed at the given time.
@@ -68,18 +72,8 @@ func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpt
 func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, opts EnqueueOpts) error {
 	l := logger.StdlibLogger(ctx)
 
-	qi, next := q.buildQueueItem(item, at, opts)
-
-	l = l.With(
-		"item", qi,
-		"account_id", qi.Data.Identifier.AccountID,
-		"env_id", qi.WorkspaceID,
-		"app_id", qi.Data.Identifier.AppID,
-		"fn_id", qi.FunctionID,
-	)
-
-	if qi.Data.QueueName == nil && qi.FunctionID == uuid.Nil {
-		err := fmt.Errorf("queue name or function ID must be set")
+	qi, next, err := q.buildQueueItem(item, at, opts)
+	if err != nil {
 		l.ReportError(err, "attempted to enqueue QueueItem without function ID or queueName override")
 		return err
 	}
@@ -93,64 +87,50 @@ func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, o
 		PkgName: pkgName,
 		Tags: map[string]any{
 			"status":      "enqueued",
-			"kind":        item.Kind,
+			"kind":        qi.Data.Kind,
 			"queue_shard": shard.Name(),
 		},
 	})
 
 	switch shard.Kind() {
 	case enums.QueueShardKindRedis:
-		_, err := shard.EnqueueItem(ctx, qi, next, opts)
-		if err != nil {
+		if _, err := shard.EnqueueItem(ctx, qi, next, opts); err != nil {
 			return err
 		}
-
-		// XXX: If we've enqueued a user queue item (sleep, retry, step, etc.) and it's in the future,
-		// we want to ensure that we schedule a rebalance job which takes the queue item and places it
-		// at the correct score based off of the item's run ID when it becomes available.
-		//
-		// Without this, step.sleep or retries for a very old workflow may still lag behind steps from
-		// later workflows when scheduled in the future.  This can, worst case, cause never-ending runs.
-		if !q.enableJobPromotion || !qi.RequiresPromotionJob(q.Clock().Now()) {
-			// scheule a rebalance job automatically.
-			return nil
-		}
-
-		// This is to prevent infinite recursion in case RequiresPromotion is accidentally refactored
-		// to include the below job kind.
-		if qi.Data.Kind == KindJobPromote {
-			return nil
-		}
-
-		// This is the fudge job.  What a name!
-		//
-		// If we're processing a user function and the sleep duration is in the future,
-		// enqueue a sleep scavenge system queue item that will Requeue the original sleep queue item.
-		// We do this to fudge the original queue item at the exact time, the run was scheduled for to ensure
-		// sleeps for existing function runs are picked up earlier than items for later function runs.
-		promoteAt := time.UnixMilli(qi.AtMS).Add(consts.FutureAtLimit * -1)
-		promoteJobID := fmt.Sprintf("promote-%s", qi.ID)
-		promoteQueueName := fmt.Sprintf("job-promote:%s", qi.FunctionID)
-		err = q.Enqueue(ctx, Item{
-			JobID:          &promoteJobID,
-			WorkspaceID:    qi.Data.WorkspaceID,
-			QueueName:      &promoteQueueName,
-			Kind:           KindJobPromote,
-			Identifier:     qi.Data.Identifier,
-			PriorityFactor: qi.Data.PriorityFactor,
-			Attempt:        0,
-			Payload: PayloadJobPromote{
-				PromoteJobID: qi.ID,
-				ScheduledAt:  qi.AtMS,
-			},
-		}, promoteAt, EnqueueOpts{})
-		if err != nil && err != ErrQueueItemExists {
-			// This is best effort, and shouldn't fail the OG enqueue.
-			l.ReportError(err, "error scheduling promotion job")
-		}
+		q.maybeEnqueuePromotionJob(ctx, l, qi)
 		return nil
 	default:
 		return fmt.Errorf("unknown shard kind: %s", string(shard.Kind()))
+	}
+}
+
+// maybeEnqueuePromotionJob schedules a promotion/rebalance job for future queue items.
+func (q *queueProcessor) maybeEnqueuePromotionJob(ctx context.Context, l logger.Logger, qi QueueItem) {
+	if !q.enableJobPromotion || !qi.RequiresPromotionJob(q.Clock().Now()) {
+		return
+	}
+	if qi.Data.Kind == KindJobPromote {
+		return
+	}
+
+	promoteAt := time.UnixMilli(qi.AtMS).Add(consts.FutureAtLimit * -1)
+	promoteJobID := fmt.Sprintf("promote-%s", qi.ID)
+	promoteQueueName := fmt.Sprintf("job-promote:%s", qi.FunctionID)
+	err := q.Enqueue(ctx, Item{
+		JobID:          &promoteJobID,
+		WorkspaceID:    qi.Data.WorkspaceID,
+		QueueName:      &promoteQueueName,
+		Kind:           KindJobPromote,
+		Identifier:     qi.Data.Identifier,
+		PriorityFactor: qi.Data.PriorityFactor,
+		Attempt:        0,
+		Payload: PayloadJobPromote{
+			PromoteJobID: qi.ID,
+			ScheduledAt:  qi.AtMS,
+		},
+	}, promoteAt, EnqueueOpts{})
+	if err != nil && err != ErrQueueItemExists {
+		l.ReportError(err, "error scheduling promotion job")
 	}
 }
 
@@ -188,11 +168,10 @@ func (q *queueProcessor) prepareQueueItems(items []Item, ats []time.Time, opts E
 	effectiveAts := make([]time.Time, len(items))
 
 	for idx := range items {
-		qi, effectiveAt := q.buildQueueItem(items[idx], ats[idx], opts)
-
-		if qi.Data.QueueName == nil && qi.FunctionID == uuid.Nil {
+		qi, effectiveAt, err := q.buildQueueItem(items[idx], ats[idx], opts)
+		if err != nil {
 			errs := make([]error, len(items))
-			errs[idx] = fmt.Errorf("queue name or function ID must be set")
+			errs[idx] = err
 			return nil, nil, errs
 		}
 
