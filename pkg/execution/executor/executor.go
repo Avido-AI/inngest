@@ -3384,62 +3384,27 @@ func (e *executor) HandleGeneratorResponse(ctx context.Context, i *runInstance, 
 }
 
 func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, group OpcodeGroup, resp *state.DriverResponse) error {
-	// Separate invoke opcodes from others so we can batch-process invocations.
-	var invokeOps []batchInvokeInput
-	var otherOps []state.GeneratorOpcode
-
-	for _, op := range group.Opcodes {
-		if op == nil {
-			if e.log != nil {
-				e.log.Error("error handling generator", "error", "nil generator returned")
-			}
-			continue
-		}
-		copied := *op
-		groupID := i.item.GroupID
-		if group.ShouldStartHistoryGroup {
-			groupID = uuid.New().String()
-		}
-		if copied.Op == enums.OpcodeInvokeFunction {
-			invokeOps = append(invokeOps, batchInvokeInput{gen: copied, groupID: groupID})
-		} else {
-			// Set the group ID on the run instance for non-invoke opcodes
-			// (preserves existing behavior).
-			i.item.GroupID = groupID
-			otherOps = append(otherOps, copied)
-		}
-	}
+	invokeOps, otherOps := e.classifyGroupOpcodes(i, group)
 
 	eg := errgroup.Group{}
 
-	// Process non-invoke opcodes concurrently via the existing path.
 	for _, op := range otherOps {
 		copied := op
 		eg.Go(func() error {
 			defer func() {
 				if r := recover(); r != nil {
-					e.log.Error(
-						"panic in handleGenerator",
-						"error", r,
-						"stack", string(debug.Stack()),
-					)
+					e.log.Error("panic in handleGenerator", "error", r, "stack", string(debug.Stack()))
 				}
 			}()
 			return e.HandleGenerator(ctx, i, copied)
 		})
 	}
 
-	// Batch-process all invoke opcodes (including single) to avoid data races
-	// on i.item.GroupID — the batch path uses per-item groupIDs explicitly.
 	if len(invokeOps) > 0 {
 		eg.Go(func() error {
 			defer func() {
 				if r := recover(); r != nil {
-					e.log.Error(
-						"panic in handleBatchInvokeFunctions",
-						"error", r,
-						"stack", string(debug.Stack()),
-					)
+					e.log.Error("panic in handleBatchInvokeFunctions", "error", r, "stack", string(debug.Stack()))
 				}
 			}()
 			return e.handleBatchInvokeFunctions(ctx, i, invokeOps)
@@ -3460,6 +3425,34 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 	}
 
 	return nil
+}
+
+// classifyGroupOpcodes separates invoke opcodes from others for batch processing.
+func (e *executor) classifyGroupOpcodes(i *runInstance, group OpcodeGroup) ([]batchInvokeInput, []state.GeneratorOpcode) {
+	var invokeOps []batchInvokeInput
+	var otherOps []state.GeneratorOpcode
+
+	for _, op := range group.Opcodes {
+		if op == nil {
+			if e.log != nil {
+				e.log.Error("error handling generator", "error", "nil generator returned")
+			}
+			continue
+		}
+		copied := *op
+		groupID := i.item.GroupID
+		if group.ShouldStartHistoryGroup {
+			groupID = uuid.New().String()
+		}
+		if copied.Op == enums.OpcodeInvokeFunction {
+			invokeOps = append(invokeOps, batchInvokeInput{gen: copied, groupID: groupID})
+		} else {
+			i.item.GroupID = groupID
+			otherOps = append(otherOps, copied)
+		}
+	}
+
+	return invokeOps, otherOps
 }
 
 func (e *executor) HandleGenerator(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode) error {
@@ -5187,6 +5180,8 @@ func (e *executor) enqueueBatchTimeouts(ctx context.Context, items []batchInvoke
 }
 
 // enqueueBatchViaAPI uses the BatchEnqueuer pipeline to enqueue all timeouts in one roundtrip.
+// It sweeps the full results slice so that all ErrQueueItemExists items are correctly marked
+// as skips even when a transient error occurs at an earlier index.
 func (e *executor) enqueueBatchViaAPI(ctx context.Context, be queue.BatchEnqueuer, items []batchInvokeItem, skipItem []bool) ([]bool, error) {
 	queueItems := make([]queue.Item, len(items))
 	ats := make([]time.Time, len(items))
@@ -5195,6 +5190,7 @@ func (e *executor) enqueueBatchViaAPI(ctx context.Context, be queue.BatchEnqueue
 		ats[idx] = items[idx].expires
 	}
 
+	var firstErr error
 	errs := be.EnqueueBatch(ctx, queueItems, ats, queue.EnqueueOpts{})
 	for idx, err := range errs {
 		if err == nil {
@@ -5211,9 +5207,11 @@ func (e *executor) enqueueBatchViaAPI(ctx context.Context, be queue.BatchEnqueue
 			items[idx].span.Drop()
 		}
 		skipItem[idx] = true
-		return skipItem, fmt.Errorf("failed to enqueue invoke function pause timeout: %w", err)
+		if firstErr == nil {
+			firstErr = fmt.Errorf("failed to enqueue invoke function pause timeout: %w", err)
+		}
 	}
-	return skipItem, nil
+	return skipItem, firstErr
 }
 
 // enqueueBatchPerItem falls back to per-item enqueue when BatchEnqueuer is not available.
