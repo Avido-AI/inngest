@@ -66,11 +66,12 @@ func NewCQRS(adapter adapterWithHelpers) cqrs.Manager {
 }
 
 type wrapper struct {
-	adapter   adapterWithHelpers
-	q         dbpkg.Querier
-	tx        *sql.Tx
-	fnCache   *functionsCache
-	noFnCache bool // true for tx wrappers: disables cache read/write in Functions() but allows invalidation
+	adapter     adapterWithHelpers
+	q           dbpkg.Querier
+	tx          *sql.Tx
+	fnCache     *functionsCache
+	noFnCache   bool  // true for tx wrappers: disables cache read/write in Functions() but allows invalidation
+	fnMutated   *bool // non-nil for tx wrappers: set to true when function mutations occur
 }
 
 func (w wrapper) dialect() string {
@@ -806,11 +807,13 @@ func (w wrapper) WithTx(ctx context.Context) (cqrs.TxManager, error) {
 		panic("bug: tx adapter does not implement adapterWithHelpers — ensure the concrete TxAdapter embeds Adapter")
 	}
 
+	mutated := false
 	return &wrapper{
 		adapter:   txWithHelpers,
 		q:         txAdapter.Q(),
 		fnCache:   w.fnCache,
 		noFnCache: true,
+		fnMutated: &mutated,
 	}, nil
 }
 
@@ -820,7 +823,7 @@ func (w wrapper) Commit(ctx context.Context) error {
 		panic("bug: Commit called on a non-transaction wrapper")
 	}
 	err := txAdapter.Commit(ctx)
-	if err == nil {
+	if err == nil && w.fnMutated != nil && *w.fnMutated {
 		w.fnCache.invalidate()
 	}
 	return err
