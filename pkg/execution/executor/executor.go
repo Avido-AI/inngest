@@ -5167,13 +5167,11 @@ func (e *executor) enqueueAndPublishBatch(ctx context.Context, i *runInstance, i
 			skipItem[idx] = true
 			continue
 		} else if err != nil {
-			logger.StdlibLogger(ctx).Error(
-				"failed to enqueue invoke function pause timeout",
-				"error", err,
-				"run_id", i.md.ID.RunID,
-				"workspace_id", i.md.ID.Tenant.EnvID,
-			)
-			continue
+			if items[idx].span != nil {
+				items[idx].span.Drop()
+			}
+			skipItem[idx] = true
+			return skipItem, fmt.Errorf("failed to enqueue invoke function pause timeout: %w", err)
 		}
 
 		if err := e.sendSpanAndPublishEvent(ctx, &items[idx]); err != nil {

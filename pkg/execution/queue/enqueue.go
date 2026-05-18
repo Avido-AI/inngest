@@ -22,13 +22,8 @@ const (
 	pkgName = "queue.processor"
 )
 
-// Enqueue adds an item to the queue to be processed at the given time.
-// TODO: Lift this function and the queue interface to a higher level, so that it's disconnected from the
-// concrete Redis implementation.
-func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, opts EnqueueOpts) error {
-	l := logger.StdlibLogger(ctx)
-
-	// propagate
+// buildQueueItem converts an Item to a QueueItem and computes its effective enqueue time.
+func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpts) (QueueItem, time.Time) {
 	if item.Metadata == nil {
 		item.Metadata = map[string]any{}
 	}
@@ -39,7 +34,6 @@ func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, o
 	}
 
 	if item.QueueName == nil {
-		// Check if we have a kind mapping.
 		if name, ok := q.queueKindMapping[item.Kind]; ok {
 			item.QueueName = &name
 		}
@@ -55,32 +49,39 @@ func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, o
 		WallTimeMS:  at.UnixMilli(),
 	}
 
-	l = l.With(
-		"item", qi,
-		"account_id", item.Identifier.AccountID,
-		"env_id", item.WorkspaceID,
-		"app_id", item.Identifier.AppID,
-		"fn_id", item.Identifier.WorkflowID,
-	)
-
-	if item.QueueName == nil && qi.FunctionID == uuid.Nil {
-		err := fmt.Errorf("queue name or function ID must be set")
-		l.ReportError(err, "attempted to enqueue QueueItem without function ID or queueName override")
-		return err
-	}
-
-	// Pass optional idempotency period to queue item
 	if opts.IdempotencyPeriod != nil {
 		qi.IdempotencyPeriod = opts.IdempotencyPeriod
 	}
 
-	// Use the queue item's score, ensuring we process older function runs first
-	// (eg. before at)
-	next := time.UnixMilli(qi.Score(q.Clock().Now()))
+	effectiveAt := time.UnixMilli(qi.Score(q.Clock().Now()))
 
 	if factor := qi.Data.GetPriorityFactor(); factor != 0 {
-		// Ensure we mutate the AtMS time by the given priority factor.
 		qi.AtMS -= factor
+	}
+
+	return qi, effectiveAt
+}
+
+// Enqueue adds an item to the queue to be processed at the given time.
+// TODO: Lift this function and the queue interface to a higher level, so that it's disconnected from the
+// concrete Redis implementation.
+func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, opts EnqueueOpts) error {
+	l := logger.StdlibLogger(ctx)
+
+	qi, next := q.buildQueueItem(item, at, opts)
+
+	l = l.With(
+		"item", qi,
+		"account_id", qi.Data.Identifier.AccountID,
+		"env_id", qi.WorkspaceID,
+		"app_id", qi.Data.Identifier.AppID,
+		"fn_id", qi.FunctionID,
+	)
+
+	if qi.Data.QueueName == nil && qi.FunctionID == uuid.Nil {
+		err := fmt.Errorf("queue name or function ID must be set")
+		l.ReportError(err, "attempted to enqueue QueueItem without function ID or queueName override")
+		return err
 	}
 
 	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, qi)
@@ -181,55 +182,22 @@ func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []t
 	return errs
 }
 
-// prepareQueueItems converts Items to QueueItems without mutating the input slice.
+// prepareQueueItems converts Items to QueueItems using the shared buildQueueItem helper.
 func (q *queueProcessor) prepareQueueItems(items []Item, ats []time.Time, opts EnqueueOpts) ([]QueueItem, []time.Time, []error) {
 	qis := make([]QueueItem, len(items))
 	effectiveAts := make([]time.Time, len(items))
 
 	for idx := range items {
-		workingItem := items[idx]
-		if workingItem.Metadata == nil {
-			workingItem.Metadata = map[string]any{}
-		}
+		qi, effectiveAt := q.buildQueueItem(items[idx], ats[idx], opts)
 
-		id := ""
-		if workingItem.JobID != nil {
-			id = *workingItem.JobID
-		}
-
-		if workingItem.QueueName == nil {
-			if name, ok := q.queueKindMapping[workingItem.Kind]; ok {
-				workingItem.QueueName = &name
-			}
-		}
-
-		qi := QueueItem{
-			ID:          id,
-			AtMS:        ats[idx].UnixMilli(),
-			WorkspaceID: workingItem.WorkspaceID,
-			FunctionID:  workingItem.Identifier.WorkflowID,
-			Data:        workingItem,
-			QueueName:   workingItem.QueueName,
-			WallTimeMS:  ats[idx].UnixMilli(),
-		}
-
-		if workingItem.QueueName == nil && qi.FunctionID == uuid.Nil {
+		if qi.Data.QueueName == nil && qi.FunctionID == uuid.Nil {
 			errs := make([]error, len(items))
 			errs[idx] = fmt.Errorf("queue name or function ID must be set")
 			return nil, nil, errs
 		}
 
-		if opts.IdempotencyPeriod != nil {
-			qi.IdempotencyPeriod = opts.IdempotencyPeriod
-		}
-
-		effectiveAts[idx] = time.UnixMilli(qi.Score(q.Clock().Now()))
-
-		if factor := qi.Data.GetPriorityFactor(); factor != 0 {
-			qi.AtMS -= factor
-		}
-
 		qis[idx] = qi
+		effectiveAts[idx] = effectiveAt
 	}
 
 	return qis, effectiveAts, nil
