@@ -67,8 +67,9 @@ func NewBufferedEventWriter(writer cqrs.EventWriter, log logger.Logger, opts ...
 
 // Start begins the background flush loop. It should be called once.
 func (w *BufferedEventWriter) Start(ctx context.Context) {
-	ctx, w.cancel = context.WithCancel(ctx)
-	go w.flushLoop(ctx)
+	cctx, cancel := context.WithCancel(ctx)
+	w.cancel = cancel
+	go w.flushLoop(cctx)
 }
 
 // Stop flushes remaining events and stops the background loop.
