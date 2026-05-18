@@ -4825,7 +4825,6 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 
 	// Phase 1: Pre-compute all data structures (no I/O).
 	items := make([]batchInvokeItem, 0, len(inputs))
-	allPauses := make([]*state.Pause, 0, len(inputs))
 
 	for _, input := range inputs {
 		gen := input.gen
@@ -4943,23 +4942,25 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 			span:    span,
 			expires: expires,
 		})
-		allPauses = append(allPauses, &items[len(items)-1].pause)
 	}
 
-	// Phase 2: Batch-write all pauses in a single operation.
-	_, err := util.WithRetry(ctx, "pause.handleBatchInvokeFunctions", func(ctx context.Context) (int, error) {
-		return e.pm.Write(ctx, pauseIdx, allPauses...)
-	}, util.NewRetryConf(util.WithRetryConfRetryableErrors(pauses.WritePauseRetryableError)))
-	if err != nil {
-		if errors.Is(err, state.ErrPauseAlreadyExists) {
-			// Drop all spans; pauses already exist (idempotent retry).
-			for idx := range items {
+	// Phase 2: Write each pause individually with retry, matching the
+	// single-opcode path's per-pause semantics. redisAdapter.Write iterates
+	// sequentially and stops on the first error, so a single batch call would
+	// leave later pauses unwritten if an earlier one hits ErrPauseAlreadyExists
+	// on a retry after partial write.
+	for idx := range items {
+		_, err := util.WithRetry(ctx, "pause.handleBatchInvokeFunctions", func(ctx context.Context) (int, error) {
+			return e.pm.Write(ctx, pauseIdx, &items[idx].pause)
+		}, util.NewRetryConf(util.WithRetryConfRetryableErrors(pauses.WritePauseRetryableError)))
+		if err != nil {
+			if errors.Is(err, state.ErrPauseAlreadyExists) {
 				if items[idx].span != nil {
 					items[idx].span.Drop()
 				}
+			} else {
+				return err
 			}
-		} else {
-			return err
 		}
 	}
 
