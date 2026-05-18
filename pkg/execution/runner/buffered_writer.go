@@ -109,7 +109,7 @@ func (w *BufferedEventWriter) Write(ctx context.Context, e cqrs.Event) {
 	w.mu.Unlock()
 
 	if needsFlush {
-		w.flushNow(ctx)
+		w.flushNow(context.Background())
 	}
 }
 
