@@ -4940,11 +4940,13 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 	}
 
 	if err := e.writeBatchPauses(ctx, items, pauseIdx); err != nil {
+		dropUnprocessedSpans(items, 0)
 		return err
 	}
 
 	skipItem, err := e.enqueueAndPublishBatch(ctx, i, items)
 	if err != nil {
+		dropUnprocessedSpans(items, 0)
 		return err
 	}
 
@@ -4968,6 +4970,7 @@ func (e *executor) buildBatchInvokeItems(ctx context.Context, i *runInstance, in
 	for _, input := range inputs {
 		item, err := e.buildSingleInvokeItem(ctx, i, input, edge, eventName, lifecycleItem, now)
 		if err != nil {
+			dropUnprocessedSpans(items, 0)
 			return nil, err
 		}
 		items = append(items, item)
@@ -5157,7 +5160,7 @@ func (e *executor) writeBatchPauses(ctx context.Context, items []batchInvokeItem
 					items[idx].span = nil
 				}
 			} else {
-				dropUnprocessedSpans(items, idx+1)
+				dropUnprocessedSpans(items, idx)
 				return err
 			}
 		}
