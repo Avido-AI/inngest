@@ -5232,12 +5232,14 @@ func (e *executor) enqueueBatchViaAPI(ctx context.Context, be queue.BatchEnqueue
 		if err == queue.ErrQueueItemExists {
 			if items[idx].span != nil {
 				items[idx].span.Drop()
+				items[idx].span = nil
 			}
 			skipItem[idx] = true
 			continue
 		}
 		if items[idx].span != nil {
 			items[idx].span.Drop()
+			items[idx].span = nil
 		}
 		skipItem[idx] = true
 		if firstErr == nil {
@@ -5254,6 +5256,7 @@ func (e *executor) enqueueBatchPerItem(ctx context.Context, items []batchInvokeI
 		if err == queue.ErrQueueItemExists {
 			if items[idx].span != nil {
 				items[idx].span.Drop()
+				items[idx].span = nil
 			}
 			skipItem[idx] = true
 			continue
@@ -5261,6 +5264,7 @@ func (e *executor) enqueueBatchPerItem(ctx context.Context, items []batchInvokeI
 		if err != nil {
 			if items[idx].span != nil {
 				items[idx].span.Drop()
+				items[idx].span = nil
 			}
 			skipItem[idx] = true
 			return skipItem, fmt.Errorf("failed to enqueue invoke function pause timeout: %w", err)
