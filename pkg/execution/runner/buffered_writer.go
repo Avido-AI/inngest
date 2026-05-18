@@ -7,6 +7,7 @@ import (
 
 	"github.com/inngest/inngest/pkg/cqrs"
 	"github.com/inngest/inngest/pkg/logger"
+	"github.com/inngest/inngest/pkg/telemetry/metrics"
 )
 
 const (
@@ -125,5 +126,11 @@ func (w *BufferedEventWriter) flushNow(ctx context.Context) {
 			"error", err,
 			"event_count", len(events),
 		)
+		metrics.IncrEventFlushErrorCounter(ctx, metrics.CounterOpt{
+			PkgName: pkgName,
+		})
+		metrics.IncrEventFlushDroppedCounter(ctx, int64(len(events)), metrics.CounterOpt{
+			PkgName: pkgName,
+		})
 	}
 }

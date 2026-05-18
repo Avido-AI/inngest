@@ -1207,6 +1207,7 @@ func (w wrapper) InsertEvents(ctx context.Context, events []cqrs.Event) error {
 		return w.InsertEvent(ctx, events[0])
 	}
 
+	now := time.Now()
 	rows := make([][]interface{}, len(events))
 	for i, e := range events {
 		data, err := json.Marshal(e.EventData)
@@ -1222,8 +1223,8 @@ func (w wrapper) InsertEvents(ctx context.Context, events []cqrs.Event) error {
 			String: e.EventVersion,
 		}
 		rows[i] = []interface{}{
-			e.ID.String(),
-			time.Now(),
+			e.ID,
+			now,
 			e.EventID,
 			e.EventName,
 			string(data),
