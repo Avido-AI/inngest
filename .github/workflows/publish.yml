@@ -30,6 +30,8 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642195f2ed94f21bf2f2218 # v4
         with:
           node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: ui/pnpm-lock.yaml
 
       - name: Build UI
         run: make build-ui
