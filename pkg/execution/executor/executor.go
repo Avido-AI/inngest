@@ -5151,13 +5151,71 @@ func (e *executor) writeBatchPauses(ctx context.Context, items []batchInvokeItem
 	return nil
 }
 
-// enqueueAndPublishBatch interleaves timeout enqueue + event publish per-item.
-// This ordering ensures that if event publish fails at item K, items K+1..N
-// haven't had their timeouts enqueued yet and get a fresh attempt on retry.
+// enqueueAndPublishBatch enqueues all timeout jobs via batch pipeline, then publishes
+// events for newly-enqueued items. Uses EnqueueBatch (single Redis pipeline) when
+// available, falling back to per-item enqueue.
 // Returns a skip mask indicating which items already existed (from previous attempts).
 func (e *executor) enqueueAndPublishBatch(ctx context.Context, i *runInstance, items []batchInvokeItem) ([]bool, error) {
+	skipItem, err := e.enqueueBatchTimeouts(ctx, items)
+	if err != nil {
+		return skipItem, err
+	}
+
+	if err := e.sendSpansForBatch(items, skipItem); err != nil {
+		return skipItem, err
+	}
+
+	if err := e.publishBatchEvents(ctx, items, skipItem); err != nil {
+		return skipItem, err
+	}
+
+	return skipItem, nil
+}
+
+// enqueueBatchTimeouts enqueues timeout jobs using EnqueueBatch when the queue
+// supports it, falling back to per-item enqueue otherwise. Returns a skip mask.
+func (e *executor) enqueueBatchTimeouts(ctx context.Context, items []batchInvokeItem) ([]bool, error) {
 	skipItem := make([]bool, len(items))
 
+	if be, ok := e.queue.(queue.BatchEnqueuer); ok {
+		return e.enqueueBatchViaAPI(ctx, be, items, skipItem)
+	}
+
+	return e.enqueueBatchPerItem(ctx, items, skipItem)
+}
+
+// enqueueBatchViaAPI uses the BatchEnqueuer pipeline to enqueue all timeouts in one roundtrip.
+func (e *executor) enqueueBatchViaAPI(ctx context.Context, be queue.BatchEnqueuer, items []batchInvokeItem, skipItem []bool) ([]bool, error) {
+	queueItems := make([]queue.Item, len(items))
+	ats := make([]time.Time, len(items))
+	for idx := range items {
+		queueItems[idx] = items[idx].item
+		ats[idx] = items[idx].expires
+	}
+
+	errs := be.EnqueueBatch(ctx, queueItems, ats, queue.EnqueueOpts{})
+	for idx, err := range errs {
+		if err == nil {
+			continue
+		}
+		if err == queue.ErrQueueItemExists {
+			if items[idx].span != nil {
+				items[idx].span.Drop()
+			}
+			skipItem[idx] = true
+			continue
+		}
+		if items[idx].span != nil {
+			items[idx].span.Drop()
+		}
+		skipItem[idx] = true
+		return skipItem, fmt.Errorf("failed to enqueue invoke function pause timeout: %w", err)
+	}
+	return skipItem, nil
+}
+
+// enqueueBatchPerItem falls back to per-item enqueue when BatchEnqueuer is not available.
+func (e *executor) enqueueBatchPerItem(ctx context.Context, items []batchInvokeItem, skipItem []bool) ([]bool, error) {
 	for idx := range items {
 		err := e.queue.Enqueue(ctx, items[idx].item, items[idx].expires, queue.EnqueueOpts{})
 		if err == queue.ErrQueueItemExists {
@@ -5166,32 +5224,59 @@ func (e *executor) enqueueAndPublishBatch(ctx context.Context, i *runInstance, i
 			}
 			skipItem[idx] = true
 			continue
-		} else if err != nil {
+		}
+		if err != nil {
 			if items[idx].span != nil {
 				items[idx].span.Drop()
 			}
 			skipItem[idx] = true
 			return skipItem, fmt.Errorf("failed to enqueue invoke function pause timeout: %w", err)
 		}
-
-		if err := e.sendSpanAndPublishEvent(ctx, &items[idx]); err != nil {
-			return skipItem, err
-		}
 	}
-
 	return skipItem, nil
 }
 
-// sendSpanAndPublishEvent sends the span and publishes the invocation event for one item.
-func (e *executor) sendSpanAndPublishEvent(ctx context.Context, item *batchInvokeItem) error {
-	if item.span != nil {
-		_ = item.span.Send()
+// sendSpansForBatch sends spans for all non-skipped items and sets invoke span refs.
+func (e *executor) sendSpansForBatch(items []batchInvokeItem, skipItem []bool) error {
+	for idx := range items {
+		if skipItem[idx] {
+			continue
+		}
+		if items[idx].span != nil {
+			_ = items[idx].span.Send()
+		}
+		if items[idx].span != nil && items[idx].span.Ref != nil {
+			items[idx].evt.Event.SetInvokeSpanRef(items[idx].span.Ref) //nolint:gosec
+		}
 	}
-	if item.span != nil && item.span.Ref != nil {
-		item.evt.Event.SetInvokeSpanRef(item.span.Ref) //nolint:gosec
+	return nil
+}
+
+// publishBatchEvents publishes invocation events for non-skipped items using batch
+// publish when available, falling back to per-item publish.
+func (e *executor) publishBatchEvents(ctx context.Context, items []batchInvokeItem, skipItem []bool) error {
+	evts := make([]event.TrackedEvent, 0, len(items))
+	for idx := range items {
+		if skipItem[idx] {
+			continue
+		}
+		evts = append(evts, items[idx].evt)
 	}
-	if err := e.handleInvokeEvent(ctx, item.evt); err != nil {
-		return fmt.Errorf("error publishing internal invocation event: %w", err)
+	if len(evts) == 0 {
+		return nil
+	}
+
+	if e.handleInvokeEventsBatch != nil {
+		if err := e.handleInvokeEventsBatch(ctx, evts); err != nil {
+			return fmt.Errorf("error publishing batch invocation events: %w", err)
+		}
+		return nil
+	}
+
+	for _, evt := range evts {
+		if err := e.handleInvokeEvent(ctx, evt); err != nil {
+			return fmt.Errorf("error publishing internal invocation event: %w", err)
+		}
 	}
 	return nil
 }
