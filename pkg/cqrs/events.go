@@ -88,6 +88,7 @@ type EventManager interface {
 
 type EventWriter interface {
 	InsertEvent(ctx context.Context, e Event) error
+	InsertEvents(ctx context.Context, events []Event) error
 	InsertEventBatch(ctx context.Context, eb EventBatch) error
 }
 

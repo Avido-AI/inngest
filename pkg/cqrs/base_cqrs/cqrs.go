@@ -1199,6 +1199,52 @@ func (w wrapper) InsertEvent(ctx context.Context, e cqrs.Event) error {
 	return w.q.InsertEvent(ctx, evt)
 }
 
+func (w wrapper) InsertEvents(ctx context.Context, events []cqrs.Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	if len(events) == 1 {
+		return w.InsertEvent(ctx, events[0])
+	}
+
+	rows := make([][]interface{}, len(events))
+	for i, e := range events {
+		data, err := json.Marshal(e.EventData)
+		if err != nil {
+			return fmt.Errorf("error marshalling event data at index %d: %w", i, err)
+		}
+		user, err := json.Marshal(e.EventUser)
+		if err != nil {
+			return fmt.Errorf("error marshalling event user at index %d: %w", i, err)
+		}
+		eventV := sql.NullString{
+			Valid:  e.EventVersion != "",
+			String: e.EventVersion,
+		}
+		rows[i] = []interface{}{
+			e.ID.String(),
+			time.Now(),
+			e.EventID,
+			e.EventName,
+			string(data),
+			string(user),
+			eventV,
+			time.UnixMilli(e.EventTS),
+		}
+	}
+
+	ds := sq.Dialect(w.dialect()).Insert("events").Cols(
+		"internal_id", "received_at", "event_id", "event_name",
+		"event_data", "event_user", "event_v", "event_ts",
+	).Vals(rows...)
+	query, args, err := ds.ToSQL()
+	if err != nil {
+		return fmt.Errorf("error building bulk insert SQL: %w", err)
+	}
+	_, err = w.adapter.ExecContext(ctx, query, args...)
+	return err
+}
+
 func (w wrapper) InsertEventBatch(ctx context.Context, eb cqrs.EventBatch) error {
 	evtIDs := make([]string, len(eb.Events))
 	for i, evt := range eb.Events {
