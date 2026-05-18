@@ -806,9 +806,8 @@ func (w wrapper) WithTx(ctx context.Context) (cqrs.TxManager, error) {
 	}
 
 	return &wrapper{
-		adapter:  txWithHelpers,
-		q:        txAdapter.Q(),
-		fnCache:  w.fnCache,
+		adapter: txWithHelpers,
+		q:       txAdapter.Q(),
 	}, nil
 }
 

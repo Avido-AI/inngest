@@ -3,6 +3,7 @@ package base_cqrs
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,8 +26,8 @@ type functionsCache struct {
 func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
 	if w.fnCache != nil {
 		w.fnCache.mu.Lock()
-		if len(w.fnCache.functions) > 0 && time.Since(w.fnCache.updatedAt) < w.fnCache.ttl {
-			result := w.fnCache.functions
+		if !w.fnCache.updatedAt.IsZero() && time.Since(w.fnCache.updatedAt) < w.fnCache.ttl {
+			result := slices.Clone(w.fnCache.functions)
 			w.fnCache.mu.Unlock()
 			return result, nil
 		}
