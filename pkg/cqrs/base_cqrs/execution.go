@@ -3,20 +3,55 @@ package base_cqrs
 import (
 	"context"
 	"encoding/json"
+	"sync"
+	"time"
 
 	"github.com/inngest/inngest/pkg/event_trigger_patterns"
 	"github.com/inngest/inngest/pkg/inngest"
 )
 
-// Functions returns all functions as inngest functions.
+// functionsCache provides a short-TTL in-memory cache for the parsed
+// []inngest.Function slice returned by Functions(). This eliminates
+// repeated full table scans of the functions table on every incoming event.
+type functionsCache struct {
+	mu        sync.Mutex
+	functions []inngest.Function
+	updatedAt time.Time
+	ttl       time.Duration
+}
+
+// Functions returns all functions as inngest functions, using a short-lived
+// in-memory cache to avoid repeated full table scans.
 func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
-	all, _ := w.GetFunctions(ctx)
+	if w.fnCache != nil {
+		w.fnCache.mu.Lock()
+		if len(w.fnCache.functions) > 0 && time.Since(w.fnCache.updatedAt) < w.fnCache.ttl {
+			result := w.fnCache.functions
+			w.fnCache.mu.Unlock()
+			return result, nil
+		}
+		w.fnCache.mu.Unlock()
+	}
+
+	all, err := w.GetFunctions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	funcs := make([]inngest.Function, len(all))
 	for n, i := range all {
 		f := inngest.Function{}
 		_ = json.Unmarshal([]byte(i.Config), &f)
 		funcs[n] = f
 	}
+
+	if w.fnCache != nil {
+		w.fnCache.mu.Lock()
+		w.fnCache.functions = funcs
+		w.fnCache.updatedAt = time.Now()
+		w.fnCache.mu.Unlock()
+	}
+
 	return funcs, nil
 }
 

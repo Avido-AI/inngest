@@ -61,6 +61,7 @@ func NewCQRS(adapter adapterWithHelpers) cqrs.Manager {
 	return wrapper{
 		adapter: adapter,
 		q:       adapter.Q(),
+		fnCache: &functionsCache{ttl: 5 * time.Second},
 	}
 }
 
@@ -68,6 +69,7 @@ type wrapper struct {
 	adapter adapterWithHelpers
 	q       dbpkg.Querier
 	tx      *sql.Tx
+	fnCache *functionsCache
 }
 
 func (w wrapper) dialect() string {
@@ -804,8 +806,9 @@ func (w wrapper) WithTx(ctx context.Context) (cqrs.TxManager, error) {
 	}
 
 	return &wrapper{
-		adapter: txWithHelpers,
-		q:       txAdapter.Q(),
+		adapter:  txWithHelpers,
+		q:        txAdapter.Q(),
+		fnCache:  w.fnCache,
 	}, nil
 }
 
