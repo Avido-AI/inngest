@@ -5123,19 +5123,27 @@ func (e *executor) writeBatchPauses(ctx context.Context, items []batchInvokeItem
 			pauseSlice[idx] = items[idx].pause
 		}
 		errs := bpw.WriteBatch(ctx, pauseIdx, pauseSlice)
+		var firstErr error
 		for idx, err := range errs {
-			if err != nil {
-				if errors.Is(err, state.ErrPauseAlreadyExists) {
-					if items[idx].span != nil {
-						items[idx].span.Drop()
-						items[idx].span = nil
-					}
-				} else {
-					return err
+			if err == nil {
+				continue
+			}
+			if errors.Is(err, state.ErrPauseAlreadyExists) {
+				if items[idx].span != nil {
+					items[idx].span.Drop()
+					items[idx].span = nil
 				}
+				continue
+			}
+			if items[idx].span != nil {
+				items[idx].span.Drop()
+				items[idx].span = nil
+			}
+			if firstErr == nil {
+				firstErr = err
 			}
 		}
-		return nil
+		return firstErr
 	}
 
 	for idx := range items {
@@ -5149,11 +5157,23 @@ func (e *executor) writeBatchPauses(ctx context.Context, items []batchInvokeItem
 					items[idx].span = nil
 				}
 			} else {
+				dropUnprocessedSpans(items, idx+1)
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// dropUnprocessedSpans drops spans for items starting at fromIdx that will never
+// be sent or dropped by later phases (e.g. after an early-return error).
+func dropUnprocessedSpans(items []batchInvokeItem, fromIdx int) {
+	for i := fromIdx; i < len(items); i++ {
+		if items[i].span != nil {
+			items[i].span.Drop()
+			items[i].span = nil
+		}
+	}
 }
 
 // enqueueAndPublishBatch enqueues all timeout jobs via batch pipeline, then publishes
