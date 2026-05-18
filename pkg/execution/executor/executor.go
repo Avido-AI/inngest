@@ -5017,26 +5017,7 @@ func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, in
 
 	pause := e.buildInvokePause(i, gen, edge, groupID, pauseID, opcode, eventName, strExpr, correlationID, evt, opts, carrier, expires, now)
 	nextItem := e.buildInvokeTimeoutItem(i, gen, groupID, pauseID, pause)
-
-	span, err := e.tracerProvider.CreateDroppableSpan(
-		ctx,
-		meta.SpanNameStep,
-		&tracing.CreateSpanOptions{
-			Carriers:    []map[string]any{pause.Metadata, nextItem.Metadata},
-			StartTime:   now,
-			FollowsFrom: tracing.SpanRefFromQueueItem(&lifecycleItem),
-			Debug:       &tracing.SpanDebugData{Location: "executor.handleBatchInvokeFunctions"},
-			Metadata:    &i.md,
-			QueueItem:   &nextItem,
-			Parent:      tracing.RunSpanRefFromMetadata(&i.md),
-			Attributes: tracing.GeneratorAttrs(&gen).Merge(
-				meta.NewAttrSet(meta.Attr(meta.Attrs.StepInvokeTriggerEventID, &evt.ID)),
-			),
-		},
-	)
-	if err != nil {
-		e.log.Debug("error creating span for next step after InvokeFunction", "error", err)
-	}
+	span := e.createInvokeStepSpan(ctx, i, gen, evt, pause, &nextItem, lifecycleItem, now)
 
 	return batchInvokeItem{
 		gen:     gen,
@@ -5106,6 +5087,30 @@ func (e *executor) buildInvokeTimeoutItem(i *runInstance, gen state.GeneratorOpc
 		Metadata:     make(map[string]any),
 		ParallelMode: gen.ParallelMode(),
 	}
+}
+
+// createInvokeStepSpan creates the droppable span for a batch invoke item.
+func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen state.GeneratorOpcode, evt event.BaseTrackedEvent, pause state.Pause, nextItem *queue.Item, lifecycleItem queue.Item, now time.Time) *tracing.DroppableSpan {
+	span, err := e.tracerProvider.CreateDroppableSpan(
+		ctx,
+		meta.SpanNameStep,
+		&tracing.CreateSpanOptions{
+			Carriers:    []map[string]any{pause.Metadata, nextItem.Metadata},
+			StartTime:   now,
+			FollowsFrom: tracing.SpanRefFromQueueItem(&lifecycleItem),
+			Debug:       &tracing.SpanDebugData{Location: "executor.handleBatchInvokeFunctions"},
+			Metadata:    &i.md,
+			QueueItem:   nextItem,
+			Parent:      tracing.RunSpanRefFromMetadata(&i.md),
+			Attributes: tracing.GeneratorAttrs(&gen).Merge(
+				meta.NewAttrSet(meta.Attr(meta.Attrs.StepInvokeTriggerEventID, &evt.ID)),
+			),
+		},
+	)
+	if err != nil {
+		e.log.Debug("error creating span for next step after InvokeFunction", "error", err)
+	}
+	return span
 }
 
 // writeBatchPauses writes pauses via Redis pipeline (batch) or falls back to per-item writes.

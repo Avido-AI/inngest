@@ -61,88 +61,22 @@ func (s *PauseStore) PauseCreatedAt(ctx context.Context, workspaceID uuid.UUID, 
 func (s *PauseStore) SavePause(ctx context.Context, p state.Pause) (int64, error) {
 	ctx = redis_telemetry.WithScope(redis_telemetry.WithOpName(ctx, "SavePause"), redis_telemetry.ScopePauses)
 
-	// `evt` is used to search for pauses based on event names. We only want to
-	// do this if this pause is not part of an invoke. If it is, we don't want
-	// to index it by event name as the pause will be processed by correlation
-	// ID.
-	evt := ""
-	if p.Event != nil && (p.InvokeCorrelationID == nil || *p.InvokeCorrelationID == "") {
-		evt = *p.Event
-	}
-
-	invokeCorrId := ""
-	if p.InvokeCorrelationID != nil {
-		invokeCorrId = *p.InvokeCorrelationID
-	}
-
-	signalCorrId := ""
-	if p.SignalID != nil {
-		signalCorrId = *p.SignalID
-	}
-
-	extendedExpiry := time.Until(p.Expires.Time().Add(10 * time.Minute)).Seconds()
-
-	createdAt := p.CreatedAt
-	if createdAt.IsZero() {
-		createdAt = time.Now()
-	}
-
-	nowUnixSeconds := createdAt.Unix()
-	p.CreatedAt = createdAt
-
-	packed, err := json.Marshal(p)
+	exec, err := s.preparePauseLuaExec(ctx, &p)
 	if err != nil {
 		return 0, err
 	}
 
 	pause := s.unsharded.Pauses()
-
-	// Warning: We need to access global keys, which must be colocated on the same Redis cluster
-	global := s.unsharded.Global()
-
-	keys := []string{
-		pause.kg.Pause(ctx, p.ID),
-		pause.kg.PauseEvent(ctx, p.WorkspaceID, evt),
-		global.kg.Invoke(ctx, p.WorkspaceID),
-		global.kg.Signal(ctx, p.WorkspaceID),
-		pause.kg.PauseIndex(ctx, "add", p.WorkspaceID, evt),
-		pause.kg.PauseIndex(ctx, "exp", p.WorkspaceID, evt),
-		pause.kg.RunPauses(ctx, p.Identifier.RunID),
-		pause.kg.GlobalPauseIndex(ctx),
-	}
-
-	replaceSignalOnConflict := "0"
-	if p.ReplaceSignalOnConflict {
-		replaceSignalOnConflict = "1"
-	}
-
-	args, err := StrSlice([]any{
-		string(packed),
-		p.ID.String(),
-		evt,
-		invokeCorrId,
-		signalCorrId,
-		// Add at least 10 minutes to this pause, allowing us to process the
-		// pause by ID for 10 minutes past expiry.
-		int(extendedExpiry),
-		nowUnixSeconds,
-		replaceSignalOnConflict,
-	})
-	if err != nil {
-		return 0, err
-	}
-
 	status, err := scripts["savePause"].Exec(
 		redis_telemetry.WithScriptName(ctx, "savePause"),
 		pause.Client(),
-		keys,
-		args,
+		exec.Keys,
+		exec.Args,
 	).AsInt64()
 	if err != nil {
 		if err.Error() == "ErrSignalConflict" {
 			return 0, state.ErrSignalConflict
 		}
-
 		return 0, fmt.Errorf("error finalizing: %w", err)
 	}
 
@@ -216,19 +150,7 @@ func (s *PauseStore) preparePauseLuaExec(ctx context.Context, p *state.Pause) (r
 		return rueidis.LuaExec{}, fmt.Errorf("error marshalling pause: %w", err)
 	}
 
-	pause := s.unsharded.Pauses()
-	global := s.unsharded.Global()
-
-	keys := []string{
-		pause.kg.Pause(ctx, p.ID),
-		pause.kg.PauseEvent(ctx, p.WorkspaceID, evt),
-		global.kg.Invoke(ctx, p.WorkspaceID),
-		global.kg.Signal(ctx, p.WorkspaceID),
-		pause.kg.PauseIndex(ctx, "add", p.WorkspaceID, evt),
-		pause.kg.PauseIndex(ctx, "exp", p.WorkspaceID, evt),
-		pause.kg.RunPauses(ctx, p.Identifier.RunID),
-		pause.kg.GlobalPauseIndex(ctx),
-	}
+	keys := s.pauseKeys(ctx, p, evt)
 
 	replaceSignalOnConflict := "0"
 	if p.ReplaceSignalOnConflict {
@@ -250,6 +172,22 @@ func (s *PauseStore) preparePauseLuaExec(ctx context.Context, p *state.Pause) (r
 	}
 
 	return rueidis.LuaExec{Keys: keys, Args: args}, nil
+}
+
+// pauseKeys returns the Redis keys needed for the savePause Lua script.
+func (s *PauseStore) pauseKeys(ctx context.Context, p *state.Pause, evt string) []string {
+	pause := s.unsharded.Pauses()
+	global := s.unsharded.Global()
+	return []string{
+		pause.kg.Pause(ctx, p.ID),
+		pause.kg.PauseEvent(ctx, p.WorkspaceID, evt),
+		global.kg.Invoke(ctx, p.WorkspaceID),
+		global.kg.Signal(ctx, p.WorkspaceID),
+		pause.kg.PauseIndex(ctx, "add", p.WorkspaceID, evt),
+		pause.kg.PauseIndex(ctx, "exp", p.WorkspaceID, evt),
+		pause.kg.RunPauses(ctx, p.Identifier.RunID),
+		pause.kg.GlobalPauseIndex(ctx),
+	}
 }
 
 // interpretPauseBatchResults maps ExecMulti results to per-pause errors.
