@@ -4940,9 +4940,8 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 		return err
 	}
 
-	skipItem := e.enqueueBatchTimeouts(ctx, i, items)
-
-	if err := e.publishBatchInvokeEvents(ctx, items, skipItem); err != nil {
+	skipItem, err := e.enqueueAndPublishBatch(ctx, i, items)
+	if err != nil {
 		return err
 	}
 
@@ -5152,36 +5151,12 @@ func (e *executor) writeBatchPauses(ctx context.Context, items []batchInvokeItem
 	return nil
 }
 
-// enqueueBatchTimeouts enqueues timeout jobs via Redis pipeline (batch) or per-item fallback.
-// Returns a skip mask indicating which items already existed.
-func (e *executor) enqueueBatchTimeouts(ctx context.Context, i *runInstance, items []batchInvokeItem) []bool {
+// enqueueAndPublishBatch interleaves timeout enqueue + event publish per-item.
+// This ordering ensures that if event publish fails at item K, items K+1..N
+// haven't had their timeouts enqueued yet and get a fresh attempt on retry.
+// Returns a skip mask indicating which items already existed (from previous attempts).
+func (e *executor) enqueueAndPublishBatch(ctx context.Context, i *runInstance, items []batchInvokeItem) ([]bool, error) {
 	skipItem := make([]bool, len(items))
-
-	if be, ok := e.queue.(queue.BatchEnqueuer); ok {
-		queueItems := make([]queue.Item, len(items))
-		queueAts := make([]time.Time, len(items))
-		for idx := range items {
-			queueItems[idx] = items[idx].item
-			queueAts[idx] = items[idx].expires
-		}
-		errs := be.EnqueueBatch(ctx, queueItems, queueAts, queue.EnqueueOpts{})
-		for idx, err := range errs {
-			if err == queue.ErrQueueItemExists {
-				if items[idx].span != nil {
-					items[idx].span.Drop()
-				}
-				skipItem[idx] = true
-			} else if err != nil {
-				logger.StdlibLogger(ctx).Error(
-					"failed to enqueue invoke function pause timeout",
-					"error", err,
-					"run_id", i.md.ID.RunID,
-					"workspace_id", i.md.ID.Tenant.EnvID,
-				)
-			}
-		}
-		return skipItem
-	}
 
 	for idx := range items {
 		err := e.queue.Enqueue(ctx, items[idx].item, items[idx].expires, queue.EnqueueOpts{})
@@ -5190,6 +5165,7 @@ func (e *executor) enqueueBatchTimeouts(ctx context.Context, i *runInstance, ite
 				items[idx].span.Drop()
 			}
 			skipItem[idx] = true
+			continue
 		} else if err != nil {
 			logger.StdlibLogger(ctx).Error(
 				"failed to enqueue invoke function pause timeout",
@@ -5197,42 +5173,27 @@ func (e *executor) enqueueBatchTimeouts(ctx context.Context, i *runInstance, ite
 				"run_id", i.md.ID.RunID,
 				"workspace_id", i.md.ID.Tenant.EnvID,
 			)
-		}
-	}
-	return skipItem
-}
-
-// publishBatchInvokeEvents sends spans and publishes events for non-skipped items.
-func (e *executor) publishBatchInvokeEvents(ctx context.Context, items []batchInvokeItem, skipItem []bool) error {
-	evtsToPublish := make([]event.TrackedEvent, 0, len(items))
-	for idx := range items {
-		if skipItem[idx] {
 			continue
 		}
-		if items[idx].span != nil {
-			_ = items[idx].span.Send()
+
+		if err := e.sendSpanAndPublishEvent(ctx, &items[idx]); err != nil {
+			return skipItem, err
 		}
-		if items[idx].span != nil && items[idx].span.Ref != nil {
-			items[idx].evt.Event.SetInvokeSpanRef(items[idx].span.Ref) //nolint:gosec
-		}
-		evtsToPublish = append(evtsToPublish, items[idx].evt)
 	}
 
-	if len(evtsToPublish) == 0 {
-		return nil
-	}
+	return skipItem, nil
+}
 
-	if e.handleInvokeEventsBatch != nil {
-		if err := e.handleInvokeEventsBatch(ctx, evtsToPublish); err != nil {
-			return fmt.Errorf("error batch publishing internal invocation events: %w", err)
-		}
-		return nil
+// sendSpanAndPublishEvent sends the span and publishes the invocation event for one item.
+func (e *executor) sendSpanAndPublishEvent(ctx context.Context, item *batchInvokeItem) error {
+	if item.span != nil {
+		_ = item.span.Send()
 	}
-
-	for _, evt := range evtsToPublish {
-		if err := e.handleInvokeEvent(ctx, evt); err != nil {
-			return fmt.Errorf("error publishing internal invocation event: %w", err)
-		}
+	if item.span != nil && item.span.Ref != nil {
+		item.evt.Event.SetInvokeSpanRef(item.span.Ref) //nolint:gosec
+	}
+	if err := e.handleInvokeEvent(ctx, item.evt); err != nil {
+		return fmt.Errorf("error publishing internal invocation event: %w", err)
 	}
 	return nil
 }
