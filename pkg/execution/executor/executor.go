@@ -3323,8 +3323,9 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 		})
 	}
 
-	// Batch-process invoke opcodes when there are multiple.
-	if len(invokeOps) > 1 {
+	// Batch-process all invoke opcodes (including single) to avoid data races
+	// on i.item.GroupID — the batch path uses per-item groupIDs explicitly.
+	if len(invokeOps) > 0 {
 		eg.Go(func() error {
 			defer func() {
 				if r := recover(); r != nil {
@@ -3336,22 +3337,6 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 				}
 			}()
 			return e.handleBatchInvokeFunctions(ctx, i, invokeOps)
-		})
-	} else if len(invokeOps) == 1 {
-		// Single invoke: use the existing per-opcode path.
-		op := invokeOps[0]
-		i.item.GroupID = op.groupID
-		eg.Go(func() error {
-			defer func() {
-				if r := recover(); r != nil {
-					e.log.Error(
-						"panic in handleGenerator",
-						"error", r,
-						"stack", string(debug.Stack()),
-					)
-				}
-			}()
-			return e.HandleGenerator(ctx, i, op.gen)
 		})
 	}
 
@@ -4979,12 +4964,17 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 	}
 
 	// Phase 3: Enqueue all timeout jobs.
+	// Track which items already exist so we skip event publishing and lifecycle
+	// hooks for them (matching the single-opcode path's early-return on
+	// ErrQueueItemExists).
+	skipItem := make([]bool, len(items))
 	for idx := range items {
 		err := e.queue.Enqueue(ctx, items[idx].item, items[idx].expires, queue.EnqueueOpts{})
 		if err == queue.ErrQueueItemExists {
 			if items[idx].span != nil {
 				items[idx].span.Drop()
 			}
+			skipItem[idx] = true
 			continue
 		}
 		if err != nil {
@@ -5000,16 +4990,22 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 		}
 	}
 
-	// Phase 4: Publish all invocation events.
+	// Phase 4: Publish invocation events (skip items that already existed).
 	for idx := range items {
+		if skipItem[idx] {
+			continue
+		}
 		err := e.handleInvokeEvent(ctx, items[idx].evt)
 		if err != nil {
 			return fmt.Errorf("error publishing internal invocation event: %w", err)
 		}
 	}
 
-	// Phase 5: Fire lifecycle hooks.
+	// Phase 5: Fire lifecycle hooks (skip items that already existed).
 	for idx := range items {
+		if skipItem[idx] {
+			continue
+		}
 		for _, l := range e.lifecycles {
 			go l.OnInvokeFunction(context.WithoutCancel(ctx), i.md, lifecycleItem, items[idx].gen, items[idx].evt.GetEvent())
 		}
