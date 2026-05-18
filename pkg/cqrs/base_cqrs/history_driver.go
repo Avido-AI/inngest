@@ -52,6 +52,10 @@ func (d *historyDriver) Write(ctx context.Context, h history.History) error {
 	return d.maybeInsertFunctionFinish(h)
 }
 
+// WriteBatch performs a bulk INSERT for non-terminal history items. Terminal
+// items (cancelled/completed/failed) must be written via Write so that
+// InsertFunctionFinish is called; any terminal items passed here will be
+// inserted but their function_runs status update will be skipped.
 func (d *historyDriver) WriteBatch(ctx context.Context, items []history.History) error {
 	if len(items) == 0 {
 		return nil

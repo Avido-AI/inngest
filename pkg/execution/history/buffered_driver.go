@@ -2,6 +2,7 @@ package history
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -30,8 +31,10 @@ type BufferedDriver struct {
 	batchSize     int
 	flushInterval time.Duration
 
-	stopCh chan struct{}
-	doneCh chan struct{}
+	wg        sync.WaitGroup
+	closeOnce sync.Once
+	stopCh    chan struct{}
+	doneCh    chan struct{}
 }
 
 // NewBufferedDriver creates a BufferedDriver that wraps the given driver.
@@ -71,8 +74,10 @@ func (b *BufferedDriver) WriteBatch(ctx context.Context, items []History) error 
 }
 
 func (b *BufferedDriver) Close(ctx context.Context) error {
-	close(b.stopCh)
+	b.closeOnce.Do(func() { close(b.stopCh) })
 	<-b.doneCh
+
+	b.wg.Wait()
 
 	b.mu.Lock()
 	remaining := b.buf
@@ -99,7 +104,7 @@ func (b *BufferedDriver) writeTerminal(ctx context.Context, h History) error {
 
 	if len(pending) > 0 {
 		if err := b.driver.WriteBatch(ctx, pending); err != nil {
-			b.log.Error("error flushing history before terminal write", "error", err)
+			return fmt.Errorf("flushing history before terminal write: %w", err)
 		}
 	}
 
@@ -137,7 +142,11 @@ func (b *BufferedDriver) flush() {
 }
 
 func (b *BufferedDriver) flushAsync() {
-	go b.flush()
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		b.flush()
+	}()
 }
 
 func isTerminalType(t string) bool {
