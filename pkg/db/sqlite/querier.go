@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 
 	"github.com/google/uuid"
 	sqlc "github.com/inngest/inngest/pkg/cqrs/base_cqrs/sqlc/sqlite"
@@ -446,13 +447,15 @@ func (sq *sqliteQuerier) InsertSpans(ctx context.Context, args []db.InsertSpanPa
 		}
 		chunk := args[i:end]
 
-		query := "INSERT INTO spans (span_id, trace_id, parent_span_id, name, start_time, end_time, run_id, account_id, app_id, function_id, env_id, dynamic_span_id, attributes, links, output, input, debug_run_id, debug_session_id, status, event_ids) VALUES "
+		const rowPlaceholder = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS TEXT), ?, ?, ?, CAST(? AS TEXT))"
+		var qb strings.Builder
+		qb.WriteString("INSERT INTO spans (span_id, trace_id, parent_span_id, name, start_time, end_time, run_id, account_id, app_id, function_id, env_id, dynamic_span_id, attributes, links, output, input, debug_run_id, debug_session_id, status, event_ids) VALUES ")
 		vals := make([]any, 0, len(chunk)*colCount)
 		for j, arg := range chunk {
 			if j > 0 {
-				query += ", "
+				qb.WriteString(", ")
 			}
-			query += "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS TEXT), ?, ?, ?, CAST(? AS TEXT))"
+			qb.WriteString(rowPlaceholder)
 
 			startTime := arg.StartTime.Round(0).UTC()
 			endTime := arg.EndTime.Round(0).UTC()
@@ -468,7 +471,7 @@ func (sq *sqliteQuerier) InsertSpans(ctx context.Context, args []db.InsertSpanPa
 			)
 		}
 
-		if _, err := sq.db.ExecContext(ctx, query, vals...); err != nil {
+		if _, err := sq.db.ExecContext(ctx, qb.String(), vals...); err != nil {
 			return err
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -521,14 +522,15 @@ func (pq *pgQuerier) InsertSpans(ctx context.Context, args []db.InsertSpanParams
 		}
 		chunk := args[i:end]
 
-		query := "INSERT INTO spans (span_id, trace_id, parent_span_id, name, start_time, end_time, run_id, account_id, app_id, function_id, env_id, dynamic_span_id, attributes, links, output, input, debug_run_id, debug_session_id, status, event_ids) VALUES "
+		var qb strings.Builder
+		qb.WriteString("INSERT INTO spans (span_id, trace_id, parent_span_id, name, start_time, end_time, run_id, account_id, app_id, function_id, env_id, dynamic_span_id, attributes, links, output, input, debug_run_id, debug_session_id, status, event_ids) VALUES ")
 		vals := make([]any, 0, len(chunk)*colCount)
 		for j, arg := range chunk {
 			if j > 0 {
-				query += ", "
+				qb.WriteString(", ")
 			}
 			base := j*colCount + 1
-			query += fmt.Sprintf(
+			fmt.Fprintf(&qb,
 				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 				base, base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9,
 				base+10, base+11, base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19,
@@ -548,7 +550,7 @@ func (pq *pgQuerier) InsertSpans(ctx context.Context, args []db.InsertSpanParams
 			)
 		}
 
-		if _, err := pq.db.ExecContext(ctx, query, vals...); err != nil {
+		if _, err := pq.db.ExecContext(ctx, qb.String(), vals...); err != nil {
 			return err
 		}
 	}
