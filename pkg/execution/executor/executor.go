@@ -3388,15 +3388,17 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 
 	eg := errgroup.Group{}
 
-	for _, op := range otherOps {
-		copied := op
+	for _, cop := range otherOps {
+		cop := cop
 		eg.Go(func() error {
 			defer func() {
 				if r := recover(); r != nil {
 					e.log.Error("panic in handleGenerator", "error", r, "stack", string(debug.Stack()))
 				}
 			}()
-			return e.HandleGenerator(ctx, i, copied)
+			iCopy := *i
+			iCopy.item.GroupID = cop.groupID
+			return e.HandleGenerator(ctx, &iCopy, cop.gen)
 		})
 	}
 
@@ -3427,10 +3429,19 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 	return nil
 }
 
+// classifiedOp pairs a generator opcode with its per-op GroupID so that
+// concurrent goroutines each get their own value instead of racing on
+// i.item.GroupID.
+type classifiedOp struct {
+	gen     state.GeneratorOpcode
+	groupID string
+}
+
 // classifyGroupOpcodes separates invoke opcodes from others for batch processing.
-func (e *executor) classifyGroupOpcodes(i *runInstance, group OpcodeGroup) ([]batchInvokeInput, []state.GeneratorOpcode) {
+// Each op gets its own groupID to avoid data races between concurrent goroutines.
+func (e *executor) classifyGroupOpcodes(i *runInstance, group OpcodeGroup) ([]batchInvokeInput, []classifiedOp) {
 	var invokeOps []batchInvokeInput
-	var otherOps []state.GeneratorOpcode
+	var otherOps []classifiedOp
 
 	for _, op := range group.Opcodes {
 		if op == nil {
@@ -3447,8 +3458,7 @@ func (e *executor) classifyGroupOpcodes(i *runInstance, group OpcodeGroup) ([]ba
 		if copied.Op == enums.OpcodeInvokeFunction {
 			invokeOps = append(invokeOps, batchInvokeInput{gen: copied, groupID: groupID})
 		} else {
-			i.item.GroupID = groupID
-			otherOps = append(otherOps, copied)
+			otherOps = append(otherOps, classifiedOp{gen: copied, groupID: groupID})
 		}
 	}
 
