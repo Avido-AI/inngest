@@ -61,13 +61,17 @@ func NewCQRS(adapter adapterWithHelpers) cqrs.Manager {
 	return wrapper{
 		adapter: adapter,
 		q:       adapter.Q(),
+		fnCache: &functionsCache{ttl: 60 * time.Second},
 	}
 }
 
 type wrapper struct {
-	adapter adapterWithHelpers
-	q       dbpkg.Querier
-	tx      *sql.Tx
+	adapter     adapterWithHelpers
+	q           dbpkg.Querier
+	tx          *sql.Tx
+	fnCache     *functionsCache
+	noFnCache   bool  // true for tx wrappers: disables cache read/write in Functions() but allows invalidation
+	fnMutated   *bool // non-nil for tx wrappers: set to true when function mutations occur
 }
 
 func (w wrapper) dialect() string {
@@ -803,9 +807,13 @@ func (w wrapper) WithTx(ctx context.Context) (cqrs.TxManager, error) {
 		panic("bug: tx adapter does not implement adapterWithHelpers — ensure the concrete TxAdapter embeds Adapter")
 	}
 
+	mutated := false
 	return &wrapper{
-		adapter: txWithHelpers,
-		q:       txAdapter.Q(),
+		adapter:   txWithHelpers,
+		q:         txAdapter.Q(),
+		fnCache:   w.fnCache,
+		noFnCache: true,
+		fnMutated: &mutated,
 	}, nil
 }
 
@@ -814,7 +822,11 @@ func (w wrapper) Commit(ctx context.Context) error {
 	if !ok {
 		panic("bug: Commit called on a non-transaction wrapper")
 	}
-	return txAdapter.Commit(ctx)
+	err := txAdapter.Commit(ctx)
+	if err == nil && w.fnMutated != nil && *w.fnMutated {
+		w.fnCache.invalidate()
+	}
+	return err
 }
 
 func (w wrapper) Rollback(ctx context.Context) error {
@@ -1147,15 +1159,24 @@ func (w wrapper) UpsertFunction(ctx context.Context, params cqrs.UpsertFunctionP
 		return nil, err
 	}
 
+	w.invalidateFnCache()
 	return domainToCQRS(fn, domainFunction), nil
 }
 
 func (w wrapper) DeleteFunctionsByAppID(ctx context.Context, appID uuid.UUID) error {
-	return w.q.DeleteFunctionsByAppID(ctx, appID)
+	err := w.q.DeleteFunctionsByAppID(ctx, appID)
+	if err == nil {
+		w.invalidateFnCache()
+	}
+	return err
 }
 
 func (w wrapper) DeleteFunctionsByIDs(ctx context.Context, ids []uuid.UUID) error {
-	return w.q.DeleteFunctionsByIDs(ctx, ids)
+	err := w.q.DeleteFunctionsByIDs(ctx, ids)
+	if err == nil {
+		w.invalidateFnCache()
+	}
+	return err
 }
 
 func (w wrapper) UpdateFunctionConfig(ctx context.Context, arg cqrs.UpdateFunctionConfigParams) (*cqrs.Function, error) {
@@ -1167,6 +1188,7 @@ func (w wrapper) UpdateFunctionConfig(ctx context.Context, arg cqrs.UpdateFuncti
 		return nil, err
 	}
 
+	w.invalidateFnCache()
 	return domainToCQRS(fn, domainFunction), nil
 }
 
@@ -1197,6 +1219,66 @@ func (w wrapper) InsertEvent(ctx context.Context, e cqrs.Event) error {
 		EventTs: time.UnixMilli(e.EventTS),
 	}
 	return w.q.InsertEvent(ctx, evt)
+}
+
+func (w wrapper) InsertEvents(ctx context.Context, events []cqrs.Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	if len(events) == 1 {
+		return w.InsertEvent(ctx, events[0])
+	}
+
+	now := time.Now()
+	rows := make([][]interface{}, 0, len(events))
+	var skipped int
+	for _, e := range events {
+		data, err := json.Marshal(e.EventData)
+		if err != nil {
+			skipped++
+			continue
+		}
+		user, err := json.Marshal(e.EventUser)
+		if err != nil {
+			skipped++
+			continue
+		}
+		eventV := sql.NullString{
+			Valid:  e.EventVersion != "",
+			String: e.EventVersion,
+		}
+		rows = append(rows, []interface{}{
+			e.ID,
+			now,
+			e.EventID,
+			e.EventName,
+			string(data),
+			string(user),
+			eventV,
+			time.UnixMilli(e.EventTS),
+		})
+	}
+
+	if len(rows) == 0 {
+		return fmt.Errorf("all %d events in batch failed to marshal", len(events))
+	}
+
+	ds := sq.Dialect(w.dialect()).Insert("events").Cols(
+		"internal_id", "received_at", "event_id", "event_name",
+		"event_data", "event_user", "event_v", "event_ts",
+	).Vals(rows...)
+	query, args, err := ds.ToSQL()
+	if err != nil {
+		return fmt.Errorf("error building bulk insert SQL: %w", err)
+	}
+	if _, err = w.adapter.ExecContext(ctx, query, args...); err != nil {
+		return err
+	}
+
+	if skipped > 0 {
+		return &cqrs.PartialInsertError{Inserted: len(rows), Skipped: skipped}
+	}
+	return nil
 }
 
 func (w wrapper) InsertEventBatch(ctx context.Context, eb cqrs.EventBatch) error {
