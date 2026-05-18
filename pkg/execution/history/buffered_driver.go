@@ -31,6 +31,7 @@ type BufferedDriver struct {
 	batchSize     int
 	flushInterval time.Duration
 
+	flushMu   sync.Mutex
 	wg        sync.WaitGroup
 	closeOnce sync.Once
 	stopCh    chan struct{}
@@ -97,6 +98,9 @@ func (b *BufferedDriver) Close(ctx context.Context) error {
 // synchronously via the underlying driver so InsertFunctionFinish
 // is sequenced after all buffered history rows.
 func (b *BufferedDriver) writeTerminal(ctx context.Context, h History) error {
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+
 	b.mu.Lock()
 	pending := b.buf
 	b.buf = make([]History, 0, b.batchSize)
@@ -127,6 +131,9 @@ func (b *BufferedDriver) flushLoop() {
 }
 
 func (b *BufferedDriver) flush() {
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+
 	b.mu.Lock()
 	if len(b.buf) == 0 {
 		b.mu.Unlock()
