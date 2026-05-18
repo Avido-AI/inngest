@@ -21,10 +21,20 @@ type functionsCache struct {
 	ttl       time.Duration
 }
 
+func (c *functionsCache) invalidate() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.functions = nil
+	c.updatedAt = time.Time{}
+	c.mu.Unlock()
+}
+
 // Functions returns all functions as inngest functions, using a short-lived
 // in-memory cache to avoid repeated full table scans.
 func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
-	if w.fnCache != nil {
+	if w.fnCache != nil && !w.noFnCache {
 		w.fnCache.mu.Lock()
 		if !w.fnCache.updatedAt.IsZero() && time.Since(w.fnCache.updatedAt) < w.fnCache.ttl {
 			result := slices.Clone(w.fnCache.functions)
@@ -46,7 +56,7 @@ func (w wrapper) Functions(ctx context.Context) ([]inngest.Function, error) {
 		funcs[n] = f
 	}
 
-	if w.fnCache != nil {
+	if w.fnCache != nil && !w.noFnCache {
 		w.fnCache.mu.Lock()
 		w.fnCache.functions = funcs
 		w.fnCache.updatedAt = time.Now()

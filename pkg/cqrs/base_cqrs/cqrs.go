@@ -66,10 +66,11 @@ func NewCQRS(adapter adapterWithHelpers) cqrs.Manager {
 }
 
 type wrapper struct {
-	adapter adapterWithHelpers
-	q       dbpkg.Querier
-	tx      *sql.Tx
-	fnCache *functionsCache
+	adapter   adapterWithHelpers
+	q         dbpkg.Querier
+	tx        *sql.Tx
+	fnCache   *functionsCache
+	noFnCache bool // true for tx wrappers: disables cache read/write in Functions() but allows invalidation
 }
 
 func (w wrapper) dialect() string {
@@ -806,8 +807,10 @@ func (w wrapper) WithTx(ctx context.Context) (cqrs.TxManager, error) {
 	}
 
 	return &wrapper{
-		adapter: txWithHelpers,
-		q:       txAdapter.Q(),
+		adapter:   txWithHelpers,
+		q:         txAdapter.Q(),
+		fnCache:   w.fnCache,
+		noFnCache: true,
 	}, nil
 }
 
@@ -1149,15 +1152,24 @@ func (w wrapper) UpsertFunction(ctx context.Context, params cqrs.UpsertFunctionP
 		return nil, err
 	}
 
+	w.fnCache.invalidate()
 	return domainToCQRS(fn, domainFunction), nil
 }
 
 func (w wrapper) DeleteFunctionsByAppID(ctx context.Context, appID uuid.UUID) error {
-	return w.q.DeleteFunctionsByAppID(ctx, appID)
+	err := w.q.DeleteFunctionsByAppID(ctx, appID)
+	if err == nil {
+		w.fnCache.invalidate()
+	}
+	return err
 }
 
 func (w wrapper) DeleteFunctionsByIDs(ctx context.Context, ids []uuid.UUID) error {
-	return w.q.DeleteFunctionsByIDs(ctx, ids)
+	err := w.q.DeleteFunctionsByIDs(ctx, ids)
+	if err == nil {
+		w.fnCache.invalidate()
+	}
+	return err
 }
 
 func (w wrapper) UpdateFunctionConfig(ctx context.Context, arg cqrs.UpdateFunctionConfigParams) (*cqrs.Function, error) {
@@ -1169,6 +1181,7 @@ func (w wrapper) UpdateFunctionConfig(ctx context.Context, arg cqrs.UpdateFuncti
 		return nil, err
 	}
 
+	w.fnCache.invalidate()
 	return domainToCQRS(fn, domainFunction), nil
 }
 
