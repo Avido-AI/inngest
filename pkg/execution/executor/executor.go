@@ -4896,7 +4896,7 @@ type batchInvokeItem struct {
 	groupID string
 	pause   state.Pause
 	item    queue.Item
-	evt     event.TrackedEvent
+	evt     event.BaseTrackedEvent
 	span    *tracing.DroppableSpan
 	expires time.Time
 }
@@ -5092,6 +5092,13 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 		}
 		if items[idx].span != nil {
 			_ = items[idx].span.Send()
+		}
+
+		// Attach the v2 invoke span ref to the invocation event so the invoked
+		// function's Schedule can call UpdateSpan to write its runID onto this
+		// invoke span while the invoke is still in progress.
+		if items[idx].span != nil && items[idx].span.Ref != nil {
+			items[idx].evt.Event.SetInvokeSpanRef(items[idx].span.Ref) //nolint:gosec
 		}
 
 		err = e.handleInvokeEvent(ctx, items[idx].evt)
