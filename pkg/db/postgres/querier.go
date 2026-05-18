@@ -550,7 +550,7 @@ func (pq *pgQuerier) InsertSpans(ctx context.Context, args []db.InsertSpanParams
 			)
 		}
 
-		if _, err := pq.db.ExecContext(ctx, qb.String(), vals...); err != nil {
+		if _, err := pq.db.ExecContext(ctx, qb.String()+" ON CONFLICT (trace_id, span_id) DO NOTHING", vals...); err != nil {
 			return err
 		}
 	}
