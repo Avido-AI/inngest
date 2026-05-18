@@ -145,13 +145,6 @@ func (b *BufferedDriver) flush() {
 
 	if err := b.driver.WriteBatch(context.Background(), batch); err != nil {
 		b.log.Error("error flushing buffered history", "error", err, "count", len(batch))
-		b.mu.Lock()
-		if len(b.buf)+len(batch) <= b.batchSize*2 {
-			b.buf = append(batch, b.buf...)
-		} else {
-			b.log.Error("dropping history batch, buffer at capacity", "dropped", len(batch))
-		}
-		b.mu.Unlock()
 	}
 }
 
