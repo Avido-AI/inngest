@@ -145,7 +145,7 @@ func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue
 	case meta.Attrs.UserlandSpanID.Key():
 		return !cleanAttrs
 	case meta.Attrs.DropSpan.Key():
-		return !(cleanAttrs && isExtensionSpan)
+		return !cleanAttrs || !isExtensionSpan
 	default:
 		return true
 	}
