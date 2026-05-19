@@ -5005,10 +5005,16 @@ func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, in
 
 	carrier := e.buildInvokeTraceCarrier(ctx, now)
 
+	// Use a deterministic event ID derived from runID + gen.ID so that retries
+	// produce identical events. This makes duplicate publishes idempotent at any
+	// layer that deduplicates by event ID.
+	payload := *opts.Payload
+	payload.ID = inngest.DeterministicSha1UUID(i.md.ID.RunID.String() + gen.ID + ":evt").String()
+
 	evt := event.NewInvocationEvent(event.NewInvocationEventOpts{
 		AccountID:       i.md.ID.Tenant.AccountID,
 		EnvID:           i.md.ID.Tenant.EnvID,
-		Event:           *opts.Payload,
+		Event:           payload,
 		FnID:            opts.FunctionID,
 		CorrelationID:   &correlationID,
 		TraceCarrier:    carrier,
