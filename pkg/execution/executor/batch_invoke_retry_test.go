@@ -1,14 +1,15 @@
 package executor
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/event"
 	"github.com/inngest/inngest/pkg/execution/queue"
-	"github.com/inngest/inngest/pkg/inngest"
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/tracing"
 	"github.com/oklog/ulid/v2"
@@ -179,17 +180,25 @@ func TestBuildSingleInvokeItem_DeterministicEventID(t *testing.T) {
 	genID := "step-invoke-1"
 
 	// Compute the expected deterministic event ID
-	expectedID := inngestDeterministicEventID(runID.String(), genID)
+	expectedID := deterministicEventULID(t, runID, genID)
 
 	// Verify it's stable across calls
-	require.Equal(t, expectedID, inngestDeterministicEventID(runID.String(), genID))
+	require.Equal(t, expectedID, deterministicEventULID(t, runID, genID))
 
 	// Different gen.ID produces different event ID
-	otherID := inngestDeterministicEventID(runID.String(), "step-invoke-2")
+	otherID := deterministicEventULID(t, runID, "step-invoke-2")
 	require.NotEqual(t, expectedID, otherID)
+
+	// The result must be a valid ULID (downstream code uses ulid.MustParse)
+	_, err := ulid.Parse(expectedID)
+	require.NoError(t, err, "deterministic event ID must be a valid ULID")
 }
 
-// inngestDeterministicEventID mirrors the logic in buildSingleInvokeItem for testing.
-func inngestDeterministicEventID(runID, genID string) string {
-	return inngest.DeterministicSha1UUID(runID + genID + ":evt").String()
+// deterministicEventULID mirrors the logic in buildSingleInvokeItem for testing.
+func deterministicEventULID(t *testing.T, runID ulid.ULID, genID string) string {
+	t.Helper()
+	h := sha256.Sum256([]byte(runID.String() + genID + ":evt"))
+	id, err := ulid.New(runID.Time(), bytes.NewReader(h[:10]))
+	require.NoError(t, err)
+	return id.String()
 }

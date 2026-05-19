@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -5008,8 +5009,15 @@ func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, in
 	// Use a deterministic event ID derived from runID + gen.ID so that retries
 	// produce identical events. This makes duplicate publishes idempotent at any
 	// layer that deduplicates by event ID.
+	// The ID must be a valid ULID because downstream code (e.g. lifecycle.OnInvokeFunction)
+	// uses ulid.MustParse on event IDs.
 	payload := *opts.Payload
-	payload.ID = inngest.DeterministicSha1UUID(i.md.ID.RunID.String() + gen.ID + ":evt").String()
+	evtHash := sha256.Sum256([]byte(i.md.ID.RunID.String() + gen.ID + ":evt"))
+	detEvtID, err := ulid.New(i.md.ID.RunID.Time(), bytes.NewReader(evtHash[:10]))
+	if err != nil {
+		return batchInvokeItem{}, fmt.Errorf("failed to generate deterministic event ID: %w", err)
+	}
+	payload.ID = detEvtID.String()
 
 	evt := event.NewInvocationEvent(event.NewInvocationEventOpts{
 		AccountID:       i.md.ID.Tenant.AccountID,
