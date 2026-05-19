@@ -229,7 +229,7 @@ func run(t *testing.T, test *Test) {
 			wait = remaining
 		}
 	}
-	if wait > 0 {
+	if wait >= time.Millisecond {
 		fmt.Printf("\n===> Waiting for extraneous requests (%s)\n", wait.Round(time.Millisecond))
 		<-time.After(wait)
 	}
