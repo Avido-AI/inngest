@@ -471,5 +471,23 @@ CREATE INDEX idx_spans_run_id_dynamic_start_time ON public.spans USING btree (ru
 CREATE INDEX idx_traces_trace_id ON public.traces USING btree (trace_id);
 
 --
+-- Name: idx_traces_timestamp; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_traces_timestamp ON public.traces USING btree ("timestamp");
+
+--
+-- Name: idx_history_created_at_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_history_created_at_type ON public.history USING btree (created_at, type);
+
+--
+-- Name: idx_spans_start_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_spans_start_time ON public.spans USING btree (start_time);
+
+--
 -- PostgreSQL database dump complete
 --
