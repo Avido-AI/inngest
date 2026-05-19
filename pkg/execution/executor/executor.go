@@ -5180,9 +5180,17 @@ func dropUnprocessedSpans(items []batchInvokeItem, fromIdx int) {
 }
 
 // enqueueAndPublishBatch enqueues all timeout jobs via batch pipeline, then publishes
-// events for newly-enqueued items. Uses EnqueueBatch (single Redis pipeline) when
-// available, falling back to per-item enqueue.
-// Returns a skip mask indicating which items already existed (from previous attempts).
+// events for ALL items. Uses EnqueueBatch (single Redis pipeline) when available,
+// falling back to per-item enqueue.
+//
+// IMPORTANT: Events are always published for every item regardless of whether the
+// timeout queue item already existed (ErrQueueItemExists). This is critical for
+// retry safety: if a previous attempt successfully enqueued timeouts but failed
+// during event publishing, the retry must still publish events. Skipping publish
+// for "already enqueued" items would permanently orphan child function invocations.
+//
+// Returns a skip mask indicating which items already existed (used only for span
+// tracking and lifecycle hooks — NOT for event publishing).
 func (e *executor) enqueueAndPublishBatch(ctx context.Context, i *runInstance, items []batchInvokeItem) ([]bool, error) {
 	skipItem, err := e.enqueueBatchTimeouts(ctx, items)
 	if err != nil {
@@ -5193,7 +5201,7 @@ func (e *executor) enqueueAndPublishBatch(ctx context.Context, i *runInstance, i
 		return skipItem, err
 	}
 
-	if err := e.publishBatchEvents(ctx, items, skipItem); err != nil {
+	if err := e.publishBatchEvents(ctx, items); err != nil {
 		return skipItem, err
 	}
 
@@ -5289,14 +5297,16 @@ func (e *executor) sendSpansForBatch(items []batchInvokeItem, skipItem []bool) e
 	return nil
 }
 
-// publishBatchEvents publishes invocation events for non-skipped items using batch
-// publish when available, falling back to per-item publish.
-func (e *executor) publishBatchEvents(ctx context.Context, items []batchInvokeItem, skipItem []bool) error {
+// publishBatchEvents publishes invocation events for ALL items using batch publish
+// when available, falling back to per-item publish.
+//
+// This function intentionally publishes events for every item regardless of whether
+// the item's timeout queue entry already existed. Publishing a duplicate invocation
+// event is safe (child function deduplication is handled at the pause/correlation
+// layer), but failing to publish leaves child functions permanently un-triggered.
+func (e *executor) publishBatchEvents(ctx context.Context, items []batchInvokeItem) error {
 	evts := make([]event.TrackedEvent, 0, len(items))
 	for idx := range items {
-		if skipItem[idx] {
-			continue
-		}
 		evts = append(evts, items[idx].evt)
 	}
 	if len(evts) == 0 {
