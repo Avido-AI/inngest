@@ -499,9 +499,17 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 				WorkspaceID: opts.Metadata.ID.Tenant.EnvID,
 			}
 			service.Go(func() {
-				err := e.HandleInvokeFinish(context.WithoutCancel(ctx), tracked)
+				bgCtx := context.WithoutCancel(ctx)
+				_, err := util.WithRetry(bgCtx, "fast-resume-invoke", func(ctx context.Context) (struct{}, error) {
+					return struct{}{}, e.HandleInvokeFinish(ctx, tracked)
+				}, util.NewRetryConf())
 				if err != nil && !errors.Is(err, ErrNoCorrelationID) {
-					logger.From(ctx).Error("error fast resuming invoke", "error", err)
+					logger.From(ctx).Error("error fast resuming invoke after retries",
+						"error", err,
+						"event_id", evt.ID,
+						"run_id", opts.Metadata.ID.RunID,
+						"correlation_id", evt.CorrelationID(),
+					)
 				}
 			})
 		}
@@ -511,7 +519,18 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 	// goroutine loop so they aren't dispatched to HandleInvokeFinish.
 	freshEvents = append(freshEvents, extraEvents...)
 
-	return e.finishHandler(ctx, opts.Metadata.ID, freshEvents)
+	_, publishErr := util.WithRetry(ctx, "publish-finalize-events", func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, e.finishHandler(ctx, opts.Metadata.ID, freshEvents)
+	}, util.NewRetryConf())
+	if publishErr != nil {
+		logger.From(ctx).Error("error publishing finalize events after retries",
+			"error", publishErr,
+			"run_id", opts.Metadata.ID.RunID,
+			"function_id", opts.Metadata.ID.FunctionID,
+			"event_count", len(freshEvents),
+		)
+	}
+	return publishErr
 }
 
 func finalizeSpanAttributes(f execution.FinalizeOpts) *meta.SerializableAttrs {

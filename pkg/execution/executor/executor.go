@@ -3217,14 +3217,22 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 				e.log.Debug("error creating span for next step after resume", "error", err)
 			}
 
-			err = e.queue.Enqueue(ctx, nextItem, e.now(), queue.EnqueueOpts{})
-			if err != nil {
+			_, enqueueErr := util.WithRetry(ctx, "enqueue-after-pause", func(ctx context.Context) (struct{}, error) {
+				err := e.queue.Enqueue(ctx, nextItem, e.now(), queue.EnqueueOpts{})
 				if err == queue.ErrQueueItemExists {
-					nextStepSpan.Drop()
-				} else {
-					_ = nextStepSpan.Send()
-					return fmt.Errorf("error enqueueing after pause: %w", err)
+					return struct{}{}, nil
 				}
+				return struct{}{}, err
+			}, util.NewRetryConf())
+			if enqueueErr != nil {
+				_ = nextStepSpan.Send()
+				e.log.Error("error enqueueing after pause consumption — parent may be stuck",
+					"error", enqueueErr,
+					"run_id", pause.Identifier.RunID,
+					"pause_id", pause.ID,
+					"job_id", jobID,
+				)
+				return fmt.Errorf("error enqueueing after pause: %w", enqueueErr)
 			}
 
 			_ = nextStepSpan.Send()
