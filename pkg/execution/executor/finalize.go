@@ -502,7 +502,9 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 				bgCtx := context.WithoutCancel(ctx)
 				_, err := util.WithRetry(bgCtx, "fast-resume-invoke", func(ctx context.Context) (struct{}, error) {
 					return struct{}{}, e.HandleInvokeFinish(ctx, tracked)
-				}, util.NewRetryConf())
+				}, util.NewRetryConf(util.WithRetryConfRetryableErrors(func(err error) bool {
+					return !errors.Is(err, ErrNoCorrelationID)
+				})))
 				if err != nil && !errors.Is(err, ErrNoCorrelationID) {
 					logger.From(ctx).Error("error fast resuming invoke after retries",
 						"error", err,
@@ -522,14 +524,6 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 	_, publishErr := util.WithRetry(ctx, "publish-finalize-events", func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, e.finishHandler(ctx, opts.Metadata.ID, freshEvents)
 	}, util.NewRetryConf())
-	if publishErr != nil {
-		logger.From(ctx).Error("error publishing finalize events after retries",
-			"error", publishErr,
-			"run_id", opts.Metadata.ID.RunID,
-			"function_id", opts.Metadata.ID.FunctionID,
-			"event_count", len(freshEvents),
-		)
-	}
 	return publishErr
 }
 
