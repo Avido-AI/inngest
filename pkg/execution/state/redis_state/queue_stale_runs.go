@@ -195,8 +195,16 @@ func (q *queue) ScavengeStaleRuns(ctx context.Context, threshold time.Duration) 
 		// StaleInvokeRecoveryThreshold (1 hour) minimises false positives.
 		// A future improvement could verify child completion via the CQRS
 		// layer before cancelling.
+		// Skip high-cardinality runs (>100 items) since RunJobs uses ZSCAN
+		// with COUNT=100 and we need a complete view. OutstandingJobCount
+		// (ZCARD) and RunJobs (workspace-filtered ZSCAN) can also diverge
+		// for stale cross-workspace index entries, so we only proceed when
+		// the item count is small enough to fetch in a single page.
 		runStart := time.UnixMilli(int64(info.RunID.Time()))
-		if runStart.Before(invokeRecoveryCutoff) && q.hasOnlyInvokeTimeoutJobs(ctx, info, outstandingCount) {
+		if outstandingCount > 100 {
+			continue
+		}
+		if runStart.Before(invokeRecoveryCutoff) && q.hasOnlyInvokeTimeoutJobs(ctx, info) {
 			l.Warn("detected run stuck on invoke timeout (child likely completed but event was lost)",
 				"run_id", info.RunID.String(),
 				"function_id", info.FunctionID.String(),
@@ -216,18 +224,11 @@ func (q *queue) ScavengeStaleRuns(ctx context.Context, threshold time.Duration) 
 // child function completed but the function.finished event was lost during a
 // rolling deployment, leaving the parent stuck on the invoke pause.
 //
-// expectedCount is the total number of outstanding items from ZCARD. If the
-// fetched page is smaller than expectedCount, we may have an incomplete view
-// (e.g. fan-out to >100 children) and conservatively return false.
-func (q *queue) hasOnlyInvokeTimeoutJobs(ctx context.Context, info osqueue.StaleRunInfo, expectedCount int) bool {
+// The caller must ensure outstandingCount <= 100 before calling this method
+// so that RunJobs can fetch a complete view in a single ZSCAN page.
+func (q *queue) hasOnlyInvokeTimeoutJobs(ctx context.Context, info osqueue.StaleRunInfo) bool {
 	jobs, err := q.RunJobs(ctx, info.WorkspaceID, info.FunctionID, info.RunID, 100, 0)
 	if err != nil || len(jobs) == 0 {
-		return false
-	}
-
-	// Guard against pagination: if ZCARD reported more items than we fetched,
-	// we cannot be sure the unseen items are also invoke timeouts.
-	if len(jobs) < expectedCount {
 		return false
 	}
 
