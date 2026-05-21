@@ -489,5 +489,17 @@ CREATE INDEX idx_traces_timestamp ON public.traces USING btree ("timestamp");
 CREATE INDEX idx_traces_trace_id ON public.traces USING btree (trace_id);
 
 --
+-- Name: idx_spans_span_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_spans_span_id ON public.spans USING btree (span_id);
+
+--
+-- Name: idx_trace_runs_trigger_ids_trgm; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trace_runs_trigger_ids_trgm ON public.trace_runs USING gin (convert_from(trigger_ids, 'UTF8'::name) gin_trgm_ops);
+
+--
 -- PostgreSQL database dump complete
 --
