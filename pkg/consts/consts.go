@@ -188,6 +188,13 @@ const (
 	// orphaned runs.
 	StaleRunScavengerInterval = 30 * time.Second
 
+	// StaleInvokeRecoveryThreshold is the duration after which a RUNNING run
+	// whose only outstanding queue items are invoke timeout jobs is considered
+	// stuck. This handles runs orphaned when the function.finished event is
+	// lost during a rolling deployment (the child completed but the parent
+	// was never notified).
+	StaleInvokeRecoveryThreshold = 15 * time.Minute
+
 	// StaleRunScavengerBatchSize is the maximum number of stale run candidates to
 	// process per scavenger tick.
 	StaleRunScavengerBatchSize = 100

@@ -116,6 +116,11 @@ func (q *queue) RemoveActiveRun(ctx context.Context, info osqueue.StaleRunInfo) 
 // ScavengeStaleRuns finds runs in the active runs index that have been running
 // longer than the threshold and have no outstanding queue items. These are
 // orphaned runs caused by lost events during rolling deployments.
+//
+// It also detects runs stuck on invoke timeouts: runs whose only outstanding
+// queue items are KindPause jobs for invoke steps (function.finished events
+// lost during pod shutdown). These use a longer threshold
+// (StaleInvokeRecoveryThreshold) to avoid interfering with normal invocations.
 func (q *queue) ScavengeStaleRuns(ctx context.Context, threshold time.Duration) ([]osqueue.StaleRunInfo, error) {
 	l := logger.StdlibLogger(ctx)
 
@@ -146,6 +151,8 @@ func (q *queue) ScavengeStaleRuns(ctx context.Context, threshold time.Duration) 
 		return nil, nil
 	}
 
+	invokeRecoveryCutoff := q.Clock.Now().Add(-consts.StaleInvokeRecoveryThreshold)
+
 	var staleRuns []osqueue.StaleRunInfo
 
 	for _, member := range members {
@@ -167,21 +174,62 @@ func (q *queue) ScavengeStaleRuns(ctx context.Context, threshold time.Duration) 
 			continue
 		}
 
-		if outstandingCount > 0 {
-			// Run still has active queue items — not stale yet.
-			// Leave it in ActiveRuns so it stays monitored in case it
-			// becomes orphaned later (e.g., pod dies after step completes).
+		if outstandingCount == 0 {
+			// No outstanding queue items and older than threshold — stale.
+			l.Warn("detected stale run candidate",
+				"run_id", info.RunID.String(),
+				"function_id", info.FunctionID.String(),
+				"account_id", info.AccountID.String(),
+			)
+			staleRuns = append(staleRuns, info)
 			continue
 		}
 
-		// No outstanding queue items and older than threshold - this is a stale run candidate.
-		l.Warn("detected stale run candidate",
-			"run_id", info.RunID.String(),
-			"function_id", info.FunctionID.String(),
-			"account_id", info.AccountID.String(),
-		)
-		staleRuns = append(staleRuns, info)
+		// Run has outstanding items. Check if it's stuck on invoke timeouts
+		// (child completed but function.finished event was lost during deployment).
+		// Use the ULID-embedded timestamp as the run start time.
+		runStart := time.UnixMilli(int64(info.RunID.Time()))
+		if runStart.Before(invokeRecoveryCutoff) && q.hasOnlyInvokeTimeoutJobs(ctx, info) {
+			l.Warn("detected run stuck on invoke timeout (child likely completed but event was lost)",
+				"run_id", info.RunID.String(),
+				"function_id", info.FunctionID.String(),
+				"account_id", info.AccountID.String(),
+				"outstanding_count", outstandingCount,
+			)
+			staleRuns = append(staleRuns, info)
+		}
 	}
 
 	return staleRuns, nil
+}
+
+// hasOnlyInvokeTimeoutJobs checks whether all outstanding queue items for a run
+// are KindPause timeout jobs for invoke steps (identified by having an
+// InvokeCorrelationID on the embedded pause). This detects the case where a
+// child function completed but the function.finished event was lost during a
+// rolling deployment, leaving the parent stuck on the invoke pause.
+func (q *queue) hasOnlyInvokeTimeoutJobs(ctx context.Context, info osqueue.StaleRunInfo) bool {
+	jobs, err := q.RunJobs(ctx, info.WorkspaceID, info.FunctionID, info.RunID, 100, 0)
+	if err != nil || len(jobs) == 0 {
+		return false
+	}
+
+	for _, job := range jobs {
+		if job.Kind != osqueue.KindPause {
+			return false
+		}
+		qi, ok := job.Raw.(*osqueue.QueueItem)
+		if !ok {
+			return false
+		}
+		pt, ok := qi.Data.Payload.(osqueue.PayloadPauseTimeout)
+		if !ok {
+			return false
+		}
+		if pt.Pause.InvokeCorrelationID == nil {
+			return false
+		}
+	}
+
+	return true
 }
