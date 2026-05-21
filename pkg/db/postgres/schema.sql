@@ -13,6 +13,14 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: trigger_ids_as_text(bytea); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.trigger_ids_as_text(val bytea) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+    AS $$ SELECT convert_from(val, 'UTF8') $$;
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
