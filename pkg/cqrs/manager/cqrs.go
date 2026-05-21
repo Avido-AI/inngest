@@ -1129,12 +1129,7 @@ func (w wrapper) GetActiveFunctionByAppAndSlug(ctx context.Context, appName stri
 }
 
 func (w wrapper) GetFunctions(ctx context.Context) ([]*cqrs.Function, error) {
-	fns, err := w.q.GetFunctions(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return domainToCQRSList(fns, domainFunction), nil
+	return w.cachedGetFunctions(ctx)
 }
 
 func (w wrapper) GetFunctionsByAppInternalID(ctx context.Context, appID uuid.UUID) ([]*cqrs.Function, error) {
