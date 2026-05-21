@@ -105,7 +105,7 @@ func (w wrapper) cachedGetFunctions(ctx context.Context) ([]*cqrs.Function, erro
 	if w.fnCache != nil && !w.noFnCache {
 		w.fnCache.mu.Lock()
 		if !w.fnCache.rawUpdatedAt.IsZero() && time.Since(w.fnCache.rawUpdatedAt) < w.fnCache.ttl {
-			result := slices.Clone(w.fnCache.rawFunctions)
+			result := deepCopyFunctions(w.fnCache.rawFunctions)
 			w.fnCache.mu.Unlock()
 			return result, nil
 		}
@@ -123,13 +123,24 @@ func (w wrapper) cachedGetFunctions(ctx context.Context) ([]*cqrs.Function, erro
 	if w.fnCache != nil && !w.noFnCache {
 		w.fnCache.mu.Lock()
 		if w.fnCache.generation == genAtMiss {
-			w.fnCache.rawFunctions = slices.Clone(result)
+			w.fnCache.rawFunctions = deepCopyFunctions(result)
 			w.fnCache.rawUpdatedAt = time.Now()
 		}
 		w.fnCache.mu.Unlock()
 	}
 
 	return result, nil
+}
+
+// deepCopyFunctions returns a new slice where each *cqrs.Function is a
+// distinct copy, so callers cannot mutate cached structs.
+func deepCopyFunctions(src []*cqrs.Function) []*cqrs.Function {
+	dst := make([]*cqrs.Function, len(src))
+	for i, f := range src {
+		cp := *f
+		dst[i] = &cp
+	}
+	return dst
 }
 
 // FunctionsScheduled returns all scheduled functions available.

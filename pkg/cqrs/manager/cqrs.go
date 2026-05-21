@@ -1113,7 +1113,8 @@ func (w wrapper) GetFunctionByExternalID(ctx context.Context, wsID uuid.UUID, ap
 func (w wrapper) GetFunctionByInternalUUID(ctx context.Context, fnID uuid.UUID) (*cqrs.Function, error) {
 	// Try the cache first. The cache only contains active (non-archived)
 	// functions, so a miss falls through to the DB which returns all rows.
-	if cached, err := w.cachedGetFunctions(ctx); err == nil {
+	cached, cacheErr := w.cachedGetFunctions(ctx)
+	if cacheErr == nil {
 		for _, fn := range cached {
 			if fn.ID == fnID {
 				return fn, nil
