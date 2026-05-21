@@ -193,7 +193,11 @@ const (
 	// stuck. This handles runs orphaned when the function.finished event is
 	// lost during a rolling deployment (the child completed but the parent
 	// was never notified).
-	StaleInvokeRecoveryThreshold = 15 * time.Minute
+	//
+	// Set to 1 hour to avoid false positives on legitimately slow children.
+	// A future enhancement could verify child completion via the CQRS layer
+	// to allow a shorter threshold.
+	StaleInvokeRecoveryThreshold = 1 * time.Hour
 
 	// StaleRunScavengerBatchSize is the maximum number of stale run candidates to
 	// process per scavenger tick.

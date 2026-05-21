@@ -132,8 +132,8 @@ func TestScavengeStaleRuns_StuckInvokeTimeout(t *testing.T) {
 	fnID := uuid.New()
 	appID := uuid.New()
 
-	// Run started 20 minutes ago → older than StaleInvokeRecoveryThreshold (15 min).
-	startTime := clock.Now().Add(-20 * time.Minute)
+	// Run started 2 hours ago → older than StaleInvokeRecoveryThreshold (1 hour).
+	startTime := clock.Now().Add(-2 * time.Hour)
 	runID := ulid.MustNew(uint64(startTime.UnixMilli()), rand.Reader)
 
 	info := osqueue.StaleRunInfo{
@@ -206,9 +206,9 @@ func TestScavengeStaleRuns_InvokeTimeoutTooYoung(t *testing.T) {
 	fnID := uuid.New()
 	appID := uuid.New()
 
-	// Run started 7 minutes ago — older than StaleRunThreshold (5 min)
-	// but younger than StaleInvokeRecoveryThreshold (15 min).
-	startTime := clock.Now().Add(-7 * time.Minute)
+	// Run started 30 minutes ago — older than StaleRunThreshold (5 min)
+	// but younger than StaleInvokeRecoveryThreshold (1 hour).
+	startTime := clock.Now().Add(-30 * time.Minute)
 	runID := ulid.MustNew(uint64(startTime.UnixMilli()), rand.Reader)
 
 	info := osqueue.StaleRunInfo{
@@ -277,8 +277,8 @@ func TestScavengeStaleRuns_MixedItems(t *testing.T) {
 	fnID := uuid.New()
 	appID := uuid.New()
 
-	// Run started 20 minutes ago.
-	startTime := clock.Now().Add(-20 * time.Minute)
+	// Run started 2 hours ago.
+	startTime := clock.Now().Add(-2 * time.Hour)
 	runID := ulid.MustNew(uint64(startTime.UnixMilli()), rand.Reader)
 
 	info := osqueue.StaleRunInfo{
@@ -359,8 +359,8 @@ func TestScavengeStaleRuns_WaitForEventTimeout(t *testing.T) {
 	fnID := uuid.New()
 	appID := uuid.New()
 
-	// Run started 20 minutes ago.
-	startTime := clock.Now().Add(-20 * time.Minute)
+	// Run started 2 hours ago.
+	startTime := clock.Now().Add(-2 * time.Hour)
 	runID := ulid.MustNew(uint64(startTime.UnixMilli()), rand.Reader)
 
 	info := osqueue.StaleRunInfo{
