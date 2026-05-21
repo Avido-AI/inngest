@@ -204,15 +204,19 @@ func (q *queue) ScavengeStaleRuns(ctx context.Context, threshold time.Duration) 
 		if outstandingCount > 100 {
 			continue
 		}
-		if runStart.Before(invokeRecoveryCutoff) && q.hasOnlyInvokeTimeoutJobs(ctx, info) {
-			l.Warn("detected run stuck on invoke timeout (child likely completed but event was lost)",
-				"run_id", info.RunID.String(),
-				"function_id", info.FunctionID.String(),
-				"account_id", info.AccountID.String(),
-				"outstanding_count", outstandingCount,
-			)
-			staleRuns = append(staleRuns, info)
+		if !runStart.Before(invokeRecoveryCutoff) {
+			continue
 		}
+		if !q.hasOnlyInvokeTimeoutJobs(ctx, info) {
+			continue
+		}
+		l.Warn("detected run stuck on invoke timeout (child likely completed but event was lost)",
+			"run_id", info.RunID.String(),
+			"function_id", info.FunctionID.String(),
+			"account_id", info.AccountID.String(),
+			"outstanding_count", outstandingCount,
+		)
+		staleRuns = append(staleRuns, info)
 	}
 
 	return staleRuns, nil
@@ -233,21 +237,24 @@ func (q *queue) hasOnlyInvokeTimeoutJobs(ctx context.Context, info osqueue.Stale
 	}
 
 	for _, job := range jobs {
-		if job.Kind != osqueue.KindPause {
-			return false
-		}
-		qi, ok := job.Raw.(*osqueue.QueueItem)
-		if !ok {
-			return false
-		}
-		pt, ok := qi.Data.Payload.(osqueue.PayloadPauseTimeout)
-		if !ok {
-			return false
-		}
-		if pt.Pause.InvokeCorrelationID == nil {
+		if !isInvokePauseTimeoutJob(job) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// isInvokePauseTimeoutJob returns true if a job is a KindPause timeout for an
+// invoke step (has a non-nil InvokeCorrelationID on the embedded pause).
+func isInvokePauseTimeoutJob(job osqueue.JobResponse) bool {
+	if job.Kind != osqueue.KindPause {
+		return false
+	}
+	qi, ok := job.Raw.(*osqueue.QueueItem)
+	if !ok {
+		return false
+	}
+	pt, ok := qi.Data.Payload.(osqueue.PayloadPauseTimeout)
+	return ok && pt.Pause.InvokeCorrelationID != nil
 }
