@@ -498,7 +498,11 @@ CREATE INDEX idx_spans_span_id ON public.spans USING btree (span_id);
 -- Name: idx_trace_runs_trigger_ids_trgm; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_trace_runs_trigger_ids_trgm ON public.trace_runs USING gin (convert_from(trigger_ids, 'UTF8'::name) gin_trgm_ops);
+CREATE OR REPLACE FUNCTION public.trigger_ids_as_text(val bytea) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+AS $$ SELECT convert_from(val, 'UTF8') $$;
+
+CREATE INDEX idx_trace_runs_trigger_ids_trgm ON public.trace_runs USING gin (public.trigger_ids_as_text(trigger_ids) gin_trgm_ops);
 
 --
 -- PostgreSQL database dump complete
