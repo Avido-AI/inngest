@@ -1114,7 +1114,9 @@ func (w wrapper) GetFunctionByInternalUUID(ctx context.Context, fnID uuid.UUID) 
 	// Try the cache first. The cache only contains active (non-archived)
 	// functions, so a miss falls through to the DB which returns all rows.
 	cached, cacheErr := w.cachedGetFunctions(ctx)
-	if cacheErr == nil {
+	if cacheErr != nil {
+		logger.StdlibLogger(ctx).Debug("functions cache lookup failed, falling back to DB", "error", cacheErr, "function_id", fnID)
+	} else {
 		for _, fn := range cached {
 			if fn.ID == fnID {
 				return fn, nil
@@ -1144,6 +1146,18 @@ func (w wrapper) GetFunctions(ctx context.Context) ([]*cqrs.Function, error) {
 }
 
 func (w wrapper) GetFunctionsByAppInternalID(ctx context.Context, appID uuid.UUID) ([]*cqrs.Function, error) {
+	// Derive from the raw functions cache when available.
+	cached, cacheErr := w.cachedGetFunctions(ctx)
+	if cacheErr == nil {
+		var result []*cqrs.Function
+		for _, fn := range cached {
+			if fn.AppID == appID {
+				result = append(result, fn)
+			}
+		}
+		return result, nil
+	}
+
 	fns, err := w.q.GetAppFunctions(ctx, appID)
 	if err != nil {
 		return nil, err
