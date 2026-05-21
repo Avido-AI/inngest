@@ -138,6 +138,10 @@ func deepCopyFunctions(src []*cqrs.Function) []*cqrs.Function {
 	dst := make([]*cqrs.Function, len(src))
 	for i, f := range src {
 		cp := *f
+		if f.Config != nil {
+			cp.Config = make(json.RawMessage, len(f.Config))
+			copy(cp.Config, f.Config)
+		}
 		dst[i] = &cp
 	}
 	return dst
