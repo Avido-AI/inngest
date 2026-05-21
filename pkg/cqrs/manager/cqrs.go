@@ -1148,7 +1148,9 @@ func (w wrapper) GetFunctions(ctx context.Context) ([]*cqrs.Function, error) {
 func (w wrapper) GetFunctionsByAppInternalID(ctx context.Context, appID uuid.UUID) ([]*cqrs.Function, error) {
 	// Derive from the raw functions cache when available.
 	cached, cacheErr := w.cachedGetFunctions(ctx)
-	if cacheErr == nil {
+	if cacheErr != nil {
+		logger.StdlibLogger(ctx).Debug("functions cache lookup failed, falling back to DB", "error", cacheErr, "app_id", appID)
+	} else {
 		var result []*cqrs.Function
 		for _, fn := range cached {
 			if fn.AppID == appID {
