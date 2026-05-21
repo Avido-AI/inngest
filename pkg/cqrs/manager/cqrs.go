@@ -1146,18 +1146,22 @@ func (w wrapper) GetFunctions(ctx context.Context) ([]*cqrs.Function, error) {
 }
 
 func (w wrapper) GetFunctionsByAppInternalID(ctx context.Context, appID uuid.UUID) ([]*cqrs.Function, error) {
-	// Derive from the raw functions cache when available.
-	cached, cacheErr := w.cachedGetFunctions(ctx)
-	if cacheErr != nil {
-		logger.StdlibLogger(ctx).Debug("functions cache lookup failed, falling back to DB", "error", cacheErr, "app_id", appID)
-	} else {
-		var result []*cqrs.Function
-		for _, fn := range cached {
-			if fn.AppID == appID {
-				result = append(result, fn)
+	// When the cache is active, derive results from the raw functions cache.
+	// When noFnCache is set (transactional wrapper), skip the cache and use
+	// the targeted GetAppFunctions query to avoid a full table scan.
+	if w.fnCache != nil && !w.noFnCache {
+		cached, cacheErr := w.cachedGetFunctions(ctx)
+		if cacheErr != nil {
+			logger.StdlibLogger(ctx).Debug("functions cache lookup failed, falling back to DB", "error", cacheErr, "app_id", appID)
+		} else {
+			var result []*cqrs.Function
+			for _, fn := range cached {
+				if fn.AppID == appID {
+					result = append(result, fn)
+				}
 			}
+			return result, nil
 		}
-		return result, nil
 	}
 
 	fns, err := w.q.GetAppFunctions(ctx, appID)
