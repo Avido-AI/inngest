@@ -1,7 +1,6 @@
 packages:
   - 'apps/*'
   - 'packages/*'
-
 allowBuilds:
   "@sentry/cli": true
   esbuild: true
@@ -11,7 +10,6 @@ allowBuilds:
   unrs-resolver: true
   "@clerk/shared": false
   core-js-pure: false
-
 overrides:
   "@babel/runtime@<7.26.10": ">=7.26.10"
   "@clerk/shared@<3.47.4": "4.12.2"
@@ -80,3 +78,4 @@ overrides:
   "@tanstack/router-generator>zod": "3.25.76"
   "@tanstack/router-plugin>zod": "3.25.76"
   "@tanstack/start-plugin-core>zod": "3.25.76"
+  js-cookie@<=3.0.7: 3.0.7
