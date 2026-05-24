@@ -385,6 +385,13 @@ func (a checkpointAPI) CheckpointAsyncSteps(w http.ResponseWriter, r *http.Reque
 				"error", err,
 			)
 			status = http.StatusRequestEntityTooLarge
+		} else if errors.Is(err, state.ErrRunNotFound) {
+			logger.StdlibLogger(ctx).Warn("async checkpoint skipped: run no longer exists",
+				"run_id", input.RunID,
+				"fn_id", input.FnID,
+				"error", err,
+			)
+			status = http.StatusNotFound
 		} else {
 			logger.StdlibLogger(ctx).Error("error checkpointing async steps", "error", err)
 		}
