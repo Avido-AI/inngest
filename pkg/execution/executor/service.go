@@ -298,6 +298,8 @@ func (s *svc) Run(ctx context.Context) error {
 			err = s.handleJobPromote(ctx, item)
 		case queue.KindInvokeComplete:
 			err = s.handleInvokeComplete(ctx, item)
+		case queue.KindFinalize:
+			err = s.handleFinalize(ctx, item)
 		default:
 			err = fmt.Errorf("unknown payload type: %T", item.Payload)
 		}

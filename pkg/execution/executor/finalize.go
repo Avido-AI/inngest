@@ -37,13 +37,29 @@ const cancelationGracePeriod = 10 * time.Second
 // invokeCompleteQueueName is the dedicated system queue for KindInvokeComplete
 // items. Keeping these off the child run's per-function partition prevents
 // finalizeRemoveJobs from dequeueing them when the child run is cleaned up.
-var invokeCompleteQueueName = "invoke-complete"
+var (
+	invokeCompleteQueueName = "invoke-complete"
+
+	// finalizeQueueName is the dedicated system queue for KindFinalize
+	// backstop items. Using a separate queue prevents finalizeRemoveJobs
+	// from dequeueing these items when cleaning up the run's per-function
+	// partition.
+	finalizeQueueName = "finalize"
+)
 
 // Finalize performs run finalization, which involves sending the function
 // finished/failed event and deleting state.
 func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) error {
 	ctx = context.WithoutCancel(ctx)
 	l := logger.StdlibLogger(ctx)
+
+	// Enqueue a durable backstop so that if this pod is killed mid-finalize,
+	// any other pod can dequeue and complete the cleanup via Cancel().
+	// Skip on the Cancel path to avoid re-entrant backstop enqueues when
+	// handleFinalize -> Cancel() -> Finalize() fires.
+	if !opts.Optional.Cancel {
+		e.enqueueFinalizeBackstop(ctx, opts)
+	}
 
 	var endTimeOffset time.Duration
 	status := opts.Status()
@@ -190,6 +206,11 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 	})
 
 	e.finalizeRemoveJobs(ctx, opts)
+
+	// Remove the run from the ActiveRuns index LAST. This keeps partially-
+	// finalized runs visible to the StaleRunRecovery scavenger: if the
+	// process crashes before this point, the scavenger can still detect and
+	// recover the run on the next tick.
 	e.finalizeRemoveActiveRun(ctx, opts)
 
 	return feErr
@@ -339,6 +360,68 @@ func (e *executor) finalizeRemoveActiveRun(ctx context.Context, opts execution.F
 		l.Warn("failed to remove finalized run from active runs index",
 			"error", err,
 			"run_id", opts.Metadata.ID.RunID.String(),
+		)
+	}
+}
+
+// enqueueSystemItem enqueues a durable system queue item with retry and
+// idempotency handling. Items that already exist (ErrQueueItemExists) are
+// silently deduplicated. This is the shared path for all backstop items
+// (KindFinalize, KindInvokeComplete, etc.) that must survive pod rotation.
+func (e *executor) enqueueSystemItem(ctx context.Context, label string, item queue.Item, at time.Time) error {
+	if e.queue == nil {
+		return fmt.Errorf("executor queue is nil")
+	}
+
+	_, err := util.WithRetry(ctx, label,
+		func(ctx context.Context) (struct{}, error) {
+			err := e.queue.Enqueue(ctx, item, at, queue.EnqueueOpts{})
+			if errors.Is(err, queue.ErrQueueItemExists) {
+				return struct{}{}, nil
+			}
+			return struct{}{}, err
+		},
+		util.NewRetryConf(),
+	)
+	return err
+}
+
+// enqueueFinalizeBackstop enqueues a durable KindFinalize queue item so that if
+// the current pod is killed mid-finalize (SIGKILL, OOM), another pod can pick up
+// the item and complete the cleanup via Cancel(). The JobID is derived from the
+// RunID, so repeated Finalize() calls for the same run are deduplicated by the
+// queue's idempotency window. The item lives on a dedicated system queue that
+// finalizeRemoveJobs does not touch.
+// finalizeBackstopDelay is how long the backstop item waits before becoming
+// eligible for processing. This gives the inline Finalize() time to complete
+// in almost all cases, preventing a concurrent second Finalize() call.
+const finalizeBackstopDelay = 30 * time.Second
+
+func (e *executor) enqueueFinalizeBackstop(ctx context.Context, opts execution.FinalizeOpts) {
+	id := opts.Metadata.ID
+	jobID := fmt.Sprintf("finalize-%s", id.RunID.String())
+	item := queue.Item{
+		JobID:     &jobID,
+		Kind:      queue.KindFinalize,
+		QueueName: &finalizeQueueName,
+		Identifier: state.Identifier{
+			AccountID:   id.Tenant.AccountID,
+			WorkspaceID: id.Tenant.EnvID,
+		},
+		Payload: queue.PayloadFinalize{
+			RunID:      id.RunID,
+			FunctionID: id.FunctionID,
+			AccountID:  id.Tenant.AccountID,
+			EnvID:      id.Tenant.EnvID,
+			AppID:      id.Tenant.AppID,
+		},
+	}
+
+	at := e.now().Add(finalizeBackstopDelay)
+	if err := e.enqueueSystemItem(ctx, "queue.EnqueueFinalizeBackstop", item, at); err != nil {
+		logger.StdlibLogger(ctx).Warn("failed to enqueue finalize backstop",
+			"error", err,
+			"run_id", id.RunID.String(),
 		)
 	}
 }
@@ -563,11 +646,6 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 // parent run's pause. The JobID is keyed off the correlation ID so duplicate
 // finalize calls dedupe via the queue's idempotency window.
 func (e *executor) enqueueInvokeCompletes(ctx context.Context, opts execution.FinalizeOpts, events []event.Event) error {
-	if e.queue == nil {
-		return fmt.Errorf("executor queue is nil")
-	}
-
-	now := e.now()
 	wsID := opts.Metadata.ID.Tenant.EnvID
 	accID := opts.Metadata.ID.Tenant.AccountID
 
@@ -603,17 +681,7 @@ func (e *executor) enqueueInvokeCompletes(ctx context.Context, opts execution.Fi
 			},
 		}
 
-		_, err := util.WithRetry(ctx, "queue.EnqueueInvokeComplete",
-			func(ctx context.Context) (struct{}, error) {
-				err := e.queue.Enqueue(ctx, item, now, queue.EnqueueOpts{})
-				if errors.Is(err, queue.ErrQueueItemExists) {
-					return struct{}{}, nil
-				}
-				return struct{}{}, err
-			},
-			util.NewRetryConf(),
-		)
-		if err != nil {
+		if err := e.enqueueSystemItem(ctx, "queue.EnqueueInvokeComplete", item, e.now()); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("correlation_id=%s: %w", corrID, err))
 		}
 	}
