@@ -808,18 +808,32 @@ func start(ctx context.Context, opts StartOpts) error {
 		}))
 	}
 
+	// Drain all service.Go() goroutines before deferred Redis cleanup runs.
+	// This defer is registered AFTER the Redis-close defers at the top of
+	// start(), so Go's LIFO ordering guarantees it executes BEFORE them.
+	// Without this, in-flight goroutines — such as the fast-path invoke
+	// resume launched in finalize.go — can be abandoned mid-Resume, leaving
+	// parent runs permanently stuck.
+	//
+	// A bounded wait prevents blocking shutdown indefinitely if a goroutine
+	// is stuck (e.g. on I/O to an already-closing resource).
+	defer func() {
+		done := make(chan struct{})
+		go func() {
+			service.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			l.Warn("timed out waiting for service.Go goroutines to finish")
+		}
+	}()
+
 	if err := service.StartAll(ctx, services...); err != nil {
 		l.Error("all services stopped", "error", err)
 		return err
 	}
-
-	// Wait for all service.Go() goroutines to finish before returning.
-	// Deferred cleanup (Redis client close, etc.) runs when this function
-	// returns, so without this call in-flight goroutines — such as the
-	// fast-path invoke resume launched in finalize.go — can be abandoned
-	// mid-Resume, leaving parent runs permanently stuck.
-	service.Wait()
-
 	return nil
 }
 
