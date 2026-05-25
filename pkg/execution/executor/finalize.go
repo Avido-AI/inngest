@@ -190,6 +190,11 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 	})
 
 	e.finalizeRemoveJobs(ctx, opts)
+
+	// Remove the run from the ActiveRuns index LAST. This keeps partially-
+	// finalized runs visible to the StaleRunRecovery scavenger: if the
+	// process crashes before this point, the scavenger can still detect and
+	// recover the run on the next tick.
 	e.finalizeRemoveActiveRun(ctx, opts)
 
 	return feErr
