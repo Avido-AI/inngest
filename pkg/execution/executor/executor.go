@@ -2976,8 +2976,10 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 	}); err != nil {
 		l.Error("error running finish handler", "error", err)
 	}
-	for _, e := range e.lifecycles {
-		e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, evts)
+	if !r.SkipLifecycleHooks {
+		for _, e := range e.lifecycles {
+			e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, evts)
+		}
 	}
 
 	return nil

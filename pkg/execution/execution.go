@@ -360,6 +360,12 @@ type CancelRequest struct {
 	// when a user wants to cancel a "false stuck" function run (i.e. it isn't
 	// in the state store but the history store thinks it's running)
 	ForceLifecycleHook bool
+
+	// SkipLifecycleHooks suppresses the unconditional OnFunctionCancelled
+	// call on Cancel's normal path. Used by the finalize backstop handler
+	// to avoid writing a conflicting "cancelled" record when the run may
+	// have already completed via the synchronous lifecycle hooks.
+	SkipLifecycleHooks bool
 }
 
 type ResumeRequest struct {

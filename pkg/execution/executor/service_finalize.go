@@ -17,11 +17,12 @@ import (
 // so Cancel() finds no metadata and returns nil (no-op).
 //
 // Crash-recovery case: state still exists because the pod was killed mid-
-// finalize. Cancel() drives the run to a terminal state. ForceLifecycleHook is
-// false so that OnFunctionCancelled is NOT fired — the synchronous lifecycle
-// hooks (Layer 1) may have already written `function_finishes` as "completed"
-// before the crash, and re-firing as "cancelled" would produce a conflicting
-// record.
+// finalize. Cancel() drives the run to a terminal state via Finalize(Cancel:true)
+// which cleans up state and publishes the function.cancelled event. However,
+// SkipLifecycleHooks is set so that Cancel's unconditional OnFunctionCancelled
+// call is suppressed — the synchronous lifecycle hooks (Layer 1) may have
+// already written function_finishes as "completed" before the crash, and
+// re-firing as "cancelled" would produce a conflicting record.
 func (s *svc) handleFinalize(ctx context.Context, item queue.Item) error {
 	payload, ok := item.Payload.(queue.PayloadFinalize)
 	if !ok {
@@ -39,6 +40,6 @@ func (s *svc) handleFinalize(ctx context.Context, item queue.Item) error {
 	}
 
 	return s.exec.Cancel(ctx, id, execution.CancelRequest{
-		ForceLifecycleHook: false,
+		SkipLifecycleHooks: true,
 	})
 }
