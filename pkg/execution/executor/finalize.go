@@ -506,9 +506,11 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 	//
 	// HandleInvokeFinish is idempotent: once the pause is consumed, a duplicate
 	// call returns ErrPauseNotFound which both paths swallow.
+	var enqueueErr error
 	if isInvoke {
-		if err := e.enqueueInvokeCompletes(ctx, opts, freshEvents); err != nil {
-			logger.From(ctx).Error("error enqueueing invoke completion", "error", err)
+		enqueueErr = e.enqueueInvokeCompletes(ctx, opts, freshEvents)
+		if enqueueErr != nil {
+			logger.From(ctx).Error("error enqueueing invoke completion", "error", enqueueErr)
 		}
 
 		for _, evt := range freshEvents {
@@ -523,9 +525,17 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 				_, err := util.WithRetry(bgCtx, "fast-resume-invoke", func(ctx context.Context) (struct{}, error) {
 					return struct{}{}, e.HandleInvokeFinish(ctx, tracked)
 				}, util.NewRetryConf(util.WithRetryConfRetryableErrors(func(err error) bool {
-					return !errors.Is(err, ErrNoCorrelationID)
+					// Stop retrying if the pause is already gone — either the
+					// durable KindInvokeComplete path won the race, or there
+					// never was a pause. In that case the work is done.
+					return !errors.Is(err, ErrNoCorrelationID) &&
+						!errors.Is(err, state.ErrPauseNotFound) &&
+						!errors.Is(err, state.ErrInvokePauseNotFound)
 				})))
-				if err != nil && !errors.Is(err, ErrNoCorrelationID) {
+				if err != nil &&
+					!errors.Is(err, ErrNoCorrelationID) &&
+					!errors.Is(err, state.ErrPauseNotFound) &&
+					!errors.Is(err, state.ErrInvokePauseNotFound) {
 					logger.From(ctx).Error("error fast resuming invoke after retries",
 						"error", err,
 						"event_id", evt.ID,
@@ -544,7 +554,7 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 	_, publishErr := util.WithRetry(ctx, "publish-finalize-events", func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, e.finishHandler(ctx, opts.Metadata.ID, freshEvents)
 	}, util.NewRetryConf())
-	return publishErr
+	return errors.Join(enqueueErr, publishErr)
 }
 
 // enqueueInvokeCompletes enqueues a durable KindInvokeComplete queue item for
@@ -581,6 +591,13 @@ func (e *executor) enqueueInvokeCompletes(ctx context.Context, opts execution.Fi
 			WorkspaceID: wsID,
 			Kind:        queue.KindInvokeComplete,
 			QueueName:   &invokeCompleteQueueName,
+			// Identifier carries AccountID/WorkspaceID so multi-shard
+			// deployments route this item via shards.Resolve to the
+			// correct shard (see queueProcessor.selectShard).
+			Identifier: state.Identifier{
+				AccountID:   accID,
+				WorkspaceID: wsID,
+			},
 			Payload: queue.PayloadInvokeComplete{
 				TrackedEvent: tracked,
 			},

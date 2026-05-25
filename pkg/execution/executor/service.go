@@ -383,8 +383,14 @@ func (s *svc) handleInvokeComplete(ctx context.Context, item queue.Item) error {
 	if errors.Is(err, ErrNoCorrelationID) ||
 		errors.Is(err, state.ErrInvokePauseNotFound) ||
 		errors.Is(err, state.ErrPauseNotFound) {
-		// Already resumed (likely by the in-process fn.finished subscriber
-		// on whichever pod is still alive). Drop the item.
+		// Already resumed by the in-process fast path (or the pause
+		// expired). Drop the item — this is the expected case when the
+		// fast path beats the queue dispatcher.
+		s.log.Debug("invoke complete already handled, dropping queue item",
+			"correlation_id", payload.TrackedEvent.GetEvent().CorrelationID(),
+			"event_id", payload.TrackedEvent.GetInternalID().String(),
+			"reason", err.Error(),
+		)
 		return nil
 	}
 	return err
