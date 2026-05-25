@@ -1,6 +1,6 @@
 -- +goose Up
 
--- Same shape as 000006 on postgres. Dedup any same-name rows before
+-- Same shape as 000010 on postgres. Dedup any same-name rows before
 -- adding the unique index. The relaxed predicate (WHERE name <> '', no
 -- archived_at check) means (active, archived) and (archived, archived)
 -- pairs would also violate, so the dedup walks every status combination.
