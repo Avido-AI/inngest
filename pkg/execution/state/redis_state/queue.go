@@ -158,6 +158,11 @@ func (q *queue) traceEnqueueItem(ctx context.Context, l logger.Logger, i *osqueu
 		l.Warn("attempting to enqueue item to non-system partition without account ID", "item", *i)
 	}
 
+	// Start GenerationID at 1 so the very first dispatch carries a non-zero
+	// value to the SDK. The validator treats 0 as "no value sent"
+	if i.GenerationID == 0 {
+		i.GenerationID = 1
+	}
 
 	var shadowPartition osqueue.QueueShadowPartition
 	enqueueToBacklogs := q.QueueOptions.ItemEnableKeyQueues(ctx, *i)

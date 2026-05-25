@@ -65,8 +65,9 @@ func newDeferTestInfra(t *testing.T) *deferTestInfra {
 	t.Helper()
 	ctx := logger.WithStdlib(context.Background(), logger.VoidLogger())
 
-	db, err := dbsqlite.Open(ctx, dbsqlite.Options{Persist: false})
+	db, err := dbsqlite.Open(ctx, dbsqlite.Options{Persist: false, ForTest: true})
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
 	adapter := dbsqlite.New(db)
 	dbcqrs := cqrsmanager.New(adapter)
 	loader := dbcqrs.(state.FunctionLoader)
@@ -206,13 +207,9 @@ func (i *deferTestInfra) scheduleRun(t *testing.T, exec execution.Executor) *sta
 	return run
 }
 
-// enqueueCountingQueue wraps a queue.Queue and counts Enqueue calls for
-// function-scoped items (edges, sleeps, etc.). System-queue backstop items
-// (KindFinalize, KindInvokeComplete) are excluded from the count so that
-// assertions about step-level enqueues are not affected by finalization
-// infrastructure. Reads happen post-Execute (after eg.Wait), so the field
-// can be read without locking; the mutex protects the increment side from
-// concurrent op handlers.
+// enqueueCountingQueue wraps a queue.Queue and counts Enqueue calls. Reads
+// happen post-Execute (after eg.Wait), so the field can be read without
+// locking; the mutex protects the increment side from concurrent op handlers.
 type enqueueCountingQueue struct {
 	queue.Queue
 	mu       sync.Mutex
@@ -220,11 +217,9 @@ type enqueueCountingQueue struct {
 }
 
 func (q *enqueueCountingQueue) Enqueue(ctx context.Context, item queue.Item, at time.Time, opts queue.EnqueueOpts) error {
-	if item.Kind != queue.KindFinalize && item.Kind != queue.KindInvokeComplete {
-		q.mu.Lock()
-		q.enqueues++
-		q.mu.Unlock()
-	}
+	q.mu.Lock()
+	q.enqueues++
+	q.mu.Unlock()
 	return q.Queue.Enqueue(ctx, item, at, opts)
 }
 
