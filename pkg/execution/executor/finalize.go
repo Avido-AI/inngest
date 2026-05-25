@@ -37,13 +37,25 @@ const cancelationGracePeriod = 10 * time.Second
 // invokeCompleteQueueName is the dedicated system queue for KindInvokeComplete
 // items. Keeping these off the child run's per-function partition prevents
 // finalizeRemoveJobs from dequeueing them when the child run is cleaned up.
-var invokeCompleteQueueName = "invoke-complete"
+var (
+	invokeCompleteQueueName = "invoke-complete"
+
+	// finalizeQueueName is the dedicated system queue for KindFinalize
+	// backstop items. Using a separate queue prevents finalizeRemoveJobs
+	// from dequeueing these items when cleaning up the run's per-function
+	// partition.
+	finalizeQueueName = "finalize"
+)
 
 // Finalize performs run finalization, which involves sending the function
 // finished/failed event and deleting state.
 func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) error {
 	ctx = context.WithoutCancel(ctx)
 	l := logger.StdlibLogger(ctx)
+
+	// Enqueue a durable backstop so that if this pod is killed mid-finalize,
+	// any other pod can dequeue and complete the cleanup via Cancel().
+	e.enqueueFinalizeBackstop(ctx, opts)
 
 	var endTimeOffset time.Duration
 	status := opts.Status()
@@ -345,6 +357,47 @@ func (e *executor) finalizeRemoveActiveRun(ctx context.Context, opts execution.F
 			"error", err,
 			"run_id", opts.Metadata.ID.RunID.String(),
 		)
+	}
+}
+
+// enqueueFinalizeBackstop enqueues a durable KindFinalize queue item so that if
+// the current pod is killed mid-finalize (SIGKILL, OOM), another pod can pick up
+// the item and complete the cleanup via Cancel(). The JobID is derived from the
+// RunID, so repeated Finalize() calls for the same run are deduplicated by the
+// queue's idempotency window. The item lives on a dedicated system queue that
+// finalizeRemoveJobs does not touch.
+func (e *executor) enqueueFinalizeBackstop(ctx context.Context, opts execution.FinalizeOpts) {
+	if e.queue == nil {
+		return
+	}
+
+	id := opts.Metadata.ID
+	jobID := fmt.Sprintf("finalize-%s", id.RunID.String())
+	item := queue.Item{
+		JobID:     &jobID,
+		Kind:      queue.KindFinalize,
+		QueueName: &finalizeQueueName,
+		Identifier: state.Identifier{
+			AccountID:   id.Tenant.AccountID,
+			WorkspaceID: id.Tenant.EnvID,
+		},
+		Payload: queue.PayloadFinalize{
+			RunID:      id.RunID,
+			FunctionID: id.FunctionID,
+			AccountID:  id.Tenant.AccountID,
+			EnvID:      id.Tenant.EnvID,
+			AppID:      id.Tenant.AppID,
+		},
+	}
+
+	now := e.now()
+	if err := e.queue.Enqueue(ctx, item, now, queue.EnqueueOpts{}); err != nil {
+		if !errors.Is(err, queue.ErrQueueItemExists) {
+			logger.StdlibLogger(ctx).Warn("failed to enqueue finalize backstop",
+				"error", err,
+				"run_id", id.RunID.String(),
+			)
+		}
 	}
 }
 

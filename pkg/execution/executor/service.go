@@ -298,6 +298,8 @@ func (s *svc) Run(ctx context.Context) error {
 			err = s.handleJobPromote(ctx, item)
 		case queue.KindInvokeComplete:
 			err = s.handleInvokeComplete(ctx, item)
+		case queue.KindFinalize:
+			err = s.handleFinalize(ctx, item)
 		default:
 			err = fmt.Errorf("unknown payload type: %T", item.Payload)
 		}
@@ -394,6 +396,37 @@ func (s *svc) handleInvokeComplete(ctx context.Context, item queue.Item) error {
 		return nil
 	}
 	return err
+}
+
+// handleFinalize is the durable backstop for run finalization. It is dispatched
+// when a KindFinalize queue item — enqueued at the start of Finalize() — is
+// dequeued by any pod. In the normal case the inline Finalize() already
+// completed and state was deleted, so this is a no-op. When the pod that called
+// Finalize() was killed mid-flight, state still exists and Cancel() drives the
+// run to a terminal state (cancelled) so it does not remain stuck.
+func (s *svc) handleFinalize(ctx context.Context, item queue.Item) error {
+	payload, ok := item.Payload.(queue.PayloadFinalize)
+	if !ok {
+		return fmt.Errorf("unable to get finalize payload from queue item: %T", item.Payload)
+	}
+
+	id := sv2.ID{
+		RunID:      payload.RunID,
+		FunctionID: payload.FunctionID,
+		Tenant: sv2.Tenant{
+			AccountID: payload.AccountID,
+			EnvID:     payload.EnvID,
+			AppID:     payload.AppID,
+		},
+	}
+
+	err := s.exec.Cancel(ctx, id, execution.CancelRequest{
+		ForceLifecycleHook: true,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *svc) handlePauseTimeout(ctx context.Context, item queue.Item) error {

@@ -592,6 +592,15 @@ func (i *Item) UnmarshalJSON(b []byte) error {
 			return err
 		}
 		i.Payload = *p
+	case KindFinalize:
+		if len(temp.Payload) == 0 {
+			return nil
+		}
+		p := &PayloadFinalize{}
+		if err := json.Unmarshal(temp.Payload, p); err != nil {
+			return err
+		}
+		i.Payload = *p
 	}
 	return nil
 }
@@ -653,6 +662,20 @@ type PayloadPauseFunction struct {
 // notification survives the executor pod that finalized the child being rotated.
 type PayloadInvokeComplete struct {
 	TrackedEvent event.BaseTrackedEvent `json:"evt"`
+}
+
+// PayloadFinalize is the payload stored when enqueueing a durable finalization
+// backstop. The item is enqueued at the start of Finalize() — before state
+// deletion, event publishing, or lifecycle calls — so that if the pod is killed
+// mid-finalize, any other pod can dequeue and complete the cleanup via Cancel().
+// The JobID is keyed off the RunID so duplicate Finalize() calls are idempotent
+// within the queue's deduplication window.
+type PayloadFinalize struct {
+	RunID      ulid.ULID `json:"r"`
+	FunctionID uuid.UUID `json:"f"`
+	AccountID  uuid.UUID `json:"a"`
+	EnvID      uuid.UUID `json:"e"`
+	AppID      uuid.UUID `json:"p"`
 }
 
 // PayloadUnpauseFunction represents the queue item payload for the internal system queue for
