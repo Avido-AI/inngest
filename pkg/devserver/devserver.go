@@ -812,6 +812,14 @@ func start(ctx context.Context, opts StartOpts) error {
 		l.Error("all services stopped", "error", err)
 		return err
 	}
+
+	// Wait for all service.Go() goroutines to finish before returning.
+	// Deferred cleanup (Redis client close, etc.) runs when this function
+	// returns, so without this call in-flight goroutines — such as the
+	// fast-path invoke resume launched in finalize.go — can be abandoned
+	// mid-Resume, leaving parent runs permanently stuck.
+	service.Wait()
+
 	return nil
 }
 

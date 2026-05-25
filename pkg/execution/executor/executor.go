@@ -3187,29 +3187,23 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 			return nil
 		}
 
-		status := enums.StepStatusCompleted
-		if r.IsTimeout {
-			status = enums.StepStatusTimedOut
-		}
 		pauseSpan := tracing.SpanRefFromPause(&pause)
-		_ = e.tracerProvider.UpdateSpan(ctx, &tracing.UpdateSpanOptions{
-			EndTime:    e.now(),
-			Debug:      &tracing.SpanDebugData{Location: "executor.Resume"},
-			Status:     status,
-			TargetSpan: pauseSpan,
-			Attributes: tracing.ResumeAttrs(&pause, &r),
-		})
 
+		// Enqueue the continuation as quickly as possible after ConsumePause
+		// (which persists the step response data via SaveResponse). Keeping
+		// the ConsumePause→Enqueue window tight is critical for crash safety:
+		// if the process exits after data is saved but before the continuation
+		// is enqueued, the parent run will be stuck. The Enqueue is idempotent
+		// (via JobID), so a duplicate from the KindInvokeComplete backstop is
+		// harmless.
+		//
+		// Non-essential I/O (trace span updates, lifecycle hooks) is deferred
+		// until after the enqueue succeeds.
 		if shouldEnqueueDiscovery(consumeResult.HasPendingSteps, pause.ParallelMode) {
 			if err := e.maybeResetForceStepPlan(ctx, &md); err != nil {
 				return fmt.Errorf("error resetting force step plan: %w", err)
 			}
-			// Schedule an execution from the pause's entrypoint.  We do this
-			// after consuming the pause to guarantee the event data is
-			// stored via the pause for the next run.  If the ConsumePause
-			// call comes after enqueue, the TCP conn may drop etc. and
-			// running the job may occur prior to saving state data.
-			//
+
 			// NOTE: This has an "-event" prefix so that it does not conflict
 			// with the timeout job ID.
 			jobID := fmt.Sprintf("%s-%s-event", md.IdempotencyKey(), pause.DataKey)
@@ -3243,8 +3237,6 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 				},
 			)
 			if err != nil {
-				// return fmt.Errorf("error creating span for next step
-				// after resume: %w", err)
 				e.log.Debug("error creating span for next step after resume", "error", err)
 			}
 
@@ -3267,6 +3259,19 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 			}
 			_ = nextStepSpan.Send()
 		}
+
+		// Update the pause span after the continuation is enqueued.
+		status := enums.StepStatusCompleted
+		if r.IsTimeout {
+			status = enums.StepStatusTimedOut
+		}
+		_ = e.tracerProvider.UpdateSpan(ctx, &tracing.UpdateSpanOptions{
+			EndTime:    e.now(),
+			Debug:      &tracing.SpanDebugData{Location: "executor.Resume"},
+			Status:     status,
+			TargetSpan: pauseSpan,
+			Attributes: tracing.ResumeAttrs(&pause, &r),
+		})
 
 		// Only run lifecycles if we consumed the pause and enqueued next step.
 		switch pause.GetOpcode() {
