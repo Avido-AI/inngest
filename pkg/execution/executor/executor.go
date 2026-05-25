@@ -565,7 +565,7 @@ func (e *executor) RunFunctionFinishedLifecycle(
 	resp state.DriverResponse,
 ) {
 	for _, l := range e.lifecycles {
-		go l.OnFunctionFinished(context.WithoutCancel(ctx), md, item, evts, resp)
+		l.OnFunctionFinished(context.WithoutCancel(ctx), md, item, evts, resp)
 	}
 }
 
@@ -2062,7 +2062,7 @@ func (e *executor) HandleResponse(ctx context.Context, i *runInstance) error {
 
 				// Can be reached multiple times for parallel discovery steps
 				for _, e := range e.lifecycles {
-					go e.OnFunctionFinished(context.WithoutCancel(ctx), i.md, i.item, i.events, *i.resp)
+					e.OnFunctionFinished(context.WithoutCancel(ctx), i.md, i.item, i.events, *i.resp)
 				}
 
 				return nil
@@ -2121,7 +2121,7 @@ func (e *executor) HandleResponse(ctx context.Context, i *runInstance) error {
 
 		// Can be reached multiple times for parallel discovery steps
 		for _, e := range e.lifecycles {
-			go e.OnFunctionFinished(context.WithoutCancel(ctx), i.md, i.item, i.events, *i.resp)
+			e.OnFunctionFinished(context.WithoutCancel(ctx), i.md, i.item, i.events, *i.resp)
 		}
 
 		return nil
@@ -2151,7 +2151,7 @@ func (e *executor) HandleResponse(ctx context.Context, i *runInstance) error {
 
 		// Can be reached multiple times for parallel discovery steps
 		for _, e := range e.lifecycles {
-			go e.OnFunctionFinished(context.WithoutCancel(ctx), i.md, i.item, i.events, *i.resp)
+			e.OnFunctionFinished(context.WithoutCancel(ctx), i.md, i.item, i.events, *i.resp)
 		}
 	}
 
@@ -2923,8 +2923,7 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 		)
 		if r.ForceLifecycleHook {
 			for _, e := range e.lifecycles {
-				// Emit cancellation lifecycles so history and traces can mark this run cancelled even though event payloads are gone.
-				go e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, []json.RawMessage{})
+				e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, []json.RawMessage{})
 			}
 		}
 		return nil
@@ -2951,7 +2950,7 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 		)
 		if r.ForceLifecycleHook {
 			for _, e := range e.lifecycles {
-				go e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, evts)
+				e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, evts)
 			}
 		}
 		return nil
@@ -2978,7 +2977,7 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 		l.Error("error running finish handler", "error", err)
 	}
 	for _, e := range e.lifecycles {
-		go e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, evts)
+		e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, evts)
 	}
 
 	return nil
@@ -4073,7 +4072,7 @@ func (e *executor) handleGeneratorFunctionFinished(ctx context.Context, runCtx e
 
 	if resp != nil {
 		for _, e := range e.lifecycles {
-			go e.OnFunctionFinished(
+			e.OnFunctionFinished(
 				context.WithoutCancel(ctx),
 				*md,
 				runCtx.LifecycleItem(),
@@ -4116,7 +4115,7 @@ func (e *executor) handleGeneratorSyncFunctionFinished(ctx context.Context, runC
 
 	if resp != nil {
 		for _, e := range e.lifecycles {
-			go e.OnFunctionFinished(
+			e.OnFunctionFinished(
 				context.WithoutCancel(ctx),
 				*md,
 				runCtx.LifecycleItem(),
