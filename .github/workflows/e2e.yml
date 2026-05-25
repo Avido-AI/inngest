@@ -179,12 +179,12 @@ jobs:
         splitBatchPartition: [false, true]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: true
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: ./go.mod
 
@@ -244,14 +244,14 @@ jobs:
 
       - name: Upload devserver logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: devserver-logs-batch-kq-${{ matrix.experimentalKeyQueues }}-db-${{ matrix.database }}-split-${{ matrix.splitBatchPartition }}
           path: /tmp/dev-output.txt
           retention-days: 7
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: batch-e2e,kq-${{ matrix.experimentalKeyQueues }},db-${{ matrix.database }},split-${{ matrix.splitBatchPartition }}
