@@ -199,21 +199,6 @@ func (q *queue) traceEnqueueItem(ctx context.Context, l logger.Logger, i *osqueu
 func (q *queue) handleEnqueueStatus(ctx context.Context, l logger.Logger, i osqueue.QueueItem, status int64, now time.Time) (osqueue.QueueItem, error) {
 	switch status {
 	case 0:
-		if i.Data.Kind == osqueue.KindStart {
-			runInfo := osqueue.StaleRunInfo{
-				RunID:       i.Data.Identifier.RunID,
-				FunctionID:  i.Data.Identifier.WorkflowID,
-				AccountID:   i.Data.Identifier.AccountID,
-				WorkspaceID: i.Data.Identifier.WorkspaceID,
-				AppID:       i.Data.Identifier.AppID,
-			}
-			if err := q.TrackActiveRun(ctx, runInfo, now); err != nil {
-				l.Warn("failed to track active run for stale detection",
-					"error", err,
-					"run_id", i.Data.Identifier.RunID.String(),
-				)
-			}
-		}
 		return i, nil
 	case 1:
 		return i, osqueue.ErrQueueItemExists
