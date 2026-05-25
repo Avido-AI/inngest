@@ -207,12 +207,6 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 
 	e.finalizeRemoveJobs(ctx, opts)
 
-	// Remove the run from the ActiveRuns index LAST. This keeps partially-
-	// finalized runs visible to the StaleRunRecovery scavenger: if the
-	// process crashes before this point, the scavenger can still detect and
-	// recover the run on the next tick.
-	e.finalizeRemoveActiveRun(ctx, opts)
-
 	return feErr
 }
 
@@ -325,43 +319,6 @@ func (e *executor) buildDeferEvents(
 	}
 
 	return events, nil
-}
-
-// finalizeRemoveActiveRun removes the run from the ActiveRuns sorted set used by
-// the stale run scavenger. This prevents normally-completing runs from being
-// falsely detected as stale and avoids unbounded growth of the ActiveRuns index.
-func (e *executor) finalizeRemoveActiveRun(ctx context.Context, opts execution.FinalizeOpts) {
-	l := logger.StdlibLogger(ctx)
-
-	shard, err := e.shards.Resolve(ctx, opts.Metadata.ID.Tenant.AccountID, nil)
-	if err != nil {
-		l.Warn("failed to find queue shard for active run cleanup",
-			"error", err,
-			"run_id", opts.Metadata.ID.RunID.String(),
-		)
-		return
-	}
-
-	scavenger, ok := shard.(queue.StaleRunScavenger)
-	if !ok {
-		// Queue shard does not support stale run tracking; nothing to clean up.
-		return
-	}
-
-	runInfo := queue.StaleRunInfo{
-		RunID:       opts.Metadata.ID.RunID,
-		FunctionID:  opts.Metadata.ID.FunctionID,
-		AccountID:   opts.Metadata.ID.Tenant.AccountID,
-		WorkspaceID: opts.Metadata.ID.Tenant.EnvID,
-		AppID:       opts.Metadata.ID.Tenant.AppID,
-	}
-
-	if err := scavenger.RemoveActiveRun(ctx, runInfo); err != nil {
-		l.Warn("failed to remove finalized run from active runs index",
-			"error", err,
-			"run_id", opts.Metadata.ID.RunID.String(),
-		)
-	}
 }
 
 // enqueueSystemItem enqueues a durable system queue item with retry and
