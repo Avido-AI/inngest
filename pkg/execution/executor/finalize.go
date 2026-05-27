@@ -89,12 +89,25 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 	// If there are no input events, fetch them.
 	if len(opts.Optional.InputEvents) == 0 {
 		opts.Optional.InputEvents, err = e.smv2.LoadEvents(ctx, opts.Metadata.ID)
-		if err != nil {
-			l.Warn(
-				"error loading run events to finalize",
+		if err != nil && !errors.Is(err, state.ErrEventNotFound) {
+			// Transient error (not "already deleted"). Return the error so
+			// the queue handler retries finalization. If we continued with
+			// empty events, finalizeEvents would skip creating the
+			// function.finished event and the KindInvokeComplete backstop,
+			// then Delete would remove the events permanently — stranding
+			// the parent run forever.
+			//
+			// This early return skips the semaphore-release block below;
+			// the semaphore stays held until the retry succeeds, which is
+			// acceptable because persistent Redis failures that exhaust
+			// all retries are rare and the alternative (stranded parent)
+			// is worse.
+			l.Error(
+				"error loading run events to finalize, will retry",
 				"error", err,
 				"run_id", opts.Metadata.ID.RunID,
 			)
+			return fmt.Errorf("error loading run events to finalize: %w", err)
 		}
 	}
 
@@ -548,6 +561,18 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 	// call returns ErrPauseNotFound which both paths swallow.
 	var enqueueErr error
 	if isInvoke {
+		invokeCount := 0
+		for _, evt := range freshEvents {
+			if evt.CorrelationID() != "" {
+				invokeCount++
+			}
+		}
+		if invokeCount > 0 {
+			logger.From(ctx).Debug("invoke completion: delivering parent resume",
+				"child_run_id", opts.Metadata.ID.RunID.String(),
+				"invoke_event_count", invokeCount,
+			)
+		}
 		enqueueErr = e.enqueueInvokeCompletes(ctx, opts, freshEvents)
 		if enqueueErr != nil {
 			logger.From(ctx).Error("error enqueueing invoke completion", "error", enqueueErr)
@@ -640,6 +665,11 @@ func (e *executor) enqueueInvokeCompletes(ctx context.Context, opts execution.Fi
 
 		if err := e.enqueueSystemItem(ctx, "queue.EnqueueInvokeComplete", item, e.now()); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("correlation_id=%s: %w", corrID, err))
+		} else {
+			logger.From(ctx).Debug("invoke complete: enqueued durable backstop",
+				"correlation_id", corrID,
+				"child_run_id", opts.Metadata.ID.RunID.String(),
+			)
 		}
 	}
 	return errs

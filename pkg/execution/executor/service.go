@@ -374,23 +374,32 @@ func (s *svc) handleInvokeComplete(ctx context.Context, item queue.Item) error {
 		return fmt.Errorf("unable to get invoke complete payload from queue item: %T", item.Payload)
 	}
 
+	corrID := payload.TrackedEvent.GetEvent().CorrelationID()
+	evtID := payload.TrackedEvent.GetInternalID().String()
+
 	err := s.exec.HandleInvokeFinish(ctx, payload.TrackedEvent)
 	if err == nil {
+		s.log.Info("invoke complete: durable path handled",
+			"correlation_id", corrID,
+			"event_id", evtID,
+		)
 		return nil
 	}
 	if errors.Is(err, ErrNoCorrelationID) ||
 		errors.Is(err, state.ErrInvokePauseNotFound) ||
 		errors.Is(err, state.ErrPauseNotFound) {
-		// Already resumed by the in-process fast path (or the pause
-		// expired). Drop the item — this is the expected case when the
-		// fast path beats the queue dispatcher.
-		s.log.Debug("invoke complete already handled, dropping queue item",
-			"correlation_id", payload.TrackedEvent.GetEvent().CorrelationID(),
-			"event_id", payload.TrackedEvent.GetInternalID().String(),
+		s.log.Debug("invoke complete: already handled, dropping queue item",
+			"correlation_id", corrID,
+			"event_id", evtID,
 			"reason", err.Error(),
 		)
 		return nil
 	}
+	s.log.Error("invoke complete: durable path failed",
+		"correlation_id", corrID,
+		"event_id", evtID,
+		"error", err,
+	)
 	return err
 }
 
