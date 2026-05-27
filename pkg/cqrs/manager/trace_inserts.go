@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -288,6 +289,14 @@ func (w wrapper) execWithDeadlockRetry(ctx context.Context, table string, chunkS
 		if !isDeadlock(err) || attempt == bulkInsertMaxRetries-1 {
 			return fmt.Errorf("error executing bulk %s insert (chunk %d-%d): %w", table, chunkStart, chunkEnd, err)
 		}
+		slog.Warn("deadlock detected in bulk insert, retrying",
+			"table", table,
+			"chunk_start", chunkStart,
+			"chunk_end", chunkEnd,
+			"attempt", attempt+1,
+			"max_attempts", bulkInsertMaxRetries,
+			"backoff", backoff.String(),
+		)
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("error executing bulk %s insert (chunk %d-%d): %w", table, chunkStart, chunkEnd, ctx.Err())
@@ -295,7 +304,7 @@ func (w wrapper) execWithDeadlockRetry(ctx context.Context, table string, chunkS
 			backoff *= 2
 		}
 	}
-	return nil
+	return fmt.Errorf("error executing bulk %s insert (chunk %d-%d): exhausted %d deadlock retries", table, chunkStart, chunkEnd, bulkInsertMaxRetries)
 }
 
 // isDeadlock reports whether err is a PostgreSQL deadlock error (SQLSTATE 40P01).
