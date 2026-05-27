@@ -292,7 +292,7 @@ func (w wrapper) execWithDeadlockRetry(ctx context.Context, table string, chunkS
 		}
 		lastErr = err
 		if attempt < bulkInsertMaxRetries-1 {
-			slog.Warn("deadlock detected in bulk insert, retrying",
+			slog.WarnContext(ctx, "deadlock detected in bulk insert, retrying",
 				"table", table,
 				"chunk_start", chunkStart,
 				"chunk_end", chunkEnd,
