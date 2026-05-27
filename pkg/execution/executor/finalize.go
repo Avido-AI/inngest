@@ -555,10 +555,18 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 	// call returns ErrPauseNotFound which both paths swallow.
 	var enqueueErr error
 	if isInvoke {
-		logger.From(ctx).Debug("invoke completion: delivering parent resume",
-			"child_run_id", opts.Metadata.ID.RunID.String(),
-			"invoke_event_count", len(freshEvents),
-		)
+		invokeCount := 0
+		for _, evt := range freshEvents {
+			if evt.CorrelationID() != "" {
+				invokeCount++
+			}
+		}
+		if invokeCount > 0 {
+			logger.From(ctx).Debug("invoke completion: delivering parent resume",
+				"child_run_id", opts.Metadata.ID.RunID.String(),
+				"invoke_event_count", invokeCount,
+			)
+		}
 		enqueueErr = e.enqueueInvokeCompletes(ctx, opts, freshEvents)
 		if enqueueErr != nil {
 			logger.From(ctx).Error("error enqueueing invoke completion", "error", enqueueErr)

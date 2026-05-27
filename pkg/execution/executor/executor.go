@@ -2883,7 +2883,7 @@ func (e *executor) HandleInvokeFinish(ctx context.Context, evt event.TrackedEven
 		IdempotencyKey: correlationID,
 	})
 	if err != nil {
-		l.Error("invoke finish: resume failed",
+		l.Warn("invoke finish: resume failed",
 			"error", err,
 			"parent_run_id", pause.Identifier.RunID.String(),
 		)
