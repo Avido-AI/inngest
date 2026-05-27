@@ -2841,7 +2841,7 @@ func (e *executor) HandleInvokeFinish(ctx context.Context, evt event.TrackedEven
 	var (
 		evtID = evt.GetInternalID()
 		wsID  = evt.GetWorkspaceID()
-		l     = e.log.With("event_id", evtID.String())
+		l     = e.log.With("event_id", evtID.String(), "correlation_id", correlationID)
 
 		eventName string
 	)
@@ -2849,6 +2849,7 @@ func (e *executor) HandleInvokeFinish(ctx context.Context, evt event.TrackedEven
 	// find the pause with correlationID
 	pause, err := e.pm.PauseByInvokeCorrelationID(ctx, wsID, correlationID)
 	if err != nil {
+		l.Debug("invoke finish: pause lookup failed", "error", err)
 		return err
 	}
 	if pause.Event != nil {
@@ -2867,10 +2868,13 @@ func (e *executor) HandleInvokeFinish(ctx context.Context, evt event.TrackedEven
 		return nil
 	}
 
-	l.DebugSample(10, "resuming pause from invoke", "pause.DataKey", pause.DataKey)
+	l.DebugSample(10, "resuming pause from invoke",
+		"pause.DataKey", pause.DataKey,
+		"parent_run_id", pause.Identifier.RunID.String(),
+	)
 
 	resumeData := pause.GetResumeData(evt.GetEvent())
-	return e.Resume(ctx, *pause, execution.ResumeRequest{
+	err = e.Resume(ctx, *pause, execution.ResumeRequest{
 		With:           resumeData.With,
 		EventID:        &evtID,
 		EventName:      evt.GetEvent().Name,
@@ -2878,6 +2882,13 @@ func (e *executor) HandleInvokeFinish(ctx context.Context, evt event.TrackedEven
 		StepName:       resumeData.StepName,
 		IdempotencyKey: correlationID,
 	})
+	if err != nil {
+		l.Error("invoke finish: resume failed",
+			"error", err,
+			"parent_run_id", pause.Identifier.RunID.String(),
+		)
+	}
+	return err
 }
 
 // Cancel cancels an in-progress function.
