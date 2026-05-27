@@ -379,7 +379,7 @@ func (s *svc) handleInvokeComplete(ctx context.Context, item queue.Item) error {
 
 	err := s.exec.HandleInvokeFinish(ctx, payload.TrackedEvent)
 	if err == nil {
-		s.log.Info("invoke complete: durable path resumed parent",
+		s.log.Info("invoke complete: durable path handled",
 			"correlation_id", corrID,
 			"event_id", evtID,
 		)
