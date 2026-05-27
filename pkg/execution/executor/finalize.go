@@ -96,6 +96,12 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 			// function.finished event and the KindInvokeComplete backstop,
 			// then Delete would remove the events permanently — stranding
 			// the parent run forever.
+			//
+			// This early return skips the semaphore-release block below;
+			// the semaphore stays held until the retry succeeds, which is
+			// acceptable because persistent Redis failures that exhaust
+			// all retries are rare and the alternative (stranded parent)
+			// is worse.
 			l.Error(
 				"error loading run events to finalize, will retry",
 				"error", err,
