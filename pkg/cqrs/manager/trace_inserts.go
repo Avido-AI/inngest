@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	sqexp "github.com/doug-martin/goqu/v9/exp"
 	"github.com/inngest/inngest/pkg/cqrs"
 	dbpkg "github.com/inngest/inngest/pkg/db"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -232,6 +234,10 @@ func (w wrapper) traceRunUpsert() sqexp.ConflictExpression {
 	return sq.DoUpdate("run_id", rec)
 }
 
+// bulkInsertMaxRetries is the number of retry attempts for transient errors
+// such as deadlocks (SQLSTATE 40P01) on a single chunk.
+const bulkInsertMaxRetries = 3
+
 func (w wrapper) bulkInsert(
 	ctx context.Context,
 	table string,
@@ -263,10 +269,53 @@ func (w wrapper) bulkInsert(
 			chunkErrs = append(chunkErrs, fmt.Errorf("error building bulk %s insert (chunk %d-%d): %w", table, i, end, err))
 			continue
 		}
-		if _, err := w.adapter.ExecContext(ctx, sqlStr, args...); err != nil {
-			chunkErrs = append(chunkErrs, fmt.Errorf("error executing bulk %s insert (chunk %d-%d): %w", table, i, end, err))
+		if err := w.execWithDeadlockRetry(ctx, table, i, end, sqlStr, args); err != nil {
+			chunkErrs = append(chunkErrs, err)
 			continue
 		}
 	}
 	return errors.Join(chunkErrs...)
+}
+
+// execWithDeadlockRetry executes a SQL statement, retrying with exponential
+// backoff if a PostgreSQL deadlock (SQLSTATE 40P01) is detected.
+func (w wrapper) execWithDeadlockRetry(ctx context.Context, table string, chunkStart, chunkEnd int, sqlStr string, args []any) error {
+	backoff := 50 * time.Millisecond
+	var lastErr error
+	for attempt := range bulkInsertMaxRetries {
+		_, err := w.adapter.ExecContext(ctx, sqlStr, args...)
+		if err == nil {
+			return nil
+		}
+		if !isDeadlock(err) {
+			return fmt.Errorf("error executing bulk %s insert (chunk %d-%d): %w", table, chunkStart, chunkEnd, err)
+		}
+		lastErr = err
+		if attempt < bulkInsertMaxRetries-1 {
+			slog.WarnContext(ctx, "deadlock detected in bulk insert, retrying",
+				"table", table,
+				"chunk_start", chunkStart,
+				"chunk_end", chunkEnd,
+				"attempt", attempt+1,
+				"max_attempts", bulkInsertMaxRetries,
+				"backoff", backoff.String(),
+			)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("error executing bulk %s insert (chunk %d-%d): %w", table, chunkStart, chunkEnd, ctx.Err())
+			case <-time.After(backoff):
+				backoff *= 2
+			}
+		}
+	}
+	return fmt.Errorf("error executing bulk %s insert (chunk %d-%d): %w", table, chunkStart, chunkEnd, lastErr)
+}
+
+// isDeadlock reports whether err is a PostgreSQL deadlock error (SQLSTATE 40P01).
+func isDeadlock(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "40P01"
+	}
+	return false
 }
