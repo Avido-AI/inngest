@@ -754,6 +754,9 @@ func Initialize(ctx context.Context, opts InitOpts) (*sv2.Metadata, error) {
 		executor.ErrFunctionSkippedIdempotency,
 		state.ErrIdentifierExists:
 		return nil, nil
+	case queue.ErrQueueItemExists:
+		l.Warn("queue item already exists, skipping duplicate schedule")
+		return nil, nil
 	}
 
 	if err != nil {
