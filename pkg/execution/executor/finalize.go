@@ -640,18 +640,21 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 						!errors.Is(err, state.ErrPauseNotFound) &&
 						!errors.Is(err, state.ErrInvokePauseNotFound)
 				})))
-				if err != nil &&
-					!errors.Is(err, ErrNoCorrelationID) &&
-					!errors.Is(err, state.ErrPauseNotFound) &&
-					!errors.Is(err, state.ErrInvokePauseNotFound) {
-					logger.From(ctx).Error("invoke completion: fast path failed after retries",
-						"error", err,
+				switch {
+				case err == nil:
+					logger.From(ctx).Info("invoke completion: fast path delivered",
 						"event_id", evt.ID,
 						"child_run_id", opts.Metadata.ID.RunID,
 						"correlation_id", evt.CorrelationID(),
 					)
-				} else {
-					logger.From(ctx).Info("invoke completion: fast path delivered",
+				case errors.Is(err, ErrNoCorrelationID) ||
+					errors.Is(err, state.ErrPauseNotFound) ||
+					errors.Is(err, state.ErrInvokePauseNotFound):
+					// Benign: pause already consumed by durable path or no
+					// correlation ID on this event.
+				default:
+					logger.From(ctx).Error("invoke completion: fast path failed after retries",
+						"error", err,
 						"event_id", evt.ID,
 						"child_run_id", opts.Metadata.ID.RunID,
 						"correlation_id", evt.CorrelationID(),
