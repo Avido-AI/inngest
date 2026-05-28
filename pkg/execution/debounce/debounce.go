@@ -710,14 +710,14 @@ func (d debouncer) newDebounce(ctx context.Context, di DebounceItem, fn inngest.
 			// Debounce timeout items must live on the same Redis instance as the state.
 			ForceQueueShardName: queueShard.Name(),
 		})
+		if err != nil && errors.Is(err, queue.ErrQueueItemExists) {
+			logger.StdlibLogger(ctx).Warn("debounce queue item already exists, skipping duplicate enqueue",
+				"fn_id", di.FunctionID.String(),
+				"debounce_id", newDebounceID.String(),
+			)
+			return &newDebounceID, nil
+		}
 		if err != nil {
-			if errors.Is(err, queue.ErrQueueItemExists) {
-				logger.StdlibLogger(ctx).Warn("debounce queue item already exists, skipping duplicate enqueue",
-					"fn_id", di.FunctionID.String(),
-					"debounce_id", newDebounceID.String(),
-				)
-				return &newDebounceID, nil
-			}
 			return &newDebounceID, fmt.Errorf("error enqueueing debounce job: %w", err)
 		}
 
