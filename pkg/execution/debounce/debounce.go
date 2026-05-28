@@ -801,10 +801,18 @@ func (d debouncer) updateDebounce(ctx context.Context, di DebounceItem, fn innge
 		// enqueue a new item
 		qi := d.queueItem(ctx, di, debounceID)
 
-		return d.queue.Enqueue(ctx, qi, now.Add(ttl).Add(buffer).Add(time.Second), queue.EnqueueOpts{
+		err := d.queue.Enqueue(ctx, qi, now.Add(ttl).Add(buffer).Add(time.Second), queue.EnqueueOpts{
 			// Debounce timeout items must live on the same Redis instance as the state.
 			ForceQueueShardName: queueShard.Name(),
 		})
+		if err != nil && errors.Is(err, queue.ErrQueueItemExists) {
+			logger.StdlibLogger(ctx).Warn("debounce queue item already exists, skipping duplicate enqueue",
+				"fn_id", di.FunctionID.String(),
+				"debounce_id", debounceID.String(),
+			)
+			return nil
+		}
+		return err
 	case queue.DebounceUpdateOK:
 		// Debounces should have a maximum timeout;  updating the debounce returns
 		// the timeout to use.
