@@ -201,7 +201,22 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 	// events are published as part of the same finishHandler call.
 	feErr := e.finalizeEvents(ctx, opts, deferEvents)
 
-	// Delete the function state in every case.
+	if feErr != nil {
+		// Do NOT delete state when finalizeEvents failed. Keeping state
+		// ensures the 30-second finalize backstop (KindFinalize) can
+		// retry the full finalization — including the KindInvokeComplete
+		// enqueue that resumes the parent run. Without this guard, the
+		// backstop finds no metadata and silently no-ops, permanently
+		// stranding the parent.
+		l.Error(
+			"finalizeEvents failed, preserving state for backstop retry",
+			"error", feErr,
+			"run_id", opts.Metadata.ID.RunID,
+		)
+		return feErr
+	}
+
+	// Delete the function state only after successful event delivery.
 	err = e.smv2.Delete(ctx, opts.Metadata.ID)
 	if err != nil {
 		l.Error(
@@ -220,7 +235,7 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 
 	e.finalizeRemoveJobs(ctx, opts)
 
-	return feErr
+	return nil
 }
 
 // buildDeferEvents constructs the inngest/deferred.schedule events for every
