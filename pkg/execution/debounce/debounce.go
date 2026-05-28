@@ -722,7 +722,18 @@ func (d debouncer) enqueueDebounce(ctx context.Context, qi queue.Item, fnID uuid
 	err := d.queue.Enqueue(ctx, qi, at.Add(buffer).Add(time.Second), queue.EnqueueOpts{
 		ForceQueueShardName: shard.Name(),
 	})
-	if err != nil && errors.Is(err, queue.ErrQueueItemExists) {
+	if err == nil {
+		metrics.IncrQueueDebounceOperationCounter(ctx, metrics.CounterOpt{
+			PkgName: pkgName,
+			Tags: map[string]any{
+				"op":          "created",
+				"queue_shard": shard.Name(),
+			},
+		})
+		return nil
+	}
+
+	if errors.Is(err, queue.ErrQueueItemExists) {
 		logger.StdlibLogger(ctx).Warn("debounce queue item already exists, skipping duplicate enqueue",
 			"fn_id", fnID.String(),
 			"debounce_id", debounceID.String(),
@@ -736,18 +747,8 @@ func (d debouncer) enqueueDebounce(ctx context.Context, qi queue.Item, fnID uuid
 		})
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("error enqueueing debounce job: %w", err)
-	}
 
-	metrics.IncrQueueDebounceOperationCounter(ctx, metrics.CounterOpt{
-		PkgName: pkgName,
-		Tags: map[string]any{
-			"op":          "created",
-			"queue_shard": shard.Name(),
-		},
-	})
-	return nil
+	return fmt.Errorf("error enqueueing debounce job: %w", err)
 }
 
 func (d debouncer) prepareMigration(ctx context.Context, di DebounceItem, fn inngest.Function, secondary queue.QueueShard) (*ulid.ULID, int64, error) {
