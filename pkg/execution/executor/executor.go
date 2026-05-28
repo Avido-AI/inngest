@@ -2924,6 +2924,10 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 			for _, e := range e.lifecycles {
 				e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, []json.RawMessage{})
 			}
+		} else {
+			l.Info("cancel: no-op, state already deleted",
+				"skip_lifecycle_hooks", r.SkipLifecycleHooks,
+			)
 		}
 		return nil
 	}
