@@ -54,4 +54,19 @@ func TestFunctionFinishedDataMap(t *testing.T) {
 		require.True(t, ok, "run_id must be a string, got %T", raw)
 		require.Equal(t, runID.String(), strRunID)
 	})
+
+	t.Run("function_id produces string type", func(t *testing.T) {
+		data := functionFinishedData{
+			FunctionID: "fn-abc-123",
+			RunID:      runID,
+		}
+		m := data.Map()
+
+		raw, ok := m["function_id"]
+		require.True(t, ok, "function_id key must exist")
+
+		fnID, ok := raw.(string)
+		require.True(t, ok, "function_id must be a string, got %T", raw)
+		require.Equal(t, "fn-abc-123", fnID)
+	})
 }
