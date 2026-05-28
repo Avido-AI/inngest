@@ -650,8 +650,11 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 				case errors.Is(err, ErrNoCorrelationID) ||
 					errors.Is(err, state.ErrPauseNotFound) ||
 					errors.Is(err, state.ErrInvokePauseNotFound):
-					// Benign: pause already consumed by durable path or no
-					// correlation ID on this event.
+					logger.From(ctx).Debug("invoke completion: fast path skipped (already handled or no correlation)",
+						"event_id", evt.ID,
+						"child_run_id", opts.Metadata.ID.RunID,
+						"reason", err.Error(),
+					)
 				default:
 					logger.From(ctx).Error("invoke completion: fast path failed after retries",
 						"error", err,
