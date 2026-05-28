@@ -544,7 +544,9 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 		// Copy the base data to set the event.
 		copied := *base
 		copied.Event = runEvt.Map()
-		copied.InvokeCorrelationID = invokeID
+		if invokeID != nil {
+			copied.InvokeCorrelationID = *invokeID
+		}
 		data := copied.Map()
 
 		// Add a status field.
