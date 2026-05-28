@@ -706,26 +706,49 @@ func (d debouncer) newDebounce(ctx context.Context, di DebounceItem, fn inngest.
 		// deadline.
 		qi := d.queueItem(ctx, di, newDebounceID)
 
-		err = d.queue.Enqueue(ctx, qi, now.Add(ttl).Add(buffer).Add(time.Second), queue.EnqueueOpts{
-			// Debounce timeout items must live on the same Redis instance as the state.
-			ForceQueueShardName: queueShard.Name(),
-		})
-		if err != nil {
-			return &newDebounceID, fmt.Errorf("error enqueueing debounce job: %w", err)
+		if err := d.enqueueDebounce(ctx, qi, di.FunctionID, newDebounceID, queueShard, now.Add(ttl)); err != nil {
+			return &newDebounceID, err
 		}
-
-		metrics.IncrQueueDebounceOperationCounter(ctx, metrics.CounterOpt{
-			PkgName: pkgName,
-			Tags: map[string]any{
-				"op":          "created",
-				"queue_shard": queueShard.Name(),
-			},
-		})
 
 		return &newDebounceID, nil
 	}
 
 	return existingID, ErrDebounceExists
+}
+
+// enqueueDebounce enqueues a debounce timeout job and handles the benign
+// ErrQueueItemExists race (a duplicate item is already scheduled).
+func (d debouncer) enqueueDebounce(ctx context.Context, qi queue.Item, fnID uuid.UUID, debounceID ulid.ULID, shard queue.QueueShard, at time.Time) error {
+	err := d.queue.Enqueue(ctx, qi, at.Add(buffer).Add(time.Second), queue.EnqueueOpts{
+		ForceQueueShardName: shard.Name(),
+	})
+	if err == nil {
+		metrics.IncrQueueDebounceOperationCounter(ctx, metrics.CounterOpt{
+			PkgName: pkgName,
+			Tags: map[string]any{
+				"op":          "created",
+				"queue_shard": shard.Name(),
+			},
+		})
+		return nil
+	}
+
+	if errors.Is(err, queue.ErrQueueItemExists) {
+		logger.StdlibLogger(ctx).Warn("debounce queue item already exists, skipping duplicate enqueue",
+			"fn_id", fnID.String(),
+			"debounce_id", debounceID.String(),
+		)
+		metrics.IncrQueueDebounceOperationCounter(ctx, metrics.CounterOpt{
+			PkgName: pkgName,
+			Tags: map[string]any{
+				"op":          "duplicate_enqueue_skipped",
+				"queue_shard": shard.Name(),
+			},
+		})
+		return nil
+	}
+
+	return fmt.Errorf("error enqueueing debounce job: %w", err)
 }
 
 func (d debouncer) prepareMigration(ctx context.Context, di DebounceItem, fn inngest.Function, secondary queue.QueueShard) (*ulid.ULID, int64, error) {
@@ -794,10 +817,7 @@ func (d debouncer) updateDebounce(ctx context.Context, di DebounceItem, fn innge
 		// enqueue a new item
 		qi := d.queueItem(ctx, di, debounceID)
 
-		return d.queue.Enqueue(ctx, qi, now.Add(ttl).Add(buffer).Add(time.Second), queue.EnqueueOpts{
-			// Debounce timeout items must live on the same Redis instance as the state.
-			ForceQueueShardName: queueShard.Name(),
-		})
+		return d.enqueueDebounce(ctx, qi, di.FunctionID, debounceID, queueShard, now.Add(ttl))
 	case queue.DebounceUpdateOK:
 		// Debounces should have a maximum timeout;  updating the debounce returns
 		// the timeout to use.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -2382,5 +2383,64 @@ func TestDeleteDebounceByID(t *testing.T) {
 	t.Run("empty ID list is a no-op", func(t *testing.T) {
 		err := redisDebouncer.DeleteDebounceByID(ctx, testScope(accountId, workspaceId, uuid.New()))
 		require.NoError(t, err)
+	})
+}
+
+// stubProducer is a minimal queue.Producer that returns a configurable error.
+type stubProducer struct {
+	enqueueErr error
+}
+
+func (s *stubProducer) Enqueue(_ context.Context, _ queue.Item, _ time.Time, _ queue.EnqueueOpts) error {
+	return s.enqueueErr
+}
+
+// stubShard implements the Name() method needed by enqueueDebounce.
+type stubShard struct {
+	queue.QueueShard
+	name string
+}
+
+func (s *stubShard) Name() string { return s.name }
+
+func TestEnqueueDebounce(t *testing.T) {
+	ctx := context.Background()
+	fnID := uuid.New()
+	debounceID := ulid.MustNew(ulid.Now(), rand.Reader)
+	qi := queue.Item{}
+	shard := &stubShard{name: "test-shard"}
+	at := time.Now()
+
+	t.Run("success", func(t *testing.T) {
+		d := debouncer{
+			queue: &stubProducer{enqueueErr: nil},
+		}
+		err := d.enqueueDebounce(ctx, qi, fnID, debounceID, shard, at)
+		require.NoError(t, err)
+	})
+
+	t.Run("ErrQueueItemExists is treated as success", func(t *testing.T) {
+		d := debouncer{
+			queue: &stubProducer{enqueueErr: queue.ErrQueueItemExists},
+		}
+		err := d.enqueueDebounce(ctx, qi, fnID, debounceID, shard, at)
+		require.NoError(t, err)
+	})
+
+	t.Run("wrapped ErrQueueItemExists is treated as success", func(t *testing.T) {
+		d := debouncer{
+			queue: &stubProducer{enqueueErr: fmt.Errorf("wrapped: %w", queue.ErrQueueItemExists)},
+		}
+		err := d.enqueueDebounce(ctx, qi, fnID, debounceID, shard, at)
+		require.NoError(t, err)
+	})
+
+	t.Run("other errors propagate", func(t *testing.T) {
+		d := debouncer{
+			queue: &stubProducer{enqueueErr: fmt.Errorf("network failure")},
+		}
+		err := d.enqueueDebounce(ctx, qi, fnID, debounceID, shard, at)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "network failure")
 	})
 }
