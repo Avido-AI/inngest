@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -208,6 +207,11 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 		// enqueue that resumes the parent run. Without this guard, the
 		// backstop finds no metadata and silently no-ops, permanently
 		// stranding the parent.
+		//
+		// The backstop is a KindFinalize queue item enqueued above. When
+		// the queue handler dequeues it and handleFinalize returns an
+		// error, the item is retried according to the queue's retry
+		// policy — so the backstop gets multiple attempts, not just one.
 		l.Error(
 			"finalizeEvents failed, preserving state for backstop retry",
 			"error", feErr,
@@ -535,9 +539,17 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 			"status": opts.Status(),
 		}
 
+		// Deterministic event ID so that backstop retries of finalizeEvents
+		// publish the same ID and downstream consumers can deduplicate.
+		finishedSeed := []byte(opts.Metadata.ID.RunID.String() + "-finished-" + runEvt.ID)
+		finishedID, idErr := util.DeterministicULID(ulid.Time(opts.Metadata.ID.RunID.Time()), finishedSeed)
+		if idErr != nil {
+			return idErr
+		}
+
 		// Add an `inngest/function.finished` event.
 		freshEvents = append(freshEvents, event.Event{
-			ID:        ulid.MustNew(uint64(now.UnixMilli()), rand.Reader).String(),
+			ID:        finishedID.String(),
 			Name:      event.FnFinishedName,
 			Timestamp: now.UnixMilli(),
 			Data:      data,
