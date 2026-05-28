@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fatih/structs"
 	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/constraintapi"
 	"github.com/inngest/inngest/pkg/consts"
@@ -2196,17 +2195,13 @@ func (f functionFinishedData) Map() map[string]any {
 	// to fail silently.
 	byt, err := json.Marshal(f)
 	if err != nil {
-		// Fall back to structs.Map() if marshal fails — should never happen
-		// for this struct, but avoids a panic.
-		s := structs.New(f)
-		s.TagName = "json"
-		return s.Map()
+		// Return empty map rather than falling back to structs.Map(),
+		// which would re-introduce the type-mismatch bug.
+		return map[string]any{}
 	}
 	var m map[string]any
 	if err := json.Unmarshal(byt, &m); err != nil {
-		s := structs.New(f)
-		s.TagName = "json"
-		return s.Map()
+		return map[string]any{}
 	}
 	return m
 }
