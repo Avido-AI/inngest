@@ -2189,9 +2189,26 @@ func (f *functionFinishedData) setResponse(resp execution.FinalizeResponse) {
 }
 
 func (f functionFinishedData) Map() map[string]any {
-	s := structs.New(f)
-	s.TagName = "json"
-	return s.Map()
+	// Use JSON round-trip instead of structs.Map() to ensure all values are
+	// JSON-compatible primitive types (string, float64, bool, map, slice).
+	// structs.Map() preserves Go types verbatim (e.g. ulid.ULID as [16]byte,
+	// *string as pointer) which causes downstream .(string) type assertions
+	// to fail silently.
+	byt, err := json.Marshal(f)
+	if err != nil {
+		// Fall back to structs.Map() if marshal fails — should never happen
+		// for this struct, but avoids a panic.
+		s := structs.New(f)
+		s.TagName = "json"
+		return s.Map()
+	}
+	var m map[string]any
+	if err := json.Unmarshal(byt, &m); err != nil {
+		s := structs.New(f)
+		s.TagName = "json"
+		return s.Map()
+	}
+	return m
 }
 
 func correlationID(event event.Event) *string {
@@ -2983,6 +3000,10 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 	})
 	if finalizeErr != nil {
 		l.Error("error running finish handler", "error", finalizeErr)
+		// Return early so lifecycle hooks only fire once the cancel
+		// succeeds. If the queue retries this job, hooks will fire on
+		// the successful attempt instead of duplicating on every retry.
+		return finalizeErr
 	}
 	if !r.SkipLifecycleHooks {
 		for _, e := range e.lifecycles {
@@ -2990,9 +3011,7 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 		}
 	}
 
-	// Propagate Finalize errors so that callers like handleFinalize can
-	// return the error to the queue, allowing retry of the backstop.
-	return finalizeErr
+	return nil
 }
 
 // ResumePauseTimeout times out a step.  This is used to reusme a pause from timeout when:
