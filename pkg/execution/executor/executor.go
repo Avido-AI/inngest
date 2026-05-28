@@ -2160,7 +2160,7 @@ type functionFinishedData struct {
 	Events              []event.Event  `json:"events"`
 	Error               any            `json:"error,omitempty"`
 	Result              any            `json:"result,omitempty"`
-	InvokeCorrelationID *string        `json:"correlation_id,omitempty"`
+	InvokeCorrelationID string         `json:"correlation_id,omitempty"`
 }
 
 func (f *functionFinishedData) setResponse(resp execution.FinalizeResponse) {
