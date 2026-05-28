@@ -39,7 +39,20 @@ func (s *svc) handleFinalize(ctx context.Context, item queue.Item) error {
 		},
 	}
 
-	return s.exec.Cancel(ctx, id, execution.CancelRequest{
+	s.log.Info("finalize backstop: triggered",
+		"run_id", id.RunID.String(),
+		"function_id", id.FunctionID.String(),
+	)
+
+	err := s.exec.Cancel(ctx, id, execution.CancelRequest{
 		SkipLifecycleHooks: true,
 	})
+	if err != nil {
+		s.log.Error("finalize backstop: cancel failed, will retry",
+			"run_id", id.RunID.String(),
+			"function_id", id.FunctionID.String(),
+			"error", err,
+		)
+	}
+	return err
 }

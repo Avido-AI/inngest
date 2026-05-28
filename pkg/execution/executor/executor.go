@@ -2924,6 +2924,10 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 			for _, e := range e.lifecycles {
 				e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, []json.RawMessage{})
 			}
+		} else {
+			l.Info("cancel: no-op, state already deleted",
+				"skip_lifecycle_hooks", r.SkipLifecycleHooks,
+			)
 		}
 		return nil
 	}
@@ -2962,7 +2966,7 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 		return fmt.Errorf("unable to load function: %w", err)
 	}
 
-	if err := e.Finalize(ctx, execution.FinalizeOpts{
+	finalizeErr := e.Finalize(ctx, execution.FinalizeOpts{
 		Metadata: md,
 		// Always, when called from the executor, as this handles async
 		// finalization.
@@ -2976,8 +2980,9 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 			Cancel:      true,
 			Reason:      "cancel",
 		},
-	}); err != nil {
-		l.Error("error running finish handler", "error", err)
+	})
+	if finalizeErr != nil {
+		l.Error("error running finish handler", "error", finalizeErr)
 	}
 	if !r.SkipLifecycleHooks {
 		for _, e := range e.lifecycles {
@@ -2985,7 +2990,9 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 		}
 	}
 
-	return nil
+	// Propagate Finalize errors so that callers like handleFinalize can
+	// return the error to the queue, allowing retry of the backstop.
+	return finalizeErr
 }
 
 // ResumePauseTimeout times out a step.  This is used to reusme a pause from timeout when:

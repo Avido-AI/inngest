@@ -52,6 +52,14 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 	ctx = context.WithoutCancel(ctx)
 	l := logger.StdlibLogger(ctx)
 
+	l.Info("finalize: starting",
+		"run_id", opts.Metadata.ID.RunID,
+		"function_id", opts.Metadata.ID.FunctionID,
+		"status", opts.Status(),
+		"is_cancel", opts.Optional.Cancel,
+		"reason", opts.Optional.Reason,
+	)
+
 	// Enqueue a durable backstop so that if this pod is killed mid-finalize,
 	// any other pod can dequeue and complete the cleanup via Cancel().
 	// Skip on the Cancel path to avoid re-entrant backstop enqueues when
@@ -227,6 +235,11 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 			"error deleting state in finalize",
 			"error", err,
 			"run_id", opts.Metadata.ID.RunID,
+		)
+	} else {
+		l.Info("finalize: completed, state deleted",
+			"run_id", opts.Metadata.ID.RunID,
+			"function_id", opts.Metadata.ID.FunctionID,
 		)
 	}
 
@@ -595,14 +608,17 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 			}
 		}
 		if invokeCount > 0 {
-			logger.From(ctx).Debug("invoke completion: delivering parent resume",
+			logger.From(ctx).Info("invoke completion: delivering parent resume",
 				"child_run_id", opts.Metadata.ID.RunID.String(),
 				"invoke_event_count", invokeCount,
 			)
 		}
 		enqueueErr = e.enqueueInvokeCompletes(ctx, opts, freshEvents)
 		if enqueueErr != nil {
-			logger.From(ctx).Error("error enqueueing invoke completion", "error", enqueueErr)
+			logger.From(ctx).Error("invoke completion: durable enqueue failed",
+				"error", enqueueErr,
+				"child_run_id", opts.Metadata.ID.RunID.String(),
+			)
 		}
 
 		for _, evt := range freshEvents {
@@ -624,14 +640,26 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 						!errors.Is(err, state.ErrPauseNotFound) &&
 						!errors.Is(err, state.ErrInvokePauseNotFound)
 				})))
-				if err != nil &&
-					!errors.Is(err, ErrNoCorrelationID) &&
-					!errors.Is(err, state.ErrPauseNotFound) &&
-					!errors.Is(err, state.ErrInvokePauseNotFound) {
-					logger.From(ctx).Error("error fast resuming invoke after retries",
+				switch {
+				case err == nil:
+					logger.From(ctx).Info("invoke completion: fast path delivered",
+						"event_id", evt.ID,
+						"child_run_id", opts.Metadata.ID.RunID,
+						"correlation_id", evt.CorrelationID(),
+					)
+				case errors.Is(err, ErrNoCorrelationID) ||
+					errors.Is(err, state.ErrPauseNotFound) ||
+					errors.Is(err, state.ErrInvokePauseNotFound):
+					logger.From(ctx).Debug("invoke completion: fast path skipped (already handled or no correlation)",
+						"event_id", evt.ID,
+						"child_run_id", opts.Metadata.ID.RunID,
+						"reason", err.Error(),
+					)
+				default:
+					logger.From(ctx).Error("invoke completion: fast path failed after retries",
 						"error", err,
 						"event_id", evt.ID,
-						"run_id", opts.Metadata.ID.RunID,
+						"child_run_id", opts.Metadata.ID.RunID,
 						"correlation_id", evt.CorrelationID(),
 					)
 				}
