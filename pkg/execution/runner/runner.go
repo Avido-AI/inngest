@@ -348,6 +348,15 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 
 	l.Info("received event")
 
+	// Once a message has been received from the subscription, its processing
+	// must not be interrupted by context cancellation from graceful shutdown.
+	// The subscription loop (SubscribeN) stops receiving NEW messages when ctx
+	// is canceled, but messages already received must be fully processed to
+	// prevent lost function invocations.  A timeout bounds work so the pod
+	// can still terminate within the Kubernetes grace period.
+	processCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
 	var errs error
 	wg := &sync.WaitGroup{}
 
@@ -355,7 +364,7 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := s.functions(ctx, tracked); err != nil {
+		if err := s.functions(processCtx, tracked); err != nil {
 			l.Error("error scheduling functions", "error", err)
 			errs = multierror.Append(errs, err)
 		}
@@ -368,7 +377,7 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := s.invokes(ctx, tracked); err != nil {
+			if err := s.invokes(processCtx, tracked); err != nil {
 				if err == state.ErrInvokePauseNotFound || err == state.ErrPauseNotFound {
 					l.Warn("can't find paused function to resume after invoke", "error", err)
 					return
@@ -383,7 +392,7 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := s.pauses(ctx, tracked); err != nil {
+		if err := s.pauses(processCtx, tracked); err != nil {
 			l.Error("error consuming pauses", "error", err)
 			errs = multierror.Append(errs, err)
 		}
@@ -484,10 +493,14 @@ func (s *svc) functions(ctx context.Context, tracked event.TrackedEvent) error {
 	// Look up all functions have a trigger that matches the event name, including wildcards.
 	fns, err := s.data.FunctionsByTrigger(ctx, evt.Name)
 	if err != nil {
-		return fmt.Errorf("error loading functions by trigger: %w", err)
+		errs = multierror.Append(errs, fmt.Errorf("error loading functions by trigger: %w", err))
+		// Don't return early — wait for the invoke goroutine above to finish.
+		wg.Wait()
+		return errs
 	}
 	if len(fns) == 0 {
-		return nil
+		wg.Wait()
+		return errs
 	}
 
 	s.log.Debug("scheduling functions", "len", len(fns))
