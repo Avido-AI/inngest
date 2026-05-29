@@ -311,11 +311,20 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 		return fmt.Errorf("unknown event type: %s", m.Name)
 	}
 
+	// Once a message has been received from the subscription, its processing
+	// must not be interrupted by context cancellation from graceful shutdown.
+	// The subscription loop (SubscribeN) stops receiving NEW messages when ctx
+	// is canceled, but messages already received must be fully processed to
+	// prevent lost function invocations.  A timeout bounds work so the pod
+	// can still terminate within the Kubernetes grace period.
+	processCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
 	if m.Metadata != nil {
 		if trace, ok := m.Metadata[consts.OtelPropagationKey]; ok {
 			carrier := itrace.NewTraceCarrier()
 			if err := carrier.Unmarshal(trace); err == nil {
-				ctx = itrace.UserTracer().Propagator().Extract(ctx, propagation.MapCarrier(carrier.Context))
+				processCtx = itrace.UserTracer().Propagator().Extract(processCtx, propagation.MapCarrier(carrier.Context))
 			}
 		}
 	}
@@ -331,9 +340,9 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	// round-trips overwhelm the database.
 	evt := cqrs.ConvertFromEvent(tracked.GetInternalID(), tracked.GetEvent())
 	if s.bufferedWriter != nil {
-		s.bufferedWriter.Write(ctx, evt)
+		s.bufferedWriter.Write(processCtx, evt)
 	} else {
-		if err := s.cqrs.InsertEvent(ctx, evt); err != nil {
+		if err := s.cqrs.InsertEvent(processCtx, evt); err != nil {
 			return fmt.Errorf("error inserting event: %w", err)
 		}
 	}
@@ -344,18 +353,9 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 		"internal_id", tracked.GetInternalID().String(),
 	)
 
-	ctx = logger.WithStdlib(ctx, l)
+	processCtx = logger.WithStdlib(processCtx, l)
 
 	l.Info("received event")
-
-	// Once a message has been received from the subscription, its processing
-	// must not be interrupted by context cancellation from graceful shutdown.
-	// The subscription loop (SubscribeN) stops receiving NEW messages when ctx
-	// is canceled, but messages already received must be fully processed to
-	// prevent lost function invocations.  A timeout bounds work so the pod
-	// can still terminate within the Kubernetes grace period.
-	processCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
 
 	var errs error
 	wg := &sync.WaitGroup{}
