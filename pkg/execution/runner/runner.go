@@ -116,6 +116,12 @@ func WithLogger(l logger.Logger) func(s *svc) {
 	}
 }
 
+func WithShutdownGracePeriod(d time.Duration) func(s *svc) {
+	return func(s *svc) {
+		s.shutdownGracePeriod = d
+	}
+}
+
 func NewService(c config.Config, opts ...Opt) Runner {
 	svc := &svc{config: c, log: logger.StdlibLogger(context.Background())}
 	for _, o := range opts {
@@ -148,6 +154,9 @@ type svc struct {
 	croner cron.CronManager
 	// bufferedWriter batches InsertEvent calls to reduce DB round-trips.
 	bufferedWriter *BufferedEventWriter
+	// shutdownGracePeriod is the maximum time allowed for in-flight event
+	// processing to complete during graceful shutdown.  Defaults to 30s.
+	shutdownGracePeriod time.Duration
 
 	log logger.Logger
 }
@@ -317,7 +326,11 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	// is canceled, but messages already received must be fully processed to
 	// prevent lost function invocations.  A timeout bounds work so the pod
 	// can still terminate within the Kubernetes grace period.
-	processCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	gracePeriod := s.shutdownGracePeriod
+	if gracePeriod <= 0 {
+		gracePeriod = 30 * time.Second
+	}
+	processCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gracePeriod)
 	defer cancel()
 
 	if m.Metadata != nil {
@@ -493,9 +506,10 @@ func (s *svc) functions(ctx context.Context, tracked event.TrackedEvent) error {
 	// Look up all functions have a trigger that matches the event name, including wildcards.
 	fns, err := s.data.FunctionsByTrigger(ctx, evt.Name)
 	if err != nil {
-		errs = multierror.Append(errs, fmt.Errorf("error loading functions by trigger: %w", err))
-		// Don't return early — wait for the invoke goroutine above to finish.
+		// Wait for the invoke goroutine to finish before touching errs,
+		// since the goroutine may also write to it concurrently.
 		wg.Wait()
+		errs = multierror.Append(errs, fmt.Errorf("error loading functions by trigger: %w", err))
 		return errs
 	}
 	if len(fns) == 0 {
