@@ -269,8 +269,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@graphql-codegen/cli':
-        specifier: 7.0.1
-        version: 7.0.1(@parcel/watcher@2.5.6)(@types/node@24.12.4)(crossws@0.4.5(srvx@0.11.16))(graphql@16.14.0)(typescript@5.9.3)
+        specifier: 7.1.0
+        version: 7.1.0(@parcel/watcher@2.5.6)(@types/node@24.12.4)(crossws@0.4.5(srvx@0.11.16))(graphql@16.14.0)(typescript@5.9.3)
       '@graphql-codegen/client-preset':
         specifier: 6.0.1
         version: 6.0.1(graphql@16.14.0)
@@ -402,8 +402,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@graphql-codegen/cli':
-        specifier: 7.0.1
-        version: 7.0.1(@parcel/watcher@2.5.6)(@types/node@24.12.4)(crossws@0.4.5(srvx@0.11.16))(graphql@16.14.0)(typescript@5.9.3)
+        specifier: 7.1.0
+        version: 7.1.0(@parcel/watcher@2.5.6)(@types/node@24.12.4)(crossws@0.4.5(srvx@0.11.16))(graphql@16.14.0)(typescript@5.9.3)
       '@graphql-codegen/typescript':
         specifier: 6.0.2
         version: 6.0.2(graphql@16.14.0)
@@ -1886,8 +1886,8 @@ packages:
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0
 
-  '@graphql-codegen/cli@7.0.1':
-    resolution: {integrity: sha512-xalkCstEyl8YK9g53k9ti154LucHXMLm+ujQwJt1BVe8EVk341Of3XEFDzYahVHRB4GaMRq5lqDASWc+jHZz0w==}
+  '@graphql-codegen/cli@7.1.0':
+    resolution: {integrity: sha512-2j1FzZtEnlHdQmOaDnTMGSNyu3RmDf4HGU9xbgpqDRSb+D8UYya2YFW1enIxhJccAQSLD9ACMwCXlB20wJXNiA==}
     engines: {node: '>=16'}
     hasBin: true
     peerDependencies:
@@ -12701,7 +12701,7 @@ snapshots:
       graphql: 16.14.0
       tslib: 2.8.1
 
-  '@graphql-codegen/cli@7.0.1(@parcel/watcher@2.5.6)(@types/node@24.12.4)(crossws@0.4.5(srvx@0.11.16))(graphql@16.14.0)(typescript@5.9.3)':
+  '@graphql-codegen/cli@7.1.0(@parcel/watcher@2.5.6)(@types/node@24.12.4)(crossws@0.4.5(srvx@0.11.16))(graphql@16.14.0)(typescript@5.9.3)':
     dependencies:
       '@babel/generator': 7.29.7
       '@babel/template': 7.29.7
