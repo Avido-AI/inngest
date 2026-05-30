@@ -46,9 +46,9 @@
     "zod": "^4.4.0"
   },
   "devDependencies": {
-    "@graphql-codegen/cli": "7.0.0",
-    "@graphql-codegen/typescript": "6.0.1",
-    "@graphql-codegen/typescript-operations": "6.0.2",
+    "@graphql-codegen/cli": "7.0.1",
+    "@graphql-codegen/typescript": "6.0.2",
+    "@graphql-codegen/typescript-operations": "6.0.3",
     "@graphql-codegen/typescript-rtk-query": "4.0.1",
     "@inngest/components": "workspace:*",
     "@tanstack/eslint-config": "0.4.0",
@@ -77,6 +77,6 @@
     "node": "24.x",
     "pnpm": "11.x"
   },
-  "packageManager": "pnpm@11.3.0",
+  "packageManager": "pnpm@11.4.0",
   "private": true
 }
