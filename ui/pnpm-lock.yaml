@@ -122,7 +122,7 @@ importers:
         version: 0.4.0(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.22)(next@16.2.6(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(typescript@5.9.3)(uuid@14.0.0)(zod@4.4.3)
       '@launchdarkly/node-server-sdk':
         specifier: ^9.0.3
-        version: 9.11.0
+        version: 9.11.1
       '@radix-ui/react-select':
         specifier: ^2.0.0
         version: 2.2.6(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -2588,8 +2588,8 @@ packages:
   '@launchdarkly/js-server-sdk-common@2.19.0':
     resolution: {integrity: sha512-ZsX5Eib+51zZYastlT6tUnab3WKR8nIZiXjBx/C30BZmlzahpxasGkiHtjh24L7cFeR8MjQRKUNAwCCtr0bztA==}
 
-  '@launchdarkly/node-server-sdk@9.11.0':
-    resolution: {integrity: sha512-pUNmz5qIMw3cnzsey5TGysakz0D0qXgtHn+o3y/oAtO7LbimQ4PPKqAdlTaMyCWtq/BzfDMyumOlfseoQkyqrw==}
+  '@launchdarkly/node-server-sdk@9.11.1':
+    resolution: {integrity: sha512-2iBiqXEnHamTjN3wB7yj0kExIvYb74fVs+gFctq6K4DfcGEhhRxyqe3FuyDQ+biFfphTcSmHYxoJAwtMeuQ3DQ==}
 
   '@lukeed/csprng@1.1.0':
     resolution: {integrity: sha512-Z7C/xXCiGWsg0KuKsHTKJxbWhpI3Vs5GwLfOean7MGyVFGqdRgBbAjOCh6u4bbjPc/8MJ2pZmK/0DLdCbivLDA==}
@@ -13553,7 +13553,7 @@ snapshots:
       '@launchdarkly/js-sdk-common': 2.25.0
       semver: 7.5.4
 
-  '@launchdarkly/node-server-sdk@9.11.0':
+  '@launchdarkly/node-server-sdk@9.11.1':
     dependencies:
       '@launchdarkly/js-server-sdk-common': 2.19.0
       https-proxy-agent: 7.0.6
