@@ -54,7 +54,7 @@ require (
 	github.com/knadh/koanf/parsers/yaml v1.1.0
 	github.com/knadh/koanf/providers/env/v2 v2.0.0
 	github.com/knadh/koanf/providers/file v1.2.1
-	github.com/knadh/koanf/v2 v2.3.4
+	github.com/knadh/koanf/v2 v2.3.5
 	github.com/lib/pq v1.12.3
 	github.com/liushuangls/go-anthropic/v2 v2.20.2
 	github.com/lmittmann/tint v1.1.3
