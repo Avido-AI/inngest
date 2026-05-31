@@ -2,6 +2,70 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.23.0] - 2026-05-28
+
+### 🚀 Features
+
+- *(queue)* Allow EnqueueItem on other shard types (#4263)
+- Accept positional path params in agentic cli (#4246)
+
+### 🐛 Bug Fixes
+
+- *(executor)* Initialize synthetic cancel metadata config (#4261)
+- *(queue)* Handle renewed item lease during processing (#4267)
+- Get outputs working again with v2 runs (#4273)
+
+### 🚜 Refactor
+
+- *(connect)* Gate gateway routing by connection phase (#4241)
+- *(queue)* Add Scope to more queue methods (#4271)
+
+### ⚙️ Miscellaneous Tasks
+
+- Update go sdk (#4264)
+- Improve agentic api cli help  (#4245)
+
+### ◀️ Revert
+
+- "chore: add a concurrency safe marshal to state configs" (#4257)
+
+## [v1.22.0] - 2026-05-22
+
+### 🚀 Features
+
+- Insights: Add stubs for new insights API endpoints (#4189)
+- Add update notifier to select commands (#4185)
+- Phase 1 scoring (#4170)
+
+### 🐛 Bug Fixes
+
+- *(syncs)* Fix function orphaning on app resync after <v1.15 upgrade (#4143)
+- *(pauses)* Retry enqueueing edge after consuming pause (#4228)
+- *(batching)* Enforce batch size limits in the in-memory batching path. (#3871)
+- Add feature flag for enforcing state size limits (#4251)
+- Bulk canel bug (#4255)
+
+### 💼 Other
+
+- *(deps)* Update pgx and goose (#4248)
+- *(deps)* Remove vulnerable docker module (#4249)
+
+### ⚡ Performance
+
+- *(batch)* Split batch partition into workspace-scoped partitions (#4236)
+
+### 🧪 Testing
+
+- *(connect)* Forward regression test (#4214)
+
+### ⚙️ Miscellaneous Tasks
+
+- Add a concurrency safe marshal to state configs (#4256)
+
+### 🛡️ Security
+
+- *(npm)* Address vulnerable npm dependencies (#4250)
+
 ## [v1.21.0] - 2026-05-19
 
 ### 🚀 Features
