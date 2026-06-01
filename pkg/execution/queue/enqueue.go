@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/consts"
-	"github.com/inngest/inngest/pkg/enums"
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/telemetry/metrics"
 )
@@ -92,16 +91,12 @@ func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, o
 		},
 	})
 
-	switch shard.Kind() {
-	case enums.QueueShardKindRedis:
-		if _, err := shard.EnqueueItem(ctx, qi, next, opts); err != nil {
-			return err
-		}
-		q.maybeEnqueuePromotionJob(ctx, l, qi)
-		return nil
-	default:
-		return fmt.Errorf("unknown shard kind: %s", string(shard.Kind()))
+	if _, err := shard.EnqueueItem(ctx, qi, next, opts); err != nil {
+		return err
 	}
+
+	q.maybeEnqueuePromotionJob(ctx, l, qi)
+	return nil
 }
 
 // maybeEnqueuePromotionJob schedules a promotion/rebalance job for future queue items.
