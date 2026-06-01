@@ -116,6 +116,12 @@ func WithLogger(l logger.Logger) func(s *svc) {
 	}
 }
 
+func WithShutdownGracePeriod(d time.Duration) func(s *svc) {
+	return func(s *svc) {
+		s.shutdownGracePeriod = d
+	}
+}
+
 func NewService(c config.Config, opts ...Opt) Runner {
 	svc := &svc{config: c, log: logger.StdlibLogger(context.Background())}
 	for _, o := range opts {
@@ -148,6 +154,12 @@ type svc struct {
 	croner cron.CronManager
 	// bufferedWriter batches InsertEvent calls to reduce DB round-trips.
 	bufferedWriter *BufferedEventWriter
+	// shutdownGracePeriod is the maximum time allowed for in-flight event
+	// processing to complete during graceful shutdown.  Defaults to 90s,
+	// matching the executor's StopTimeout (see shutdown.go).  The Helm
+	// chart sets terminationGracePeriodSeconds=120 with a 15s preStop
+	// hook, leaving ~105s; 90s gives headroom for the service framework.
+	shutdownGracePeriod time.Duration
 
 	log logger.Logger
 }
@@ -311,11 +323,24 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 		return fmt.Errorf("unknown event type: %s", m.Name)
 	}
 
+	// Once a message has been received from the subscription, its processing
+	// must not be interrupted by context cancellation from graceful shutdown.
+	// The subscription loop (SubscribeN) stops receiving NEW messages when ctx
+	// is canceled, but messages already received must be fully processed to
+	// prevent lost function invocations.  A timeout bounds work so the pod
+	// can still terminate within the Kubernetes grace period.
+	gracePeriod := s.shutdownGracePeriod
+	if gracePeriod <= 0 {
+		gracePeriod = 90 * time.Second
+	}
+	processCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gracePeriod)
+	defer cancel()
+
 	if m.Metadata != nil {
 		if trace, ok := m.Metadata[consts.OtelPropagationKey]; ok {
 			carrier := itrace.NewTraceCarrier()
 			if err := carrier.Unmarshal(trace); err == nil {
-				ctx = itrace.UserTracer().Propagator().Extract(ctx, propagation.MapCarrier(carrier.Context))
+				processCtx = itrace.UserTracer().Propagator().Extract(processCtx, propagation.MapCarrier(carrier.Context))
 			}
 		}
 	}
@@ -331,9 +356,9 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	// round-trips overwhelm the database.
 	evt := cqrs.ConvertFromEvent(tracked.GetInternalID(), tracked.GetEvent())
 	if s.bufferedWriter != nil {
-		s.bufferedWriter.Write(ctx, evt)
+		s.bufferedWriter.Write(processCtx, evt)
 	} else {
-		if err := s.cqrs.InsertEvent(ctx, evt); err != nil {
+		if err := s.cqrs.InsertEvent(processCtx, evt); err != nil {
 			return fmt.Errorf("error inserting event: %w", err)
 		}
 	}
@@ -344,7 +369,7 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 		"internal_id", tracked.GetInternalID().String(),
 	)
 
-	ctx = logger.WithStdlib(ctx, l)
+	processCtx = logger.WithStdlib(processCtx, l)
 
 	l.Info("received event")
 
@@ -355,7 +380,7 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := s.functions(ctx, tracked); err != nil {
+		if err := s.functions(processCtx, tracked); err != nil {
 			l.Error("error scheduling functions", "error", err)
 			errs = multierror.Append(errs, err)
 		}
@@ -368,7 +393,7 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := s.invokes(ctx, tracked); err != nil {
+			if err := s.invokes(processCtx, tracked); err != nil {
 				if err == state.ErrInvokePauseNotFound || err == state.ErrPauseNotFound {
 					l.Warn("can't find paused function to resume after invoke", "error", err)
 					return
@@ -383,7 +408,7 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := s.pauses(ctx, tracked); err != nil {
+		if err := s.pauses(processCtx, tracked); err != nil {
 			l.Error("error consuming pauses", "error", err)
 			errs = multierror.Append(errs, err)
 		}
@@ -484,10 +509,15 @@ func (s *svc) functions(ctx context.Context, tracked event.TrackedEvent) error {
 	// Look up all functions have a trigger that matches the event name, including wildcards.
 	fns, err := s.data.FunctionsByTrigger(ctx, evt.Name)
 	if err != nil {
-		return fmt.Errorf("error loading functions by trigger: %w", err)
+		// Wait for the invoke goroutine to finish before touching errs,
+		// since the goroutine may also write to it concurrently.
+		wg.Wait()
+		errs = multierror.Append(errs, fmt.Errorf("error loading functions by trigger: %w", err))
+		return errs
 	}
 	if len(fns) == 0 {
-		return nil
+		wg.Wait()
+		return errs
 	}
 
 	s.log.Debug("scheduling functions", "len", len(fns))
