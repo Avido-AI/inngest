@@ -155,7 +155,10 @@ type svc struct {
 	// bufferedWriter batches InsertEvent calls to reduce DB round-trips.
 	bufferedWriter *BufferedEventWriter
 	// shutdownGracePeriod is the maximum time allowed for in-flight event
-	// processing to complete during graceful shutdown.  Defaults to 30s.
+	// processing to complete during graceful shutdown.  Defaults to 90s,
+	// matching the executor's StopTimeout (see shutdown.go).  The Helm
+	// chart sets terminationGracePeriodSeconds=120 with a 15s preStop
+	// hook, leaving ~105s; 90s gives headroom for the service framework.
 	shutdownGracePeriod time.Duration
 
 	log logger.Logger
@@ -328,7 +331,7 @@ func (s *svc) handleMessage(ctx context.Context, m pubsub.Message) error {
 	// can still terminate within the Kubernetes grace period.
 	gracePeriod := s.shutdownGracePeriod
 	if gracePeriod <= 0 {
-		gracePeriod = 30 * time.Second
+		gracePeriod = 90 * time.Second
 	}
 	processCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gracePeriod)
 	defer cancel()
