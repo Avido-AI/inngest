@@ -1,3 +1,34 @@
+# v1.42.24 (2026-03-13)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.42.23 (2026-03-03)
+
+* **Bug Fix**: Modernize non codegen files with go fix
+* **Dependency Update**: Bump minimum Go version to 1.24
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.42.22 (2026-02-23)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.42.21 (2026-01-09)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.42.20 (2025-12-09)
+
+* No change notes available for this release.
+
+# v1.42.19 (2025-12-08)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.42.18 (2025-12-02)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+* **Dependency Update**: Upgrade to smithy-go v1.24.0. Notably this version of the library reduces the allocation footprint of the middleware system. We observe a ~10% reduction in allocations per SDK call with this change.
+
 # v1.42.17 (2025-11-25)
 
 * **Bug Fix**: Add error check for endpoint param binding during auth scheme resolution to fix panic reported in #3234
