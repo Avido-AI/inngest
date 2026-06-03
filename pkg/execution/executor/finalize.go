@@ -202,42 +202,42 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 
 	finalizationClaim := e.claimFinalization(ctx, opts.Metadata)
 
-	if !finalizationClaim.Claimed() {
-		return nil
-	}
-
 	// finalizeEvents creates function finished events and durably enqueues
 	// the parent-resume notification for any invoke pause. This runs BEFORE
 	// Delete so that, if the pod is rotated between the two, the worst case
 	// is that the child state remains (and finalize is retried) rather than
 	// the child being marked complete while the parent never resumes. Defer
 	// events are published as part of the same finishHandler call.
-	feErr := e.finalizeEvents(ctx, opts, deferEvents)
-
-	if feErr != nil {
-		// Do NOT delete state when finalizeEvents failed. Keeping state
-		// ensures the 30-second finalize backstop (KindFinalize) can
-		// retry the full finalization — including the KindInvokeComplete
-		// enqueue that resumes the parent run. Without this guard, the
-		// backstop finds no metadata and silently no-ops, permanently
-		// stranding the parent.
-		l.Error(
-			"finalizeEvents failed, preserving state for backstop retry",
-			"error", feErr,
-			"run_id", opts.Metadata.ID.RunID,
-		)
-		if releaseErr := finalizationClaim.Release(ctx); releaseErr != nil {
-			logger.StdlibLogger(ctx).Warn(
-				"error releasing finalization claim after failed publish",
-				"error", releaseErr,
+	//
+	// The claim only gates event publishing; state deletion and job removal
+	// always run regardless of claim status.
+	if finalizationClaim.Claimed() {
+		feErr := e.finalizeEvents(ctx, opts, deferEvents)
+		if feErr != nil {
+			// Do NOT delete state when finalizeEvents failed. Keeping state
+			// ensures the 30-second finalize backstop (KindFinalize) can
+			// retry the full finalization — including the KindInvokeComplete
+			// enqueue that resumes the parent run. Without this guard, the
+			// backstop finds no metadata and silently no-ops, permanently
+			// stranding the parent.
+			l.Error(
+				"finalizeEvents failed, preserving state for backstop retry",
+				"error", feErr,
 				"run_id", opts.Metadata.ID.RunID,
 			)
-			return errors.Join(feErr, releaseErr)
+			if releaseErr := finalizationClaim.Release(ctx); releaseErr != nil {
+				logger.StdlibLogger(ctx).Warn(
+					"error releasing finalization claim after failed publish",
+					"error", releaseErr,
+					"run_id", opts.Metadata.ID.RunID,
+				)
+				return errors.Join(feErr, releaseErr)
+			}
+			return feErr
 		}
-		return feErr
 	}
 
-	// Delete the function state only after successful event delivery.
+	// Delete the function state in every case.
 	err = e.smv2.Delete(ctx, opts.Metadata.ID)
 	if err != nil {
 		l.Error(
@@ -704,9 +704,7 @@ func (e *executor) finalizeEvents(ctx context.Context, opts execution.FinalizeOp
 	// goroutine loop so they aren't dispatched to HandleInvokeFinish.
 	freshEvents = append(freshEvents, extraEvents...)
 
-	_, publishErr := util.WithRetry(ctx, "publish-finalize-events", func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, e.finishHandler(ctx, opts.Metadata.ID, freshEvents)
-	}, util.NewRetryConf())
+	publishErr := e.finishHandler(ctx, opts.Metadata.ID, freshEvents)
 	return errors.Join(enqueueErr, publishErr)
 }
 

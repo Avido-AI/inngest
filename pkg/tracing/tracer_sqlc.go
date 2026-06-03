@@ -18,7 +18,8 @@ const (
 )
 
 func NewSqlcTracerProvider(q dbpkg.Querier) TracerProvider {
-	return NewOtelTracerProvider(&dbExporter{q: q}, 5*time.Second)
+	// With sqlc, write every 50ms.
+	return NewOtelTracerProvider(&dbExporter{q: q}, 50*time.Millisecond)
 }
 
 type dbExporter struct {
