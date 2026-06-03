@@ -264,6 +264,31 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 	return nil
 }
 
+func (e *executor) claimFinalization(ctx context.Context, md sv2.Metadata) sv2.FinalizationClaim {
+	if e.finishHandler == nil {
+		return sv2.NewFinalizationClaim(false, nil)
+	}
+
+	claim, _, err := sv2.TryClaimFinalization(ctx, e.smv2, md)
+	if err != nil {
+		logger.StdlibLogger(ctx).Warn(
+			"error claiming finalization; continuing without dedupe",
+			"error", err,
+			"run_id", md.ID.RunID,
+		)
+		return sv2.NewFinalizationClaim(true, nil)
+	}
+
+	if !claim.Claimed() {
+		logger.StdlibLogger(ctx).Debug(
+			"skipping duplicate finalize effects",
+			"run_id", md.ID.RunID,
+		)
+	}
+
+	return claim
+}
+
 // buildDeferEvents constructs the inngest/deferred.schedule events for every
 // AfterRun defer in `defers`. It does no publishing — the events are returned
 // for the caller (Finalize) to fold into the single finishHandler call inside

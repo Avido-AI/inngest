@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -2223,74 +2224,74 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		return e.ComplexityRoot.RetryConfiguration.Value(childComplexity), true
 
 	case "RunDefer.fnSlug":
-		if e.complexity.RunDefer.FnSlug == nil {
+		if e.ComplexityRoot.RunDefer.FnSlug == nil {
 			break
 		}
 
-		return e.complexity.RunDefer.FnSlug(childComplexity), true
+		return e.ComplexityRoot.RunDefer.FnSlug(childComplexity), true
 
 	case "RunDefer.function":
-		if e.complexity.RunDefer.Function == nil {
+		if e.ComplexityRoot.RunDefer.Function == nil {
 			break
 		}
 
-		return e.complexity.RunDefer.Function(childComplexity), true
+		return e.ComplexityRoot.RunDefer.Function(childComplexity), true
 
 	case "RunDefer.hashedDeferID":
-		if e.complexity.RunDefer.HashedDeferID == nil {
+		if e.ComplexityRoot.RunDefer.HashedDeferID == nil {
 			break
 		}
 
-		return e.complexity.RunDefer.HashedDeferID(childComplexity), true
+		return e.ComplexityRoot.RunDefer.HashedDeferID(childComplexity), true
 
 	case "RunDefer.run":
-		if e.complexity.RunDefer.Run == nil {
+		if e.ComplexityRoot.RunDefer.Run == nil {
 			break
 		}
 
-		return e.complexity.RunDefer.Run(childComplexity), true
+		return e.ComplexityRoot.RunDefer.Run(childComplexity), true
 
 	case "RunDefer.runID":
-		if e.complexity.RunDefer.RunID == nil {
+		if e.ComplexityRoot.RunDefer.RunID == nil {
 			break
 		}
 
-		return e.complexity.RunDefer.RunID(childComplexity), true
+		return e.ComplexityRoot.RunDefer.RunID(childComplexity), true
 
 	case "RunDefer.status":
-		if e.complexity.RunDefer.Status == nil {
+		if e.ComplexityRoot.RunDefer.Status == nil {
 			break
 		}
 
-		return e.complexity.RunDefer.Status(childComplexity), true
+		return e.ComplexityRoot.RunDefer.Status(childComplexity), true
 
 	case "RunDefer.userlandDeferID":
-		if e.complexity.RunDefer.UserlandDeferID == nil {
+		if e.ComplexityRoot.RunDefer.UserlandDeferID == nil {
 			break
 		}
 
-		return e.complexity.RunDefer.UserlandDeferID(childComplexity), true
+		return e.ComplexityRoot.RunDefer.UserlandDeferID(childComplexity), true
 
 	case "RunDeferredFrom.function":
-		if e.complexity.RunDeferredFrom.Function == nil {
+		if e.ComplexityRoot.RunDeferredFrom.Function == nil {
 			break
 		}
 
-		return e.complexity.RunDeferredFrom.Function(childComplexity), true
+		return e.ComplexityRoot.RunDeferredFrom.Function(childComplexity), true
 
 	case "RunDeferredFrom.run":
-		if e.complexity.RunDeferredFrom.Run == nil {
+		if e.ComplexityRoot.RunDeferredFrom.Run == nil {
 			break
 		}
 
-		return e.complexity.RunDeferredFrom.Run(childComplexity), true
+		return e.ComplexityRoot.RunDeferredFrom.Run(childComplexity), true
 
 	case "RunDeferredFrom.runID":
-		if e.complexity.RunDeferredFrom.RunID == nil {
+		if e.ComplexityRoot.RunDeferredFrom.RunID == nil {
 			break
 		}
 
-		return e.complexity.RunDeferredFrom.RunID(childComplexity), true
+		return e.ComplexityRoot.RunDeferredFrom.RunID(childComplexity), true
 
 	case "RunHistoryCancel.eventID":
 		if e.ComplexityRoot.RunHistoryCancel.EventID == nil {
@@ -4677,6 +4678,14 @@ func (ec *executionContext) childFields_FunctionRunV2(ctx context.Context, field
 		return ec.fieldContext_FunctionRunV2_trace(ctx, field)
 	case "hasAI":
 		return ec.fieldContext_FunctionRunV2_hasAI(ctx, field)
+	case "defers":
+		return ec.fieldContext_FunctionRunV2_defers(ctx, field)
+	case "siblingDefers":
+		return ec.fieldContext_FunctionRunV2_siblingDefers(ctx, field)
+	case "deferredFrom":
+		return ec.fieldContext_FunctionRunV2_deferredFrom(ctx, field)
+	case "isDeferred":
+		return ec.fieldContext_FunctionRunV2_isDeferred(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type FunctionRunV2", field.Name)
 }
@@ -7943,15 +7952,6 @@ func (ec *executionContext) fieldContext_EventV2_runs(_ context.Context, field g
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_FunctionRunV2(ctx, field)
-
-			case "defers":
-				return ec.fieldContext_FunctionRunV2_defers(ctx, field)
-			case "siblingDefers":
-				return ec.fieldContext_FunctionRunV2_siblingDefers(ctx, field)
-			case "deferredFrom":
-				return ec.fieldContext_FunctionRunV2_deferredFrom(ctx, field)
-			case "isDeferred":
-				return ec.fieldContext_FunctionRunV2_isDeferred(ctx, field)
 		},
 	}
 	return fc, nil
@@ -9903,7 +9903,7 @@ func (ec *executionContext) _FunctionRunV2_defers(ctx context.Context, field gra
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FunctionRunV2().Defers(rctx, obj)
+		return ec.Resolvers.FunctionRunV2().Defers(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9963,7 +9963,7 @@ func (ec *executionContext) _FunctionRunV2_siblingDefers(ctx context.Context, fi
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FunctionRunV2().SiblingDefers(rctx, obj)
+		return ec.Resolvers.FunctionRunV2().SiblingDefers(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -10023,7 +10023,7 @@ func (ec *executionContext) _FunctionRunV2_deferredFrom(ctx context.Context, fie
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FunctionRunV2().DeferredFrom(rctx, obj)
+		return ec.Resolvers.FunctionRunV2().DeferredFrom(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -10132,15 +10132,6 @@ func (ec *executionContext) fieldContext_FunctionRunV2Edge_node(_ context.Contex
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_FunctionRunV2(ctx, field)
-
-			case "defers":
-				return ec.fieldContext_FunctionRunV2_defers(ctx, field)
-			case "siblingDefers":
-				return ec.fieldContext_FunctionRunV2_siblingDefers(ctx, field)
-			case "deferredFrom":
-				return ec.fieldContext_FunctionRunV2_deferredFrom(ctx, field)
-			case "isDeferred":
-				return ec.fieldContext_FunctionRunV2_isDeferred(ctx, field)
 		},
 	}
 	return fc, nil
@@ -11481,15 +11472,6 @@ func (ec *executionContext) fieldContext_Query_run(ctx context.Context, field gr
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_FunctionRunV2(ctx, field)
-
-			case "defers":
-				return ec.fieldContext_FunctionRunV2_defers(ctx, field)
-			case "siblingDefers":
-				return ec.fieldContext_FunctionRunV2_siblingDefers(ctx, field)
-			case "deferredFrom":
-				return ec.fieldContext_FunctionRunV2_deferredFrom(ctx, field)
-			case "isDeferred":
-				return ec.fieldContext_FunctionRunV2_isDeferred(ctx, field)
 		},
 	}
 	defer func() {
@@ -12195,7 +12177,7 @@ func (ec *executionContext) _RunDefer_function(ctx context.Context, field graphq
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.RunDefer().Function(rctx, obj)
+		return ec.Resolvers.RunDefer().Function(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -12301,7 +12283,7 @@ func (ec *executionContext) _RunDefer_run(ctx context.Context, field graphql.Col
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.RunDefer().Run(rctx, obj)
+		return ec.Resolvers.RunDefer().Run(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -12434,7 +12416,7 @@ func (ec *executionContext) _RunDeferredFrom_function(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.RunDeferredFrom().Function(rctx, obj)
+		return ec.Resolvers.RunDeferredFrom().Function(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -12502,7 +12484,7 @@ func (ec *executionContext) _RunDeferredFrom_run(ctx context.Context, field grap
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.RunDeferredFrom().Run(rctx, obj)
+		return ec.Resolvers.RunDeferredFrom().Run(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -20268,7 +20250,7 @@ func (ec *executionContext) _FunctionRunV2(ctx context.Context, sel ast.Selectio
 		case "defers":
 			field := field
 
-			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
@@ -20276,19 +20258,35 @@ func (ec *executionContext) _FunctionRunV2(ctx context.Context, sel ast.Selectio
 				}()
 				res = ec._FunctionRunV2_defers(ctx, field, obj)
 				if res == graphql.Null {
-					atomic.AddUint32(&invalids, 1)
+					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
 			}
 
-			out.Concurrently(i, func() graphql.Marshaler {
-				return innerFunc(ctx)
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
 
-			})
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "siblingDefers":
 			field := field
 
-			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
@@ -20296,19 +20294,35 @@ func (ec *executionContext) _FunctionRunV2(ctx context.Context, sel ast.Selectio
 				}()
 				res = ec._FunctionRunV2_siblingDefers(ctx, field, obj)
 				if res == graphql.Null {
-					atomic.AddUint32(&invalids, 1)
+					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
 			}
 
-			out.Concurrently(i, func() graphql.Marshaler {
-				return innerFunc(ctx)
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
 
-			})
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "deferredFrom":
 			field := field
 
-			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
@@ -20316,21 +20330,35 @@ func (ec *executionContext) _FunctionRunV2(ctx context.Context, sel ast.Selectio
 				}()
 				res = ec._FunctionRunV2_deferredFrom(ctx, field, obj)
 				if res == graphql.Null {
-					atomic.AddUint32(&invalids, 1)
+					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
 			}
 
-			out.Concurrently(i, func() graphql.Marshaler {
-				return innerFunc(ctx)
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
 
-			})
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "isDeferred":
-
 			out.Values[i] = ec._FunctionRunV2_isDeferred(ctx, field, obj)
-
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&invalids, 1)
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -21235,44 +21263,37 @@ var runDeferImplementors = []string{"RunDefer"}
 
 func (ec *executionContext) _RunDefer(ctx context.Context, sel ast.SelectionSet, obj *models.RunDefer) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, runDeferImplementors)
+
 	out := graphql.NewFieldSet(fields)
-	var invalids uint32
+	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("RunDefer")
 		case "hashedDeferID":
-
 			out.Values[i] = ec._RunDefer_hashedDeferID(ctx, field, obj)
-
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&invalids, 1)
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "userlandDeferID":
-
 			out.Values[i] = ec._RunDefer_userlandDeferID(ctx, field, obj)
-
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&invalids, 1)
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "fnSlug":
-
 			out.Values[i] = ec._RunDefer_fnSlug(ctx, field, obj)
-
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&invalids, 1)
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "status":
-
 			out.Values[i] = ec._RunDefer_status(ctx, field, obj)
-
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&invalids, 1)
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "function":
 			field := field
 
-			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
@@ -21282,18 +21303,13 @@ func (ec *executionContext) _RunDefer(ctx context.Context, sel ast.SelectionSet,
 				return res
 			}
 
-			out.Concurrently(i, func() graphql.Marshaler {
-				return innerFunc(ctx)
-
-			})
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "runID":
-
 			out.Values[i] = ec._RunDefer_runID(ctx, field, obj)
-
 		case "run":
 			field := field
 
-			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
@@ -21303,18 +21319,27 @@ func (ec *executionContext) _RunDefer(ctx context.Context, sel ast.SelectionSet,
 				return res
 			}
 
-			out.Concurrently(i, func() graphql.Marshaler {
-				return innerFunc(ctx)
-
-			})
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
 	}
-	out.Dispatch()
-	if invalids > 0 {
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
 		return graphql.Null
 	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
 	return out
 }
 
@@ -21322,23 +21347,22 @@ var runDeferredFromImplementors = []string{"RunDeferredFrom"}
 
 func (ec *executionContext) _RunDeferredFrom(ctx context.Context, sel ast.SelectionSet, obj *models.RunDeferredFrom) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, runDeferredFromImplementors)
+
 	out := graphql.NewFieldSet(fields)
-	var invalids uint32
+	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("RunDeferredFrom")
 		case "runID":
-
 			out.Values[i] = ec._RunDeferredFrom_runID(ctx, field, obj)
-
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&invalids, 1)
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "function":
 			field := field
 
-			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
@@ -21346,19 +21370,16 @@ func (ec *executionContext) _RunDeferredFrom(ctx context.Context, sel ast.Select
 				}()
 				res = ec._RunDeferredFrom_function(ctx, field, obj)
 				if res == graphql.Null {
-					atomic.AddUint32(&invalids, 1)
+					atomic.AddUint32(&fs.Invalids, 1)
 				}
 				return res
 			}
 
-			out.Concurrently(i, func() graphql.Marshaler {
-				return innerFunc(ctx)
-
-			})
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "run":
 			field := field
 
-			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
@@ -21368,18 +21389,27 @@ func (ec *executionContext) _RunDeferredFrom(ctx context.Context, sel ast.Select
 				return res
 			}
 
-			out.Concurrently(i, func() graphql.Marshaler {
-				return innerFunc(ctx)
-
-			})
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
 	}
-	out.Dispatch()
-	if invalids > 0 {
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
 		return graphql.Null
 	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferred), math.MaxInt32)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
 	return out
 }
 
