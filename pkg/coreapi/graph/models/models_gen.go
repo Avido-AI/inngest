@@ -1139,7 +1139,7 @@ func (e RunDeferStatus) String() string {
 	return string(e)
 }
 
-func (e *RunDeferStatus) UnmarshalGQL(v interface{}) error {
+func (e *RunDeferStatus) UnmarshalGQL(v any) error {
 	str, ok := v.(string)
 	if !ok {
 		return fmt.Errorf("enums must be strings")
@@ -1154,6 +1154,20 @@ func (e *RunDeferStatus) UnmarshalGQL(v interface{}) error {
 
 func (e RunDeferStatus) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RunDeferStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RunDeferStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
 
 type RunTraceSpanStatus string

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -1632,15 +1631,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FunctionRunV2.CronSchedule(childComplexity), true
-
-
 	case "FunctionRunV2.deferredFrom":
 		if e.ComplexityRoot.FunctionRunV2.DeferredFrom == nil {
 			break
 		}
 
 		return e.ComplexityRoot.FunctionRunV2.DeferredFrom(childComplexity), true
-
 	case "FunctionRunV2.defers":
 		if e.ComplexityRoot.FunctionRunV2.Defers == nil {
 			break
@@ -1689,8 +1685,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FunctionRunV2.IsBatch(childComplexity), true
-
-
 	case "FunctionRunV2.isDeferred":
 		if e.ComplexityRoot.FunctionRunV2.IsDeferred == nil {
 			break
@@ -1709,8 +1703,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FunctionRunV2.QueuedAt(childComplexity), true
-
-
 	case "FunctionRunV2.siblingDefers":
 		if e.ComplexityRoot.FunctionRunV2.SiblingDefers == nil {
 			break
@@ -2229,42 +2221,36 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.RunDefer.FnSlug(childComplexity), true
-
 	case "RunDefer.function":
 		if e.ComplexityRoot.RunDefer.Function == nil {
 			break
 		}
 
 		return e.ComplexityRoot.RunDefer.Function(childComplexity), true
-
 	case "RunDefer.hashedDeferID":
 		if e.ComplexityRoot.RunDefer.HashedDeferID == nil {
 			break
 		}
 
 		return e.ComplexityRoot.RunDefer.HashedDeferID(childComplexity), true
-
 	case "RunDefer.run":
 		if e.ComplexityRoot.RunDefer.Run == nil {
 			break
 		}
 
 		return e.ComplexityRoot.RunDefer.Run(childComplexity), true
-
 	case "RunDefer.runID":
 		if e.ComplexityRoot.RunDefer.RunID == nil {
 			break
 		}
 
 		return e.ComplexityRoot.RunDefer.RunID(childComplexity), true
-
 	case "RunDefer.status":
 		if e.ComplexityRoot.RunDefer.Status == nil {
 			break
 		}
 
 		return e.ComplexityRoot.RunDefer.Status(childComplexity), true
-
 	case "RunDefer.userlandDeferID":
 		if e.ComplexityRoot.RunDefer.UserlandDeferID == nil {
 			break
@@ -2278,14 +2264,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.RunDeferredFrom.Function(childComplexity), true
-
 	case "RunDeferredFrom.run":
 		if e.ComplexityRoot.RunDeferredFrom.Run == nil {
 			break
 		}
 
 		return e.ComplexityRoot.RunDeferredFrom.Run(childComplexity), true
-
 	case "RunDeferredFrom.runID":
 		if e.ComplexityRoot.RunDeferredFrom.RunID == nil {
 			break
@@ -4746,6 +4730,38 @@ func (ec *executionContext) childFields_RetryConfiguration(ctx context.Context, 
 		return ec.fieldContext_RetryConfiguration_isDefault(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type RetryConfiguration", field.Name)
+}
+
+func (ec *executionContext) childFields_RunDefer(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "hashedDeferID":
+		return ec.fieldContext_RunDefer_hashedDeferID(ctx, field)
+	case "userlandDeferID":
+		return ec.fieldContext_RunDefer_userlandDeferID(ctx, field)
+	case "fnSlug":
+		return ec.fieldContext_RunDefer_fnSlug(ctx, field)
+	case "status":
+		return ec.fieldContext_RunDefer_status(ctx, field)
+	case "function":
+		return ec.fieldContext_RunDefer_function(ctx, field)
+	case "runID":
+		return ec.fieldContext_RunDefer_runID(ctx, field)
+	case "run":
+		return ec.fieldContext_RunDefer_run(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type RunDefer", field.Name)
+}
+
+func (ec *executionContext) childFields_RunDeferredFrom(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "runID":
+		return ec.fieldContext_RunDeferredFrom_runID(ctx, field)
+	case "function":
+		return ec.fieldContext_RunDeferredFrom_function(ctx, field)
+	case "run":
+		return ec.fieldContext_RunDeferredFrom_run(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type RunDeferredFrom", field.Name)
 }
 
 func (ec *executionContext) childFields_RunHistoryCancel(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -9890,219 +9906,122 @@ func (ec *executionContext) fieldContext_FunctionRunV2_hasAI(_ context.Context, 
 }
 
 func (ec *executionContext) _FunctionRunV2_defers(ctx context.Context, field graphql.CollectedField, obj *models.FunctionRunV2) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FunctionRunV2_defers(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.Resolvers.FunctionRunV2().Defers(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.([]*models.RunDefer)
-	fc.Result = res
-	return ec.marshalNRunDefer2ᚕᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferᚄ(ctx, field.Selections, res)
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FunctionRunV2_defers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.FunctionRunV2().Defers(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*models.RunDefer) graphql.Marshaler {
+			return ec.marshalNRunDefer2ᚕᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
 }
-
-func (ec *executionContext) fieldContext_FunctionRunV2_defers(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FunctionRunV2_defers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "FunctionRunV2",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "hashedDeferID":
-				return ec.fieldContext_RunDefer_hashedDeferID(ctx, field)
-			case "userlandDeferID":
-				return ec.fieldContext_RunDefer_userlandDeferID(ctx, field)
-			case "fnSlug":
-				return ec.fieldContext_RunDefer_fnSlug(ctx, field)
-			case "status":
-				return ec.fieldContext_RunDefer_status(ctx, field)
-			case "function":
-				return ec.fieldContext_RunDefer_function(ctx, field)
-			case "runID":
-				return ec.fieldContext_RunDefer_runID(ctx, field)
-			case "run":
-				return ec.fieldContext_RunDefer_run(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type RunDefer", field.Name)
+			return ec.childFields_RunDefer(ctx, field)
 		},
 	}
 	return fc, nil
 }
 
 func (ec *executionContext) _FunctionRunV2_siblingDefers(ctx context.Context, field graphql.CollectedField, obj *models.FunctionRunV2) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FunctionRunV2_siblingDefers(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.Resolvers.FunctionRunV2().SiblingDefers(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.([]*models.RunDefer)
-	fc.Result = res
-	return ec.marshalNRunDefer2ᚕᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferᚄ(ctx, field.Selections, res)
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FunctionRunV2_siblingDefers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.FunctionRunV2().SiblingDefers(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*models.RunDefer) graphql.Marshaler {
+			return ec.marshalNRunDefer2ᚕᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
 }
-
-func (ec *executionContext) fieldContext_FunctionRunV2_siblingDefers(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FunctionRunV2_siblingDefers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "FunctionRunV2",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "hashedDeferID":
-				return ec.fieldContext_RunDefer_hashedDeferID(ctx, field)
-			case "userlandDeferID":
-				return ec.fieldContext_RunDefer_userlandDeferID(ctx, field)
-			case "fnSlug":
-				return ec.fieldContext_RunDefer_fnSlug(ctx, field)
-			case "status":
-				return ec.fieldContext_RunDefer_status(ctx, field)
-			case "function":
-				return ec.fieldContext_RunDefer_function(ctx, field)
-			case "runID":
-				return ec.fieldContext_RunDefer_runID(ctx, field)
-			case "run":
-				return ec.fieldContext_RunDefer_run(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type RunDefer", field.Name)
+			return ec.childFields_RunDefer(ctx, field)
 		},
 	}
 	return fc, nil
 }
 
 func (ec *executionContext) _FunctionRunV2_deferredFrom(ctx context.Context, field graphql.CollectedField, obj *models.FunctionRunV2) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FunctionRunV2_deferredFrom(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.Resolvers.FunctionRunV2().DeferredFrom(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.([]*models.RunDeferredFrom)
-	fc.Result = res
-	return ec.marshalNRunDeferredFrom2ᚕᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferredFromᚄ(ctx, field.Selections, res)
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FunctionRunV2_deferredFrom(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.FunctionRunV2().DeferredFrom(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*models.RunDeferredFrom) graphql.Marshaler {
+			return ec.marshalNRunDeferredFrom2ᚕᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferredFromᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
 }
-
-func (ec *executionContext) fieldContext_FunctionRunV2_deferredFrom(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FunctionRunV2_deferredFrom(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "FunctionRunV2",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "runID":
-				return ec.fieldContext_RunDeferredFrom_runID(ctx, field)
-			case "function":
-				return ec.fieldContext_RunDeferredFrom_function(ctx, field)
-			case "run":
-				return ec.fieldContext_RunDeferredFrom_run(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type RunDeferredFrom", field.Name)
+			return ec.childFields_RunDeferredFrom(ctx, field)
 		},
 	}
 	return fc, nil
 }
 
 func (ec *executionContext) _FunctionRunV2_isDeferred(ctx context.Context, field graphql.CollectedField, obj *models.FunctionRunV2) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FunctionRunV2_isDeferred(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.IsDeferred, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(bool)
-	fc.Result = res
-	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_FunctionRunV2_isDeferred(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "FunctionRunV2",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Boolean does not have child fields")
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FunctionRunV2_isDeferred(ctx, field)
 		},
-	}
-	return fc, nil
+		func(ctx context.Context) (any, error) {
+			return obj.IsDeferred, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FunctionRunV2_isDeferred(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FunctionRunV2", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _FunctionRunV2Edge_node(ctx context.Context, field graphql.CollectedField, obj *models.FunctionRunV2Edge) (ret graphql.Marshaler) {
@@ -11988,572 +11907,266 @@ func (ec *executionContext) fieldContext_RetryConfiguration_isDefault(_ context.
 }
 
 func (ec *executionContext) _RunDefer_hashedDeferID(ctx context.Context, field graphql.CollectedField, obj *models.RunDefer) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDefer_hashedDeferID(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.HashedDeferID, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_RunDefer_hashedDeferID(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "RunDefer",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDefer_hashedDeferID(ctx, field)
 		},
-	}
-	return fc, nil
+		func(ctx context.Context) (any, error) {
+			return obj.HashedDeferID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RunDefer_hashedDeferID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RunDefer", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _RunDefer_userlandDeferID(ctx context.Context, field graphql.CollectedField, obj *models.RunDefer) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDefer_userlandDeferID(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.UserlandDeferID, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_RunDefer_userlandDeferID(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "RunDefer",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDefer_userlandDeferID(ctx, field)
 		},
-	}
-	return fc, nil
+		func(ctx context.Context) (any, error) {
+			return obj.UserlandDeferID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RunDefer_userlandDeferID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RunDefer", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _RunDefer_fnSlug(ctx context.Context, field graphql.CollectedField, obj *models.RunDefer) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDefer_fnSlug(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.FnSlug, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_RunDefer_fnSlug(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "RunDefer",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDefer_fnSlug(ctx, field)
 		},
-	}
-	return fc, nil
+		func(ctx context.Context) (any, error) {
+			return obj.FnSlug, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RunDefer_fnSlug(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RunDefer", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _RunDefer_status(ctx context.Context, field graphql.CollectedField, obj *models.RunDefer) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDefer_status(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Status, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(models.RunDeferStatus)
-	fc.Result = res
-	return ec.marshalNRunDeferStatus2githubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferStatus(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_RunDefer_status(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "RunDefer",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type RunDeferStatus does not have child fields")
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDefer_status(ctx, field)
 		},
-	}
-	return fc, nil
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v models.RunDeferStatus) graphql.Marshaler {
+			return ec.marshalNRunDeferStatus2githubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferStatus(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RunDefer_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RunDefer", field, false, false, errors.New("field of type RunDeferStatus does not have child fields"))
 }
 
 func (ec *executionContext) _RunDefer_function(ctx context.Context, field graphql.CollectedField, obj *models.RunDefer) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDefer_function(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.Resolvers.RunDefer().Function(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*models.Function)
-	fc.Result = res
-	return ec.marshalOFunction2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐFunction(ctx, field.Selections, res)
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDefer_function(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.RunDefer().Function(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *models.Function) graphql.Marshaler {
+			return ec.marshalOFunction2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐFunction(ctx, selections, v)
+		},
+		true,
+		false,
+	)
 }
-
-func (ec *executionContext) fieldContext_RunDefer_function(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_RunDefer_function(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "RunDefer",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "id":
-				return ec.fieldContext_Function_id(ctx, field)
-			case "name":
-				return ec.fieldContext_Function_name(ctx, field)
-			case "slug":
-				return ec.fieldContext_Function_slug(ctx, field)
-			case "failureHandler":
-				return ec.fieldContext_Function_failureHandler(ctx, field)
-			case "config":
-				return ec.fieldContext_Function_config(ctx, field)
-			case "configuration":
-				return ec.fieldContext_Function_configuration(ctx, field)
-			case "concurrency":
-				return ec.fieldContext_Function_concurrency(ctx, field)
-			case "triggers":
-				return ec.fieldContext_Function_triggers(ctx, field)
-			case "url":
-				return ec.fieldContext_Function_url(ctx, field)
-			case "appID":
-				return ec.fieldContext_Function_appID(ctx, field)
-			case "app":
-				return ec.fieldContext_Function_app(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Function", field.Name)
+			return ec.childFields_Function(ctx, field)
 		},
 	}
 	return fc, nil
 }
 
 func (ec *executionContext) _RunDefer_runID(ctx context.Context, field graphql.CollectedField, obj *models.RunDefer) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDefer_runID(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.RunID, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*ulid.ULID)
-	fc.Result = res
-	return ec.marshalOULID2ᚖgithubᚗcomᚋoklogᚋulidᚋv2ᚐULID(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_RunDefer_runID(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "RunDefer",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type ULID does not have child fields")
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDefer_runID(ctx, field)
 		},
-	}
-	return fc, nil
+		func(ctx context.Context) (any, error) {
+			return obj.RunID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ulid.ULID) graphql.Marshaler {
+			return ec.marshalOULID2ᚖgithubᚗcomᚋoklogᚋulidᚋv2ᚐULID(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_RunDefer_runID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RunDefer", field, false, false, errors.New("field of type ULID does not have child fields"))
 }
 
 func (ec *executionContext) _RunDefer_run(ctx context.Context, field graphql.CollectedField, obj *models.RunDefer) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDefer_run(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.Resolvers.RunDefer().Run(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*models.FunctionRunV2)
-	fc.Result = res
-	return ec.marshalOFunctionRunV22ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐFunctionRunV2(ctx, field.Selections, res)
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDefer_run(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.RunDefer().Run(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *models.FunctionRunV2) graphql.Marshaler {
+			return ec.marshalOFunctionRunV22ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐFunctionRunV2(ctx, selections, v)
+		},
+		true,
+		false,
+	)
 }
-
-func (ec *executionContext) fieldContext_RunDefer_run(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_RunDefer_run(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "RunDefer",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "id":
-				return ec.fieldContext_FunctionRunV2_id(ctx, field)
-			case "appID":
-				return ec.fieldContext_FunctionRunV2_appID(ctx, field)
-			case "app":
-				return ec.fieldContext_FunctionRunV2_app(ctx, field)
-			case "functionID":
-				return ec.fieldContext_FunctionRunV2_functionID(ctx, field)
-			case "function":
-				return ec.fieldContext_FunctionRunV2_function(ctx, field)
-			case "traceID":
-				return ec.fieldContext_FunctionRunV2_traceID(ctx, field)
-			case "queuedAt":
-				return ec.fieldContext_FunctionRunV2_queuedAt(ctx, field)
-			case "startedAt":
-				return ec.fieldContext_FunctionRunV2_startedAt(ctx, field)
-			case "endedAt":
-				return ec.fieldContext_FunctionRunV2_endedAt(ctx, field)
-			case "status":
-				return ec.fieldContext_FunctionRunV2_status(ctx, field)
-			case "sourceID":
-				return ec.fieldContext_FunctionRunV2_sourceID(ctx, field)
-			case "triggerIDs":
-				return ec.fieldContext_FunctionRunV2_triggerIDs(ctx, field)
-			case "eventName":
-				return ec.fieldContext_FunctionRunV2_eventName(ctx, field)
-			case "isBatch":
-				return ec.fieldContext_FunctionRunV2_isBatch(ctx, field)
-			case "batchCreatedAt":
-				return ec.fieldContext_FunctionRunV2_batchCreatedAt(ctx, field)
-			case "cronSchedule":
-				return ec.fieldContext_FunctionRunV2_cronSchedule(ctx, field)
-			case "output":
-				return ec.fieldContext_FunctionRunV2_output(ctx, field)
-			case "trace":
-				return ec.fieldContext_FunctionRunV2_trace(ctx, field)
-			case "hasAI":
-				return ec.fieldContext_FunctionRunV2_hasAI(ctx, field)
-			case "defers":
-				return ec.fieldContext_FunctionRunV2_defers(ctx, field)
-			case "siblingDefers":
-				return ec.fieldContext_FunctionRunV2_siblingDefers(ctx, field)
-			case "deferredFrom":
-				return ec.fieldContext_FunctionRunV2_deferredFrom(ctx, field)
-			case "isDeferred":
-				return ec.fieldContext_FunctionRunV2_isDeferred(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type FunctionRunV2", field.Name)
+			return ec.childFields_FunctionRunV2(ctx, field)
 		},
 	}
 	return fc, nil
 }
 
 func (ec *executionContext) _RunDeferredFrom_runID(ctx context.Context, field graphql.CollectedField, obj *models.RunDeferredFrom) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDeferredFrom_runID(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.RunID, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(ulid.ULID)
-	fc.Result = res
-	return ec.marshalNULID2githubᚗcomᚋoklogᚋulidᚋv2ᚐULID(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_RunDeferredFrom_runID(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "RunDeferredFrom",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type ULID does not have child fields")
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDeferredFrom_runID(ctx, field)
 		},
-	}
-	return fc, nil
+		func(ctx context.Context) (any, error) {
+			return obj.RunID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ulid.ULID) graphql.Marshaler {
+			return ec.marshalNULID2githubᚗcomᚋoklogᚋulidᚋv2ᚐULID(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RunDeferredFrom_runID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RunDeferredFrom", field, false, false, errors.New("field of type ULID does not have child fields"))
 }
 
 func (ec *executionContext) _RunDeferredFrom_function(ctx context.Context, field graphql.CollectedField, obj *models.RunDeferredFrom) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDeferredFrom_function(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.Resolvers.RunDeferredFrom().Function(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(*models.Function)
-	fc.Result = res
-	return ec.marshalNFunction2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐFunction(ctx, field.Selections, res)
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDeferredFrom_function(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.RunDeferredFrom().Function(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *models.Function) graphql.Marshaler {
+			return ec.marshalNFunction2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐFunction(ctx, selections, v)
+		},
+		true,
+		true,
+	)
 }
-
-func (ec *executionContext) fieldContext_RunDeferredFrom_function(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_RunDeferredFrom_function(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "RunDeferredFrom",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "id":
-				return ec.fieldContext_Function_id(ctx, field)
-			case "name":
-				return ec.fieldContext_Function_name(ctx, field)
-			case "slug":
-				return ec.fieldContext_Function_slug(ctx, field)
-			case "failureHandler":
-				return ec.fieldContext_Function_failureHandler(ctx, field)
-			case "config":
-				return ec.fieldContext_Function_config(ctx, field)
-			case "configuration":
-				return ec.fieldContext_Function_configuration(ctx, field)
-			case "concurrency":
-				return ec.fieldContext_Function_concurrency(ctx, field)
-			case "triggers":
-				return ec.fieldContext_Function_triggers(ctx, field)
-			case "url":
-				return ec.fieldContext_Function_url(ctx, field)
-			case "appID":
-				return ec.fieldContext_Function_appID(ctx, field)
-			case "app":
-				return ec.fieldContext_Function_app(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Function", field.Name)
+			return ec.childFields_Function(ctx, field)
 		},
 	}
 	return fc, nil
 }
 
 func (ec *executionContext) _RunDeferredFrom_run(ctx context.Context, field graphql.CollectedField, obj *models.RunDeferredFrom) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RunDeferredFrom_run(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.Resolvers.RunDeferredFrom().Run(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*models.FunctionRunV2)
-	fc.Result = res
-	return ec.marshalOFunctionRunV22ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐFunctionRunV2(ctx, field.Selections, res)
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunDeferredFrom_run(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.RunDeferredFrom().Run(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *models.FunctionRunV2) graphql.Marshaler {
+			return ec.marshalOFunctionRunV22ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐFunctionRunV2(ctx, selections, v)
+		},
+		true,
+		false,
+	)
 }
-
-func (ec *executionContext) fieldContext_RunDeferredFrom_run(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_RunDeferredFrom_run(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "RunDeferredFrom",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "id":
-				return ec.fieldContext_FunctionRunV2_id(ctx, field)
-			case "appID":
-				return ec.fieldContext_FunctionRunV2_appID(ctx, field)
-			case "app":
-				return ec.fieldContext_FunctionRunV2_app(ctx, field)
-			case "functionID":
-				return ec.fieldContext_FunctionRunV2_functionID(ctx, field)
-			case "function":
-				return ec.fieldContext_FunctionRunV2_function(ctx, field)
-			case "traceID":
-				return ec.fieldContext_FunctionRunV2_traceID(ctx, field)
-			case "queuedAt":
-				return ec.fieldContext_FunctionRunV2_queuedAt(ctx, field)
-			case "startedAt":
-				return ec.fieldContext_FunctionRunV2_startedAt(ctx, field)
-			case "endedAt":
-				return ec.fieldContext_FunctionRunV2_endedAt(ctx, field)
-			case "status":
-				return ec.fieldContext_FunctionRunV2_status(ctx, field)
-			case "sourceID":
-				return ec.fieldContext_FunctionRunV2_sourceID(ctx, field)
-			case "triggerIDs":
-				return ec.fieldContext_FunctionRunV2_triggerIDs(ctx, field)
-			case "eventName":
-				return ec.fieldContext_FunctionRunV2_eventName(ctx, field)
-			case "isBatch":
-				return ec.fieldContext_FunctionRunV2_isBatch(ctx, field)
-			case "batchCreatedAt":
-				return ec.fieldContext_FunctionRunV2_batchCreatedAt(ctx, field)
-			case "cronSchedule":
-				return ec.fieldContext_FunctionRunV2_cronSchedule(ctx, field)
-			case "output":
-				return ec.fieldContext_FunctionRunV2_output(ctx, field)
-			case "trace":
-				return ec.fieldContext_FunctionRunV2_trace(ctx, field)
-			case "hasAI":
-				return ec.fieldContext_FunctionRunV2_hasAI(ctx, field)
-			case "defers":
-				return ec.fieldContext_FunctionRunV2_defers(ctx, field)
-			case "siblingDefers":
-				return ec.fieldContext_FunctionRunV2_siblingDefers(ctx, field)
-			case "deferredFrom":
-				return ec.fieldContext_FunctionRunV2_deferredFrom(ctx, field)
-			case "isDeferred":
-				return ec.fieldContext_FunctionRunV2_isDeferred(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type FunctionRunV2", field.Name)
+			return ec.childFields_FunctionRunV2(ctx, field)
 		},
 	}
 	return fc, nil
@@ -17693,13 +17306,12 @@ func (ec *executionContext) unmarshalInputRunsFilterV2(ctx context.Context, obj 
 			}
 			it.AppIDs = data
 		case "isDeferred":
-			var err error
-
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("isDeferred"))
-			it.IsDeferred, err = ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
 			if err != nil {
 				return it, err
 			}
+			it.IsDeferred = data
 		case "query":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("query"))
 			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
@@ -21303,6 +20915,25 @@ func (ec *executionContext) _RunDefer(ctx context.Context, sel ast.SelectionSet,
 				return res
 			}
 
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "runID":
 			out.Values[i] = ec._RunDefer_runID(ctx, field, obj)
@@ -21317,6 +20948,25 @@ func (ec *executionContext) _RunDefer(ctx context.Context, sel ast.SelectionSet,
 				}()
 				res = ec._RunDefer_run(ctx, field, obj)
 				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
@@ -21375,6 +21025,25 @@ func (ec *executionContext) _RunDeferredFrom(ctx context.Context, sel ast.Select
 				return res
 			}
 
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "run":
 			field := field
@@ -21387,6 +21056,25 @@ func (ec *executionContext) _RunDeferredFrom(ctx context.Context, sel ast.Select
 				}()
 				res = ec._RunDeferredFrom_run(ctx, field, obj)
 				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
@@ -23872,39 +23560,11 @@ func (ec *executionContext) marshalNRetryConfiguration2ᚖgithubᚗcomᚋinngest
 }
 
 func (ec *executionContext) marshalNRunDefer2ᚕᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.RunDefer) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNRunDefer2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDefer(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNRunDefer2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDefer(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -23918,14 +23578,14 @@ func (ec *executionContext) marshalNRunDefer2ᚕᚖgithubᚗcomᚋinngestᚋinng
 func (ec *executionContext) marshalNRunDefer2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDefer(ctx context.Context, sel ast.SelectionSet, v *models.RunDefer) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
 		}
 		return graphql.Null
 	}
 	return ec._RunDefer(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNRunDeferStatus2githubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferStatus(ctx context.Context, v interface{}) (models.RunDeferStatus, error) {
+func (ec *executionContext) unmarshalNRunDeferStatus2githubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferStatus(ctx context.Context, v any) (models.RunDeferStatus, error) {
 	var res models.RunDeferStatus
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -23936,39 +23596,11 @@ func (ec *executionContext) marshalNRunDeferStatus2githubᚗcomᚋinngestᚋinng
 }
 
 func (ec *executionContext) marshalNRunDeferredFrom2ᚕᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferredFromᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.RunDeferredFrom) graphql.Marshaler {
-	ret := make(graphql.Array, len(v))
-	var wg sync.WaitGroup
-	isLen1 := len(v) == 1
-	if !isLen1 {
-		wg.Add(len(v))
-	}
-	for i := range v {
-		i := i
-		fc := &graphql.FieldContext{
-			Index:  &i,
-			Result: &v[i],
-		}
-		ctx := graphql.WithFieldContext(ctx, fc)
-		f := func(i int) {
-			defer func() {
-				if r := recover(); r != nil {
-					ec.Error(ctx, ec.Recover(ctx, r))
-					ret = nil
-				}
-			}()
-			if !isLen1 {
-				defer wg.Done()
-			}
-			ret[i] = ec.marshalNRunDeferredFrom2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferredFrom(ctx, sel, v[i])
-		}
-		if isLen1 {
-			f(i)
-		} else {
-			go f(i)
-		}
-
-	}
-	wg.Wait()
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNRunDeferredFrom2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferredFrom(ctx, sel, v[i])
+	})
 
 	for _, e := range ret {
 		if e == graphql.Null {
@@ -23982,7 +23614,7 @@ func (ec *executionContext) marshalNRunDeferredFrom2ᚕᚖgithubᚗcomᚋinngest
 func (ec *executionContext) marshalNRunDeferredFrom2ᚖgithubᚗcomᚋinngestᚋinngestᚋpkgᚋcoreapiᚋgraphᚋmodelsᚐRunDeferredFrom(ctx context.Context, sel ast.SelectionSet, v *models.RunDeferredFrom) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
 		}
 		return graphql.Null
 	}
