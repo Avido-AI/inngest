@@ -200,6 +200,12 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 		)
 	}
 
+	finalizationClaim := e.claimFinalization(ctx, opts.Metadata)
+
+	if !finalizationClaim.Claimed() {
+		return nil
+	}
+
 	// finalizeEvents creates function finished events and durably enqueues
 	// the parent-resume notification for any invoke pause. This runs BEFORE
 	// Delete so that, if the pod is rotated between the two, the worst case
@@ -215,16 +221,19 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 		// enqueue that resumes the parent run. Without this guard, the
 		// backstop finds no metadata and silently no-ops, permanently
 		// stranding the parent.
-		//
-		// The backstop is a KindFinalize queue item enqueued above. When
-		// the queue handler dequeues it and handleFinalize returns an
-		// error, the item is retried according to the queue's retry
-		// policy — so the backstop gets multiple attempts, not just one.
 		l.Error(
 			"finalizeEvents failed, preserving state for backstop retry",
 			"error", feErr,
 			"run_id", opts.Metadata.ID.RunID,
 		)
+		if releaseErr := finalizationClaim.Release(ctx); releaseErr != nil {
+			logger.StdlibLogger(ctx).Warn(
+				"error releasing finalization claim after failed publish",
+				"error", releaseErr,
+				"run_id", opts.Metadata.ID.RunID,
+			)
+			return errors.Join(feErr, releaseErr)
+		}
 		return feErr
 	}
 
@@ -299,18 +308,13 @@ func (e *executor) buildDeferEvents(
 			continue
 		}
 
-		// Deterministic event ID so any duplicate-publish path dedupes on the
-		// runner side (runner.go uses event.ID as the schedule idempotency key).
-		// Time prefix is the parent run's start so the ULID stays well-formed.
-		seed := []byte(opts.Metadata.ID.RunID.String() + d.HashedID)
-		eventID, err := util.DeterministicULID(ulid.Time(opts.Metadata.ID.RunID.Time()), seed)
+		eventID, err := event.DeferEventID(opts.Metadata.ID.RunID, d.HashedID)
 		if err != nil {
-			// Unreachable
 			logger.StdlibLogger(ctx).Error(
-				"error generating deferred event ID",
+				"failed to create defer event ID",
 				"error", err,
+				"hashed_id", d.HashedID,
 				"run_id", opts.Metadata.ID.RunID,
-				"unreachable", true,
 			)
 			metrics.IncrDefersFinalizedCounter(ctx, "invalid", metrics.CounterOpt{PkgName: pkgName})
 			continue
@@ -334,14 +338,13 @@ func (e *executor) buildDeferEvents(
 			}
 		}
 
-		// Local variable name avoids shadowing the imported `meta` package
-		// (see top of file). A future addition that uses meta.NewAttrSet
-		// or similar inside this loop would otherwise fail to compile in
-		// a non-obvious way.
 		deferredMeta := event.DeferredScheduleMetadata{
-			FnSlug:       d.FnSlug,
-			ParentFnSlug: fnSlug,
-			ParentRunID:  opts.Metadata.ID.RunID.String(),
+			FnSlug:          d.FnSlug,
+			ParentAppID:     opts.Metadata.ID.Tenant.AppID,
+			ParentDeferSpan: tracing.DeferSpanRef(opts.Metadata.ID.RunID, d.HashedID),
+			ParentFnID:      opts.Metadata.ID.FunctionID,
+			ParentFnSlug:    fnSlug,
+			ParentRunID:     opts.Metadata.ID.RunID,
 		}
 		if err := deferredMeta.Validate(); err != nil {
 			logger.StdlibLogger(ctx).Error(
