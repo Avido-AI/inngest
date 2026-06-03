@@ -221,7 +221,8 @@ CREATE TABLE public.spans (
     debug_session_id text,
     status text,
     input jsonb,
-    event_ids jsonb
+    event_ids jsonb,
+    is_deferred boolean
 );
 
 --

@@ -18,7 +18,8 @@ const (
 )
 
 func NewSqlcTracerProvider(q dbpkg.Querier) TracerProvider {
-	return NewOtelTracerProvider(&dbExporter{q: q}, 5*time.Second)
+	// With sqlc, write every 50ms.
+	return NewOtelTracerProvider(&dbExporter{q: q}, 50*time.Millisecond)
 }
 
 type dbExporter struct {
@@ -69,6 +70,7 @@ type spanFields struct {
 	debugRunID     string
 	status         string
 	eventIdsByt    []byte
+	isDeferred     bool
 	attrs          map[string]any
 }
 
@@ -144,6 +146,9 @@ func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue
 		return !cleanAttrs
 	case meta.Attrs.UserlandSpanID.Key():
 		return !cleanAttrs
+	case meta.Attrs.DeferParentRunIDs.Key():
+		sf.isDeferred = true
+		return true
 	case meta.Attrs.DropSpan.Key():
 		return !cleanAttrs || !isExtensionSpan
 	default:
@@ -209,7 +214,8 @@ func buildInsertSpanParams(sf spanFields, span sdktrace.ReadOnlySpan, attrsByt, 
 			String: sf.status,
 			Valid:  sf.status != "",
 		},
-		EventIds: sf.eventIdsByt,
+		EventIds:   sf.eventIdsByt,
+		IsDeferred: sql.NullBool{Bool: sf.isDeferred, Valid: sf.isDeferred},
 	}
 }
 

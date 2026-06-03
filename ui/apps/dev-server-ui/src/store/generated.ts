@@ -7,6 +7,8 @@ import type * as Types from './generated-types';
 import type { SpanMetadataKind, SpanMetadataScope } from '@inngest/components/RunDetailsV3/types';
 import { api } from './baseApi';
 export * from './generated-types';
+export type RunDeferSummaryFieldsFragment = { __typename: 'RunDefer', hashedDeferID: string, userlandDeferID: string, fnSlug: string, status: Types.RunDeferStatus, function: { __typename: 'Function', name: string, slug: string } | null, run: { __typename: 'FunctionRunV2', id: string, status: Types.FunctionRunStatus } | null };
+
 export type GetEventQueryVariables = Exact<{
   id: string | number;
 }>;
@@ -104,16 +106,18 @@ export type GetRunsQueryVariables = Exact<{
   functionRunCursor?: string | null | undefined;
   celQuery?: string | null | undefined;
   preview?: boolean | null | undefined;
+  isDeferred?: boolean | null | undefined;
 }>;
 
 
-export type GetRunsQuery = { __typename: 'Query', runs: { __typename: 'RunsV2Connection', edges: Array<{ __typename: 'FunctionRunV2Edge', node: { __typename: 'FunctionRunV2', cronSchedule: string | null, eventName: string | null, id: string, isBatch: boolean, queuedAt: string, endedAt: string | null, startedAt: string | null, status: Types.FunctionRunStatus, hasAI: boolean, app: { __typename: 'App', externalID: string, name: string }, function: { __typename: 'Function', name: string, slug: string } } }>, pageInfo: { __typename: 'PageInfo', hasNextPage: boolean, hasPreviousPage: boolean, startCursor: string | null, endCursor: string | null } } };
+export type GetRunsQuery = { __typename: 'Query', runs: { __typename: 'RunsV2Connection', edges: Array<{ __typename: 'FunctionRunV2Edge', node: { __typename: 'FunctionRunV2', cronSchedule: string | null, eventName: string | null, id: string, isBatch: boolean, queuedAt: string, endedAt: string | null, startedAt: string | null, status: Types.FunctionRunStatus, hasAI: boolean, isDeferred: boolean, app: { __typename: 'App', externalID: string, name: string }, function: { __typename: 'Function', name: string, slug: string }, deferredFrom: Array<{ __typename: 'RunDeferredFrom', runID: string, function: { __typename: 'Function', name: string, slug: string } }> } }>, pageInfo: { __typename: 'PageInfo', hasNextPage: boolean, hasPreviousPage: boolean, startCursor: string | null, endCursor: string | null } } };
 
 export type CountRunsQueryVariables = Exact<{
   startTime: string;
   status?: Array<Types.FunctionRunStatus> | Types.FunctionRunStatus | null | undefined;
   timeField: Types.RunsV2OrderByField;
   preview?: boolean | null | undefined;
+  isDeferred?: boolean | null | undefined;
 }>;
 
 
@@ -164,6 +168,13 @@ export type GetRunQuery = { __typename: 'Query', run: { __typename: 'FunctionRun
         | { __typename: 'WaitForEventStepInfo', eventName: string, expression: string | null, timeout: string, foundEventID: string | null, timedOut: boolean | null }
         | { __typename: 'WaitForSignalStepInfo', signal: string, timeout: string, timedOut: boolean | null }
        | null, response: { __typename: 'RunTraceSpanResponseInfo', statusCode: number, headers: Record<string, string|string[]> } | null } | null } | null };
+
+export type GetRunLinkageQueryVariables = Exact<{
+  runID: string;
+}>;
+
+
+export type GetRunLinkageQuery = { __typename: 'Query', run: { __typename: 'FunctionRunV2', defers: Array<{ __typename: 'RunDefer', hashedDeferID: string, userlandDeferID: string, fnSlug: string, status: Types.RunDeferStatus, function: { __typename: 'Function', name: string, slug: string } | null, run: { __typename: 'FunctionRunV2', id: string, status: Types.FunctionRunStatus } | null }>, siblingDefers: Array<{ __typename: 'RunDefer', hashedDeferID: string, userlandDeferID: string, fnSlug: string, status: Types.RunDeferStatus, function: { __typename: 'Function', name: string, slug: string } | null, run: { __typename: 'FunctionRunV2', id: string, status: Types.FunctionRunStatus } | null }>, deferredFrom: Array<{ __typename: 'RunDeferredFrom', runID: string, function: { __typename: 'Function', name: string, slug: string }, run: { __typename: 'FunctionRunV2', id: string, status: Types.FunctionRunStatus } | null }> } | null };
 
 export type GetRunTraceQueryVariables = Exact<{
   runID: string;
@@ -326,6 +337,22 @@ const TypedDocumentString = String as unknown as new <TResult, TVariables>(
   value: string,
   meta?: Record<string, any>,
 ) => string;
+export const RunDeferSummaryFieldsFragmentDoc = new TypedDocumentString(`
+    fragment RunDeferSummaryFields on RunDefer {
+  hashedDeferID
+  userlandDeferID
+  fnSlug
+  status
+  function {
+    name
+    slug
+  }
+  run {
+    id
+    status
+  }
+}
+    `, {"fragmentName":"RunDeferSummaryFields"});
 export const TraceDetailsFragmentDoc = new TypedDocumentString(`
     fragment TraceDetails on RunTraceSpan {
   name
@@ -616,9 +643,9 @@ export const RerunFromStepDocument = new TypedDocumentString(`
 }
     `);
 export const GetRunsDocument = new TypedDocumentString(`
-    query GetRuns($appIDs: [UUID!], $startTime: Time!, $status: [FunctionRunStatus!], $timeField: RunsV2OrderByField!, $functionRunCursor: String = null, $celQuery: String = null, $preview: Boolean = false) {
+    query GetRuns($appIDs: [UUID!], $startTime: Time!, $status: [FunctionRunStatus!], $timeField: RunsV2OrderByField!, $functionRunCursor: String = null, $celQuery: String = null, $preview: Boolean = false, $isDeferred: Boolean = null) {
   runs(
-    filter: {appIDs: $appIDs, from: $startTime, status: $status, timeField: $timeField, query: $celQuery}
+    filter: {appIDs: $appIDs, from: $startTime, status: $status, timeField: $timeField, query: $celQuery, isDeferred: $isDeferred}
     orderBy: [{field: $timeField, direction: DESC}]
     after: $functionRunCursor
     preview: $preview
@@ -642,6 +669,14 @@ export const GetRunsDocument = new TypedDocumentString(`
         startedAt
         status
         hasAI
+        isDeferred
+        deferredFrom {
+          runID
+          function {
+            name
+            slug
+          }
+        }
       }
     }
     pageInfo {
@@ -654,9 +689,9 @@ export const GetRunsDocument = new TypedDocumentString(`
 }
     `);
 export const CountRunsDocument = new TypedDocumentString(`
-    query CountRuns($startTime: Time!, $status: [FunctionRunStatus!], $timeField: RunsV2OrderByField!, $preview: Boolean = false) {
+    query CountRuns($startTime: Time!, $status: [FunctionRunStatus!], $timeField: RunsV2OrderByField!, $preview: Boolean = false, $isDeferred: Boolean = null) {
   runs(
-    filter: {from: $startTime, status: $status, timeField: $timeField}
+    filter: {from: $startTime, status: $status, timeField: $timeField, isDeferred: $isDeferred}
     orderBy: [{field: $timeField, direction: DESC}]
     preview: $preview
   ) {
@@ -758,6 +793,42 @@ export const GetRunDocument = new TypedDocumentString(`
   response {
     statusCode
     headers
+  }
+}`);
+export const GetRunLinkageDocument = new TypedDocumentString(`
+    query GetRunLinkage($runID: String!) {
+  run(runID: $runID) {
+    defers {
+      ...RunDeferSummaryFields
+    }
+    siblingDefers {
+      ...RunDeferSummaryFields
+    }
+    deferredFrom {
+      runID
+      function {
+        name
+        slug
+      }
+      run {
+        id
+        status
+      }
+    }
+  }
+}
+    fragment RunDeferSummaryFields on RunDefer {
+  hashedDeferID
+  userlandDeferID
+  fnSlug
+  status
+  function {
+    name
+    slug
+  }
+  run {
+    id
+    status
   }
 }`);
 export const GetRunTraceDocument = new TypedDocumentString(`
@@ -1155,6 +1226,9 @@ const injectedRtkApi = api.injectEndpoints({
     GetRun: build.query<GetRunQuery, GetRunQueryVariables>({
       query: (variables) => ({ document: GetRunDocument, variables })
     }),
+    GetRunLinkage: build.query<GetRunLinkageQuery, GetRunLinkageQueryVariables>({
+      query: (variables) => ({ document: GetRunLinkageDocument, variables })
+    }),
     GetRunTrace: build.query<GetRunTraceQuery, GetRunTraceQueryVariables>({
       query: (variables) => ({ document: GetRunTraceDocument, variables })
     }),
@@ -1195,5 +1269,5 @@ const injectedRtkApi = api.injectEndpoints({
 });
 
 export { injectedRtkApi as api };
-export const { useGetEventQuery, useLazyGetEventQuery, useGetFunctionsQuery, useLazyGetFunctionsQuery, useGetFunctionQuery, useLazyGetFunctionQuery, useGetAppsQuery, useLazyGetAppsQuery, useGetAppQuery, useLazyGetAppQuery, useCreateAppMutation, useUpdateAppMutation, useDeleteAppMutation, useInvokeFunctionMutation, useCancelRunMutation, useRerunMutation, useRerunFromStepMutation, useGetRunsQuery, useLazyGetRunsQuery, useCountRunsQuery, useLazyCountRunsQuery, useGetRunQuery, useLazyGetRunQuery, useGetRunTraceQuery, useLazyGetRunTraceQuery, useGetTraceResultQuery, useLazyGetTraceResultQuery, useGetTriggerQuery, useLazyGetTriggerQuery, useGetWorkerConnectionsQuery, useLazyGetWorkerConnectionsQuery, useCountWorkerConnectionsQuery, useLazyCountWorkerConnectionsQuery, useGetEventsV2Query, useLazyGetEventsV2Query, useGetEventV2Query, useLazyGetEventV2Query, useGetEventV2PayloadQuery, useLazyGetEventV2PayloadQuery, useGetEventV2RunsQuery, useLazyGetEventV2RunsQuery, useCreateDebugSessionMutation, useGetDebugRunQuery, useLazyGetDebugRunQuery, useGetDebugSessionQuery, useLazyGetDebugSessionQuery } = injectedRtkApi;
+export const { useGetEventQuery, useLazyGetEventQuery, useGetFunctionsQuery, useLazyGetFunctionsQuery, useGetFunctionQuery, useLazyGetFunctionQuery, useGetAppsQuery, useLazyGetAppsQuery, useGetAppQuery, useLazyGetAppQuery, useCreateAppMutation, useUpdateAppMutation, useDeleteAppMutation, useInvokeFunctionMutation, useCancelRunMutation, useRerunMutation, useRerunFromStepMutation, useGetRunsQuery, useLazyGetRunsQuery, useCountRunsQuery, useLazyCountRunsQuery, useGetRunQuery, useLazyGetRunQuery, useGetRunLinkageQuery, useLazyGetRunLinkageQuery, useGetRunTraceQuery, useLazyGetRunTraceQuery, useGetTraceResultQuery, useLazyGetTraceResultQuery, useGetTriggerQuery, useLazyGetTriggerQuery, useGetWorkerConnectionsQuery, useLazyGetWorkerConnectionsQuery, useCountWorkerConnectionsQuery, useLazyCountWorkerConnectionsQuery, useGetEventsV2Query, useLazyGetEventsV2Query, useGetEventV2Query, useLazyGetEventV2Query, useGetEventV2PayloadQuery, useLazyGetEventV2PayloadQuery, useGetEventV2RunsQuery, useLazyGetEventV2RunsQuery, useCreateDebugSessionMutation, useGetDebugRunQuery, useLazyGetDebugRunQuery, useGetDebugSessionQuery, useLazyGetDebugSessionQuery } = injectedRtkApi;
 

@@ -83,21 +83,22 @@ type UpdateSpanOptions struct {
 
 // otelTracerProvider implements TracerProvider.
 type otelTracerProvider struct {
-	bsp sdktrace.SpanProcessor
+	exp sdktrace.SpanExporter
+	bt  time.Duration
 }
 
 func NewOtelTracerProvider(exp sdktrace.SpanExporter, batchTimeout time.Duration) TracerProvider {
 	return &otelTracerProvider{
-		bsp: sdktrace.NewBatchSpanProcessor(
-			exp,
-			sdktrace.WithBatchTimeout(batchTimeout),
-		),
+		exp: exp,
+		bt:  batchTimeout,
 	}
 }
 
 func (tp *otelTracerProvider) getTracer(md *statev2.Metadata) trace.Tracer {
+	base := sdktrace.NewSimpleSpanProcessor(tp.exp)
+
 	otelTP := sdktrace.NewTracerProvider(
-		sdktrace.WithSpanProcessor(newExecutionProcessor(md, tp.bsp)),
+		sdktrace.WithSpanProcessor(newExecutionProcessor(md, base)),
 		sdktrace.WithIDGenerator(idGen),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
