@@ -89,7 +89,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@graphql-codegen/cli": "7.1.1",
+    "@graphql-codegen/cli": "7.1.2",
     "@graphql-codegen/client-preset": "6.0.1",
     "@tailwindcss/container-queries": "0.1.1",
     "@types/mustache": "4.2.6",
