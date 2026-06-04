@@ -9,7 +9,7 @@ require (
 	connectrpc.com/connect v1.20.0
 	cuelang.org/go v0.16.1
 	github.com/99designs/gqlgen v0.17.90
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/MauriceGit/skiplist v0.0.0-20211105230623-77f5c8d3e145
 	github.com/VividCortex/ewma v1.2.0
