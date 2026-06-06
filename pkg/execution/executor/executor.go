@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1000,6 +1001,7 @@ func (e *executor) schedule(
 			AccountID:        req.AccountID,
 			WorkspaceID:      req.WorkspaceID,
 			AppID:            req.AppID,
+			AppName:          req.AppName,
 			FunctionID:       req.Function.ID,
 			FunctionVersion:  req.Function.FunctionVersion,
 			EventID:          req.Events[0].GetInternalID(),
@@ -1128,6 +1130,9 @@ func (e *executor) schedule(
 	// Some scenarios are happy path (e.g.  queue idempotency) and some are sad
 	// path (e.g. Executor borked)
 	sendSpans := func() {
+		_, span := e.conditionalTracer.NewSpan(ctx, "executor.schedule.send_spans", req.AccountID, req.WorkspaceID, req.Function.ID)
+		defer span.End()
+
 		if runSpanRef != nil {
 			err := runSpanRef.Send()
 			if err != nil {
@@ -1266,7 +1271,9 @@ func (e *executor) schedule(
 	// Check if the function should be skipped (paused, draining, backlog limit)
 	// Only check if not already marked as skipped (e.g., by singleton)
 	if skipReason == enums.SkipReasonNone {
+		_, span := e.conditionalTracer.NewSpan(ctx, "executor.schedule.skipped", req.AccountID, req.WorkspaceID, req.Function.ID)
 		skipReason = e.skipped(ctx, req)
+		span.End()
 	}
 
 	// Create run state if not skipped
@@ -1316,11 +1323,30 @@ func (e *executor) schedule(
 		}
 	}
 
+	at := e.now()
+	if req.BatchID == nil {
+		evtTs := time.UnixMilli(req.Events[0].GetEvent().Timestamp)
+		if evtTs.After(at) {
+			// Schedule functions in the future if there's a future
+			// event `ts` field.
+			at = evtTs
+		}
+	}
+	if req.At != nil {
+		at = *req.At
+	}
+
+	// Fudge the timestamp slightly so that scheduledAt >= queuedAt
+	scheduledAt := slices.MaxFunc([]time.Time{at, runID.Timestamp()}, time.Time.Compare)
+
 	runTimestamp := runID.Timestamp()
 	var scheduleTypePtr *enums.ScheduleType
 	if req.ScheduleType != enums.ScheduleTypeUnknown {
 		scheduleTypePtr = &req.ScheduleType
 	}
+	functionName := req.Function.Name
+	functionSlug := req.Function.GetSlug()
+	appName := req.AppName
 	runSpanOpts := &tracing.CreateSpanOptions{
 		Debug:    &tracing.SpanDebugData{Location: "executor.Schedule"},
 		Metadata: &metadata,
@@ -1330,8 +1356,12 @@ func (e *executor) schedule(
 			meta.Attr(meta.Attrs.EventsInput, &strEvts),
 			meta.Attr(meta.Attrs.TriggeringEventName, eventName),
 			meta.Attr(meta.Attrs.QueuedAt, &runTimestamp),
+			meta.Attr(meta.Attrs.ScheduledAt, &scheduledAt),
 			meta.Attr(meta.Attrs.ReplayOriginalRunID, req.OriginalRunID),
 			meta.Attr(meta.Attrs.RunScheduleType, scheduleTypePtr),
+			meta.Attr(meta.Attrs.AppName, &appName),
+			meta.Attr(meta.Attrs.FunctionName, &functionName),
+			meta.Attr(meta.Attrs.FunctionSlug, &functionSlug),
 		),
 		Seed: []byte(metadata.ID.RunID[:]),
 	}
@@ -1417,19 +1447,6 @@ func (e *executor) schedule(
 		}
 	}
 
-	at := e.now()
-	if req.BatchID == nil {
-		evtTs := time.UnixMilli(req.Events[0].GetEvent().Timestamp)
-		if evtTs.After(at) {
-			// Schedule functions in the future if there's a future
-			// event `ts` field.
-			at = evtTs
-		}
-	}
-	if req.At != nil {
-		at = *req.At
-	}
-
 	// Prefix the workflow to the job ID so that no invocation can accidentally
 	// cause idempotency issues across users/functions.
 	//
@@ -1501,7 +1518,9 @@ func (e *executor) schedule(
 	}
 
 	// Schedule for async functons (the default)
+	_, queueSpan := e.conditionalTracer.NewSpan(ctx, "executor.schedule.queue_enqueue", req.AccountID, req.WorkspaceID, req.Function.ID)
 	err = e.queue.Enqueue(ctx, item, at, queue.EnqueueOpts{})
+	queueSpan.End()
 
 	switch err {
 	case nil:
@@ -1606,23 +1625,28 @@ func (e *executor) Execute(ctx context.Context, id state.Identifier, item queue.
 	conditionalTraceCtx, conditionalSpan := e.conditionalTracer.NewSpan(ctx, "executor.Execute", id.AccountID, id.WorkspaceID, id.WorkflowID)
 	defer conditionalSpan.End()
 
+	requestID := driver.DispatchRequestID(e.now(), id.RunID, queue.GenerationIDFromContext(ctx)).String()
+
+	jobID := queue.JobIDFromContext(ctx)
+	if item.JobID != nil {
+		jobID = *item.JobID
+	}
+
 	// Immediately store execution context for tracing.
 	ctx = tracing.WithExecutionContext(ctx, tracing.ExecutionContext{
 		Identifier:  sv2.IDFromV1(id),
 		Attempt:     item.Attempt,
 		MaxAttempts: item.MaxAttempts,
 		QueueKind:   item.Kind,
+		RequestID:   inngestgo.Ptr(requestID),
+		GroupID:     inngestgo.Ptr(item.GroupID),
+		JobID:       inngestgo.Ptr(jobID),
 	})
 
 	if e.fl == nil {
 		return nil, fmt.Errorf("no function loader specified running step")
 	}
 
-	requestID := driver.DispatchRequestID(e.now(), id.RunID, queue.GenerationIDFromContext(ctx)).String()
-	jobID := queue.JobIDFromContext(ctx)
-	if item.JobID != nil {
-		jobID = *item.JobID
-	}
 	ctx = driver.WithRequestIDs(ctx, requestID, jobID)
 
 	l := e.log.With(
@@ -1876,8 +1900,10 @@ func (e *executor) Execute(ctx context.Context, id state.Identifier, item queue.
 
 	// This span will be updated with output as soon as execution finishes.
 	execAttrs := tracing.FunctionAttrs(&instance.f)
-	meta.AddAttr(execAttrs, meta.Attrs.RequestID, &instance.requestID)
-	meta.AddAttr(execAttrs, meta.Attrs.JobID, &instance.jobID)
+	meta.AddAttr(execAttrs, meta.Attrs.StartedAt, &start)
+	runningStatus := enums.StepStatusRunning
+	meta.AddAttr(execAttrs, meta.Attrs.DynamicStatus, &runningStatus)
+	tracing.AddQueueTimestampAttrs(execAttrs, item)
 
 	instance.execSpan, err = e.tracerProvider.CreateSpan(
 		ctx,
@@ -1914,8 +1940,6 @@ func (e *executor) Execute(ctx context.Context, id state.Identifier, item queue.
 		// XX: This is going to drop any sleep requests, because DriverResponseAttrs
 		// forces the drop field if resp.IsDiscoveryResponse() is true.
 		responseAttrs := tracing.DriverResponseAttrs(resp, nil)
-		meta.AddAttr(responseAttrs, meta.Attrs.RequestID, &instance.requestID)
-		meta.AddAttr(responseAttrs, meta.Attrs.JobID, &instance.jobID)
 
 		updateOpts := &tracing.UpdateSpanOptions{
 			Debug:      &tracing.SpanDebugData{Location: "executor.ExecutePost"},
@@ -3904,6 +3928,7 @@ func (e *executor) handleGeneratorStep(ctx context.Context, runCtx execution.Run
 						meta.Attr(meta.Attrs.StepName, inngestgo.Ptr(gen.UserDefinedName())),
 						meta.Attr(meta.Attrs.RunID, &runCtx.Metadata().ID.RunID),
 						meta.Attr(meta.Attrs.QueuedAt, inngestgo.Ptr(gen.Timing.Start())),
+						meta.Attr(meta.Attrs.ScheduledAt, inngestgo.Ptr(gen.Timing.Start())),
 						meta.Attr(meta.Attrs.StartedAt, inngestgo.Ptr(gen.Timing.Start())),
 						meta.Attr(meta.Attrs.EndedAt, inngestgo.Ptr(gen.Timing.End())),
 						meta.Attr(meta.Attrs.DynamicStatus, inngestgo.Ptr(enums.StepStatusCompleted)),
@@ -4218,6 +4243,8 @@ func (e *executor) handleGeneratorStepPlanned(ctx context.Context, runCtx execut
 
 	parent := tracing.RunSpanRefFromMetadata(runCtx.Metadata())
 	attrs := tracing.GeneratorAttrs(&gen)
+	meta.AddAttr(attrs, meta.Attrs.QueuedAt, &now)
+	meta.AddAttr(attrs, meta.Attrs.ScheduledAt, &now)
 
 	lifecycleItem := runCtx.LifecycleItem()
 	span, err := e.tracerProvider.CreateDroppableSpan(
@@ -4295,6 +4322,8 @@ func (e *executor) handleGeneratorSleep(ctx context.Context, runCtx execution.Ru
 
 	lifecycleItem := runCtx.LifecycleItem()
 	metadata := runCtx.Metadata()
+	attrs := tracing.GeneratorAttrs(&gen)
+	tracing.AddQueueTimestampAttrs(attrs, runCtx.LifecycleItem())
 
 	// Create a new span that we'll use to record the sleep as complete.
 	// This is going to be attached to the same parent (the discovery step that started this sleep).
@@ -4308,7 +4337,7 @@ func (e *executor) handleGeneratorSleep(ctx context.Context, runCtx execution.Ru
 			Metadata:    metadata,
 			QueueItem:   &nextItem,
 			Parent:      runCtx.ParentSpan(),
-			Attributes:  tracing.GeneratorAttrs(&gen),
+			Attributes:  attrs,
 		},
 	)
 	if err != nil {
@@ -4882,6 +4911,9 @@ func (e *executor) handleGeneratorWaitForSignal(ctx context.Context, runCtx exec
 	}
 
 	lifecycleItem := runCtx.LifecycleItem()
+	attrs := tracing.GeneratorAttrs(&gen)
+	tracing.AddQueueTimestampAttrs(attrs, lifecycleItem)
+
 	span, err := e.tracerProvider.CreateDroppableSpan(
 		ctx,
 		meta.SpanNameStep,
@@ -4892,7 +4924,7 @@ func (e *executor) handleGeneratorWaitForSignal(ctx context.Context, runCtx exec
 			Metadata:    runCtx.Metadata(),
 			QueueItem:   &nextItem,
 			Parent:      tracing.RunSpanRefFromMetadata(runCtx.Metadata()),
-			Attributes:  tracing.GeneratorAttrs(&gen),
+			Attributes:  attrs,
 			StartTime:   now,
 		},
 	)
@@ -5526,6 +5558,10 @@ func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx exe
 		Metadata:     make(map[string]any),
 		ParallelMode: gen.ParallelMode(),
 	}
+	attrs := tracing.GeneratorAttrs(&gen)
+	tracing.AddQueueTimestampAttrs(attrs, runCtx.LifecycleItem())
+	// Always correlate the triggering event ID with the invoked step.
+	meta.AddAttr(attrs, meta.Attrs.StepInvokeTriggerEventID, &evt.ID)
 
 	lifecycleItem := runCtx.LifecycleItem()
 	span, err := e.tracerProvider.CreateDroppableSpan(
@@ -5539,10 +5575,7 @@ func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx exe
 			Metadata:    runCtx.Metadata(),
 			QueueItem:   &nextItem,
 			Parent:      tracing.RunSpanRefFromMetadata(runCtx.Metadata()),
-			Attributes: tracing.GeneratorAttrs(&gen).Merge(
-				// Always correlate the triggering event ID with the invoked step.
-				meta.NewAttrSet(meta.Attr(meta.Attrs.StepInvokeTriggerEventID, &evt.ID)),
-			),
+			Attributes:  attrs,
 		},
 	)
 	if err != nil {
@@ -5749,6 +5782,8 @@ func (e *executor) handleGeneratorWaitForEvent(ctx context.Context, runCtx execu
 		Metadata:     make(map[string]any),
 		ParallelMode: gen.ParallelMode(),
 	}
+	attrs := tracing.GeneratorAttrs(&gen)
+	tracing.AddQueueTimestampAttrs(attrs, runCtx.LifecycleItem())
 
 	lifecycleItem := runCtx.LifecycleItem()
 	span, err := e.tracerProvider.CreateDroppableSpan(
@@ -5761,7 +5796,7 @@ func (e *executor) handleGeneratorWaitForEvent(ctx context.Context, runCtx execu
 			Metadata:    runCtx.Metadata(),
 			QueueItem:   &nextItem,
 			Parent:      tracing.RunSpanRefFromMetadata(runCtx.Metadata()),
-			Attributes:  tracing.GeneratorAttrs(&gen),
+			Attributes:  attrs,
 		},
 	)
 	if err != nil {

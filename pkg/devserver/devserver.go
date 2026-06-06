@@ -728,6 +728,7 @@ func start(ctx context.Context, opts StartOpts) error {
 		EventKeysProvider:   apiv2.NewEventKeysProvider(opts.EventKeys),
 		Functions:           NewFunctionProvider(dbcqrs),
 		FunctionRuns:        NewFunctionRunReader(dbcqrs),
+		RunList:             NewRunsReader(adapter.Q()),
 		FunctionTraces:      NewFunctionTraceReader(dbcqrs),
 		Executor:            exec,
 		EventPublisher:      runner,
@@ -752,6 +753,7 @@ func start(ctx context.Context, opts StartOpts) error {
 		{At: "/", Router: devAPI},
 		{At: "/v0", Router: core.Router},
 		{At: "/api/v2", Handler: apiv2Handler},
+		{At: "/v2", Handler: apiv2Handler},
 		{At: "/debug", Handler: middleware.Profiler()},
 		{At: "/metrics", Router: metricsAPI.Router},
 	}
