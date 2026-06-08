@@ -5,9 +5,22 @@ package dbutil
 import (
 	"io/fs"
 	"regexp"
+	"strings"
 )
 
-var createTableRe = regexp.MustCompile(`(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?`)
+var (
+	createTableRe  = regexp.MustCompile(`(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-zA-Z_][a-zA-Z0-9_]*)"?`)
+	blockCommentRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
+	lineCommentRe  = regexp.MustCompile(`--[^\n]*`)
+)
+
+// stripSQLComments removes block (/* */) and line (--) comments so that a
+// commented-out CREATE TABLE is not mistaken for a real one.
+func stripSQLComments(b []byte) []byte {
+	b = blockCommentRe.ReplaceAll(b, []byte(" "))
+	b = lineCommentRe.ReplaceAll(b, []byte(""))
+	return b
+}
 
 // MigrationTableNames returns the names of every table created by the SQL
 // migration files in dir of fsys, plus goose's version table. It is used to
@@ -35,14 +48,14 @@ func MigrationTableNames(fsys fs.FS, dir string) ([]string, error) {
 
 	add("goose_db_version")
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
 			continue
 		}
 		b, err := fs.ReadFile(fsys, dir+"/"+e.Name())
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range createTableRe.FindAllSubmatch(b, -1) {
+		for _, m := range createTableRe.FindAllSubmatch(stripSQLComments(b), -1) {
 			add(string(m[1]))
 		}
 	}

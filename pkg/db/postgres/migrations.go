@@ -34,10 +34,9 @@ type Options struct {
 	// purposes. By default database handlers are singletons, but when this flag
 	// is enabled, each call creates a new connection.
 	ForTest bool
-	// Reset, when true, drops every table in the connection's current schema
-	// before running migrations, so Migrate recreates a clean database. Used to
-	// wipe all Inngest state for a full reset. Assumes a dedicated Inngest
-	// database.
+	// Reset, when true, drops Inngest's own tables before running migrations, so
+	// Migrate recreates a clean database. Used to wipe all Inngest state for a
+	// full reset. Other tables in the database are left untouched.
 	Reset bool
 }
 

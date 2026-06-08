@@ -38,9 +38,9 @@ type Options struct {
 	ForTest bool
 	// Directory is the path at which the SQLite database should be stored.
 	Directory string
-	// Reset, when true, drops every user table before running migrations, so
+	// Reset, when true, drops Inngest's own tables before running migrations, so
 	// Migrate recreates a clean database. Used to wipe all Inngest state for a
-	// full reset.
+	// full reset. Other tables in the database are left untouched.
 	Reset bool
 }
 
