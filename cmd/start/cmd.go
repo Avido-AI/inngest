@@ -130,7 +130,7 @@ func Command() *cli.Command {
 			// Cleanup flags
 			&cli.BoolFlag{
 				Category: "Cleanup",
-				Name:     "cleanup-enabled",
+				Name:     "cleanup",
 				Value:    true,
 				Usage:    "Enable background database cleanup loop that purges old data based on retention policy",
 			},

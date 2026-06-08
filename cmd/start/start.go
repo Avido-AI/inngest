@@ -141,7 +141,7 @@ func action(ctx context.Context, cmd *cli.Command) error {
 		Tick:                    time.Duration(tick) * time.Millisecond,
 		URLs:                    sdkURLs,
 		Cleanup: cleanup.Config{
-			Enabled:       localconfig.GetBoolValue(cmd, "cleanup-enabled", true),
+			Enabled:       localconfig.GetBoolValue(cmd, "cleanup", true),
 			Interval:      time.Duration(localconfig.GetIntValue(cmd, "cleanup-interval-minutes", 10)) * time.Minute,
 			RetentionDays: localconfig.GetIntValue(cmd, "cleanup-retention-days", 7),
 			BatchSize:     localconfig.GetIntValue(cmd, "cleanup-batch-size", 5000),
