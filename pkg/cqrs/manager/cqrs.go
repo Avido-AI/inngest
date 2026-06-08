@@ -2286,20 +2286,53 @@ func newRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runsQuer
 func (w wrapper) GetTraceRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt) (int, error) {
 	// explicitly set it to zero so it would not attempt to paginate
 	opt.Items = 0
-	var (
-		res []*cqrs.TraceRun
-		err error
-	)
+
+	// The span path expresses every filter in SQL, so it can count the grouped
+	// subquery directly instead of materializing every matching run.
 	if opt.Preview {
-		res, err = w.GetSpanRuns(ctx, opt)
-	} else {
-		res, err = w.GetTraceRuns(ctx, opt)
+		return w.getSpanRunsCount(ctx, opt)
 	}
+
+	// The non-preview trace_runs path post-filters event-ID and output CEL
+	// expressions in Go (see GetTraceRuns), so a SQL COUNT(*) is only exact when
+	// neither is present. When they are, fall back to counting the materialized
+	// rows so the count stays correct.
+	expHandler, err := run.NewExpressionHandler(ctx,
+		run.WithExpressionHandlerBlob(opt.Filter.CEL, "\n"),
+	)
+	if err != nil {
+		return 0, err
+	}
+	if !expHandler.HasEventFilters() && !expHandler.HasOutputFilters() {
+		return w.getTraceRunsCountSQL(ctx, opt)
+	}
+
+	res, err := w.GetTraceRuns(ctx, opt)
+	if err != nil {
+		return 0, err
+	}
+	return len(res), nil
+}
+
+// getTraceRunsCountSQL counts trace_runs rows matching opt with a SQL COUNT(*).
+// Only safe when the caller has confirmed there are no Go-side post-filters
+// (event-ID / output CEL); see GetTraceRunsCount.
+func (w wrapper) getTraceRunsCountSQL(ctx context.Context, opt cqrs.GetTraceRunOpt) (int, error) {
+	builder := newRunsQueryBuilder(ctx, opt)
+	sqlQuery, args, err := sq.Dialect(w.dialect()).
+		From("trace_runs").
+		Select(sq.COUNT(sq.Star())).
+		Where(builder.filter...).
+		ToSQL()
 	if err != nil {
 		return 0, err
 	}
 
-	return len(res), nil
+	var count int
+	if err := w.adapter.Conn().QueryRowContext(ctx, sqlQuery, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (w wrapper) GetTraceRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
@@ -3007,26 +3040,9 @@ func (w wrapper) GetSpanRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*c
 	l := logger.StdlibLogger(ctx)
 	h := w.helpers()
 
-	builder := newSpanRunsQueryBuilder(ctx, opt)
-
-	// Parse CEL expressions using adapter's converter
-	var celFilters []sq.Expression
-	var useJoin bool
-	if opt.Filter.CEL != "" {
-		expHandler, err := run.NewExpressionHandler(ctx,
-			run.WithExpressionHandlerBlob(opt.Filter.CEL, "\n"),
-			run.WithExpressionSQLConverter(h.CELConverter()),
-		)
-		if err != nil {
-			return nil, err
-		}
-		if expHandler.HasFilters() {
-			celFilters, err = expHandler.ToSQLFilters(ctx)
-			if err != nil {
-				return nil, err
-			}
-			useJoin = needsEventJoin(opt.Filter.CEL)
-		}
+	base, builder, err := w.buildSpanRunsBaseQuery(ctx, opt)
+	if err != nil {
+		return nil, err
 	}
 
 	selectCols := []interface{}{
@@ -3052,16 +3068,6 @@ func (w wrapper) GetSpanRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*c
 		h.EventIDsExpr(), // DB-specific due to storage differences
 	}
 
-	groupByCols := []interface{}{
-		"spans.run_id",
-		"spans.dynamic_span_id",
-		"spans.account_id",
-		"spans.env_id",
-		"spans.app_id",
-		"spans.function_id",
-		"spans.trace_id",
-	}
-
 	// Build ORDER BY for aggregated columns
 	var orderExprs []sqexp.OrderedExpression
 	for _, o := range opt.Order {
@@ -3085,6 +3091,67 @@ func (w wrapper) GetSpanRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*c
 	}
 	// always add run_id at the end for stable sorting
 	orderExprs = append(orderExprs, sq.C("run_id").Asc())
+
+	q := base.Select(selectCols...).Order(orderExprs...)
+	if opt.Items > 0 {
+		q = q.Limit(opt.Items + 1) // fetch one more item than requested to determine hasNextPage
+	}
+
+	sqlQuery, args, err := q.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+
+	l.Debug("GetSpanRuns query", "sql", sqlQuery, "args", args)
+
+	rows, err := w.adapter.Conn().QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		l.Debug("GetSpanRuns query error", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	return w.convertSpanRunRows(ctx, rows, builder.cursorLayout, h, opt.Items)
+}
+
+// buildSpanRunsBaseQuery builds the shared FROM/JOIN/WHERE/GROUP BY for the
+// span-based run list. GetSpanRuns layers SELECT/ORDER BY/LIMIT on top for the
+// list; getSpanRunsCount wraps it in a COUNT(*). Keeping the filtering and
+// grouping in one place stops the list and count queries from drifting apart.
+func (w wrapper) buildSpanRunsBaseQuery(ctx context.Context, opt cqrs.GetTraceRunOpt) (*sq.SelectDataset, *runsQueryBuilder, error) {
+	h := w.helpers()
+
+	builder := newSpanRunsQueryBuilder(ctx, opt)
+
+	// Parse CEL expressions using adapter's converter
+	var celFilters []sq.Expression
+	var useJoin bool
+	if opt.Filter.CEL != "" {
+		expHandler, err := run.NewExpressionHandler(ctx,
+			run.WithExpressionHandlerBlob(opt.Filter.CEL, "\n"),
+			run.WithExpressionSQLConverter(h.CELConverter()),
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		if expHandler.HasFilters() {
+			celFilters, err = expHandler.ToSQLFilters(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			useJoin = needsEventJoin(opt.Filter.CEL)
+		}
+	}
+
+	groupByCols := []interface{}{
+		"spans.run_id",
+		"spans.dynamic_span_id",
+		"spans.account_id",
+		"spans.env_id",
+		"spans.app_id",
+		"spans.function_id",
+		"spans.trace_id",
+	}
 
 	q := sq.Dialect(h.GoquDialect()).From("spans")
 	if useJoin {
@@ -3124,33 +3191,47 @@ func (w wrapper) GetSpanRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*c
 	if opt.Filter.TimeField != enums.TraceRunTimeEndedAt {
 		innerPreds = append(innerPreds, sq.C("start_time").Gte(opt.Filter.From.UTC()))
 	}
-	q = q.Select(selectCols...).
-		Where(sq.L("spans.dynamic_span_id").In(
-			sq.Dialect(h.GoquDialect()).Select("dynamic_span_id").From("spans").Where(innerPreds...),
-		)).
+	q = q.Where(sq.L("spans.dynamic_span_id").In(
+		sq.Dialect(h.GoquDialect()).Select("dynamic_span_id").From("spans").Where(innerPreds...),
+	)).
 		Where(allFilters...).
-		GroupBy(groupByCols...).
-		Order(orderExprs...)
+		GroupBy(groupByCols...)
 
-	if opt.Items > 0 {
-		q = q.Limit(opt.Items + 1) // fetch one more item than requested to determine hasNextPage
-	}
+	return q, builder, nil
+}
 
-	sqlQuery, args, err := q.ToSQL()
+// getSpanRunsCount counts the distinct span-based runs matching opt. Every
+// filter for the span path is expressed in SQL (unlike the trace_runs path,
+// which post-filters event/output CEL in Go), so counting the grouped subquery
+// is exact — and it rides the same start_time/name indexes as the list query
+// instead of materializing every matching row.
+func (w wrapper) getSpanRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt) (int, error) {
+	l := logger.StdlibLogger(ctx)
+	h := w.helpers()
+
+	base, _, err := w.buildSpanRunsBaseQuery(ctx, opt)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	l.Debug("GetSpanRuns query", "sql", sqlQuery, "args", args)
+	// base carries the GROUP BY, so each row is one run; wrap it and count rows.
+	countQ := sq.Dialect(h.GoquDialect()).
+		From(base.Select(sq.L("1")).As("runs")).
+		Select(sq.COUNT(sq.Star()))
 
-	rows, err := w.adapter.Conn().QueryContext(ctx, sqlQuery, args...)
+	sqlQuery, args, err := countQ.ToSQL()
 	if err != nil {
-		l.Debug("GetSpanRuns query error", "error", err)
-		return nil, err
+		return 0, err
 	}
-	defer rows.Close()
 
-	return w.convertSpanRunRows(ctx, rows, builder.cursorLayout, h, opt.Items)
+	l.Debug("getSpanRunsCount query", "sql", sqlQuery, "args", args)
+
+	var count int
+	if err := w.adapter.Conn().QueryRowContext(ctx, sqlQuery, args...).Scan(&count); err != nil {
+		l.Debug("getSpanRunsCount query error", "error", err)
+		return 0, err
+	}
+	return count, nil
 }
 
 // convertSpanRunRows converts database rows to TraceRun structs

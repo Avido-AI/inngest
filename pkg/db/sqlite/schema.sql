@@ -214,3 +214,5 @@ CREATE UNIQUE INDEX functions_app_id_slug_active_key
 CREATE UNIQUE INDEX apps_name_unique_key
     ON apps (name)
     WHERE name <> '';
+CREATE INDEX idx_spans_name_start_time_dynamic_span_id ON spans(name, start_time, dynamic_span_id);
+CREATE INDEX idx_spans_start_time ON spans(start_time);
