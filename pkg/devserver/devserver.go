@@ -21,6 +21,7 @@ import (
 	"github.com/inngest/inngest/pkg/api/v2/apiv2base"
 	"github.com/inngest/inngest/pkg/authn"
 	"github.com/inngest/inngest/pkg/azure"
+	"github.com/inngest/inngest/pkg/cleanup"
 	"github.com/inngest/inngest/pkg/backoff"
 	"github.com/inngest/inngest/pkg/config"
 	connectConfig "github.com/inngest/inngest/pkg/config/connect"
@@ -161,6 +162,9 @@ type StartOpts struct {
 	// and then exits cleanly without starting any service. Used to recover an
 	// instance whose Redis has hit maxmemory and is crash-looping.
 	Reset bool `json:"reset"`
+
+	// Cleanup configures the background database cleanup loop.
+	Cleanup cleanup.Config `json:"cleanup"`
 
 	// Debug API
 	DebugAPIPort int `json:"debugAPIPort"`
@@ -835,6 +839,12 @@ func start(ctx context.Context, opts StartOpts) error {
 			BatchManager: batcher,
 			Debouncer:    debouncer,
 		}))
+	}
+
+	// Background database cleanup (retention purging).
+	if opts.Cleanup.Enabled && adapter.Dialect() == dbpkg.DialectPostgres {
+		cleanupSvc := cleanup.NewService(opts.Cleanup, adapter.Conn(), l)
+		services = append(services, cleanupSvc)
 	}
 
 	// Drain all service.Go() goroutines before deferred Redis cleanup runs.

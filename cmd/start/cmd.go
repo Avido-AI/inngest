@@ -126,6 +126,32 @@ func Command() *cli.Command {
 				Name:     "reset",
 				Usage:    "DESTRUCTIVE: on startup, wipe ALL Inngest state (Redis queue/run-state AND Postgres history/config), then exit without serving. Discards queued/in-flight runs and history; apps re-sync on next boot. Use to recover an OOM-wedged instance, then remove this flag.",
 			},
+
+			// Cleanup flags
+			&cli.BoolFlag{
+				Category: "Cleanup",
+				Name:     "cleanup",
+				Value:    true,
+				Usage:    "Enable background database cleanup loop that purges old data based on retention policy",
+			},
+			&cli.IntFlag{
+				Category: "Cleanup",
+				Name:     "cleanup-interval-minutes",
+				Value:    10,
+				Usage:    "Minutes between cleanup passes",
+			},
+			&cli.IntFlag{
+				Category: "Cleanup",
+				Name:     "cleanup-retention-days",
+				Value:    7,
+				Usage:    "Delete data older than this many days",
+			},
+			&cli.IntFlag{
+				Category: "Cleanup",
+				Name:     "cleanup-batch-size",
+				Value:    5000,
+				Usage:    "Rows deleted per batch (bounds transaction size and WAL volume)",
+			},
 		},
 	}
 
