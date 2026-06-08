@@ -33,6 +33,11 @@ type Options struct {
 	// purposes. By default database handlers are singletons, but when this flag
 	// is enabled, each call creates a new connection.
 	ForTest bool
+	// Reset, when true, drops every table in the connection's current schema
+	// before running migrations, so Migrate recreates a clean database. Used to
+	// wipe all Inngest state for a full reset. Assumes a dedicated Inngest
+	// database.
+	Reset bool
 }
 
 // openAzurePostgres creates a *sql.DB using Azure Workload Identity authentication.
@@ -122,12 +127,52 @@ func Open(ctx context.Context, opts Options) (*sql.DB, error) {
 		return nil, err
 	}
 
+	if opts.Reset {
+		l.Warn("reset is set: dropping all Inngest Postgres tables before migrating")
+		if err := resetSchema(ctx, conn); err != nil {
+			return nil, fmt.Errorf("error resetting postgres: %w", err)
+		}
+	}
+
 	if err := Migrate(ctx, conn); err != nil {
 		return nil, err
 	}
 	l.Info("ran database migrations")
 
 	return conn, nil
+}
+
+// resetSchema drops every table in the connection's current schema so that
+// Migrate recreates a clean database, including goose's own version table.
+// Assumes a dedicated Inngest database.
+func resetSchema(ctx context.Context, conn *sql.DB) error {
+	rows, err := conn.QueryContext(ctx,
+		`SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)
+	if err != nil {
+		return err
+	}
+	var tables []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			rows.Close()
+			return err
+		}
+		tables = append(tables, t)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, t := range tables {
+		if _, err := conn.ExecContext(ctx,
+			fmt.Sprintf(`DROP TABLE IF EXISTS %q CASCADE`, t)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Migrate(ctx context.Context, conn *sql.DB) error {

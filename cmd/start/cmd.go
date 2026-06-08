@@ -121,6 +121,11 @@ func Command() *cli.Command {
 				Name:     "no-ui",
 				Usage:    "Disable the web UI and GraphQL API endpoint",
 			},
+			&cli.BoolFlag{
+				Category: "Advanced",
+				Name:     "reset",
+				Usage:    "DESTRUCTIVE: on startup, wipe ALL Inngest state (Redis queue/run-state AND Postgres history/config), then exit without serving. Discards queued/in-flight runs and history; apps re-sync on next boot. Use to recover an OOM-wedged instance, then remove this flag.",
+			},
 		},
 	}
 
