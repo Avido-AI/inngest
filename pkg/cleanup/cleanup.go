@@ -62,6 +62,13 @@ func (s *Service) Run(ctx context.Context) error {
 		return nil
 	}
 
+	if s.cfg.Interval <= 0 {
+		s.cfg.Interval = DefaultInterval
+	}
+	if s.cfg.RetentionDays <= 0 {
+		s.cfg.RetentionDays = DefaultRetentionDays
+	}
+
 	// Run immediately on startup to catch up after restarts.
 	s.runCleanup(ctx)
 
@@ -127,6 +134,11 @@ func (s *Service) runCleanup(ctx context.Context) {
 
 // batchDelete loops DELETE ... WHERE ctid IN (SELECT ctid ... LIMIT N) until
 // zero rows are affected or the context is cancelled.
+//
+// Safety: table and whereClause MUST be compile-time constants from the package-
+// level archivedTables / timestampTables slices. They are interpolated via
+// fmt.Sprintf (not parameterised) because Postgres does not allow parameterised
+// identifiers. Never pass user-controlled strings.
 func (s *Service) batchDelete(ctx context.Context, table, whereClause string, arg any) int64 {
 	query := fmt.Sprintf(
 		`DELETE FROM %s WHERE ctid IN (SELECT ctid FROM %s WHERE %s LIMIT %d)`,
