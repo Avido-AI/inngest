@@ -156,6 +156,12 @@ type StartOpts struct {
 	// SQLiteDir specifies where SQLite files should be stored
 	SQLiteDir string `json:"sqlite_dir"`
 
+	// Reset, when true, turns startup into a one-shot maintenance run: it wipes
+	// all Inngest state from both Postgres (drop + re-migrate) and Redis (flush)
+	// and then exits cleanly without starting any service. Used to recover an
+	// instance whose Redis has hit maxmemory and is crash-looping.
+	Reset bool `json:"reset"`
+
 	// Debug API
 	DebugAPIPort int `json:"debugAPIPort"`
 }
@@ -196,7 +202,7 @@ func start(ctx context.Context, opts StartOpts) error {
 		Helpers() driverhelp.DialectHelpers
 	}
 	if opts.PostgresURI != "" || azure.IsAzureAuthEnabled() {
-		db, err := dbpostgres.Open(ctx, dbpostgres.Options{URI: opts.PostgresURI})
+		db, err := dbpostgres.Open(ctx, dbpostgres.Options{URI: opts.PostgresURI, Reset: opts.Reset})
 		if err != nil {
 			return err
 		}
@@ -205,6 +211,7 @@ func start(ctx context.Context, opts StartOpts) error {
 		db, err := dbsqlite.Open(ctx, dbsqlite.Options{
 			Persist:   opts.Persist,
 			Directory: opts.SQLiteDir,
+			Reset:     opts.Reset,
 		})
 		if err != nil {
 			return err
@@ -299,6 +306,22 @@ func start(ctx context.Context, opts StartOpts) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	if opts.Reset {
+		// The database (Postgres or SQLite) was already dropped + re-migrated in
+		// the dbpostgres/dbsqlite Open call above. Flush Redis here, then exit
+		// cleanly without starting any service. We
+		// land after Redis client setup but before any manager/service is
+		// constructed, so nothing attempts to claim a lease or enqueue (which
+		// would fail under maxmemory anyway). FLUSHDB is not a denyoom command,
+		// so it succeeds even when Redis has hit maxmemory.
+		l.Warn("reset is set: flushing ALL Inngest data from Redis (queued + in-flight runs will be lost)")
+		if err := flushRedis(ctx, shardedRc, unshardedRc, connectRc, realtimePubRc, realtimeSubRc); err != nil {
+			return fmt.Errorf("reset redis flush failed: %w", err)
+		}
+		l.Warn("reset complete (database + Redis wiped); remove --reset / INNGEST_RESET and start normally")
+		return nil
 	}
 
 	unshardedClient := redis_state.NewUnshardedClient(unshardedRc, redis_state.StateDefaultKey, redis_state.QueueDefaultKey)
@@ -519,11 +542,11 @@ func start(ctx context.Context, opts StartOpts) error {
 		}),
 		executor.WithLifecycleListeners(
 			append([]execution.LifecycleListener{
-					history.NewLifecycleListener(
-						l,
-						history.NewBufferedDriver(hd, l),
-						hmw,
-					),
+				history.NewLifecycleListener(
+					l,
+					history.NewBufferedDriver(hd, l),
+					hmw,
+				),
 				Lifecycle{
 					Cqrs:       dbcqrs,
 					Pb:         pb,
@@ -1130,6 +1153,29 @@ func createRedisClients(opt rueidis.ClientOption) (sharded, unsharded, connect r
 		return nil, nil, nil, fmt.Errorf("error creating connect redis client: %w", err)
 	}
 	return sharded, unsharded, connect, nil
+}
+
+// flushRedis issues FLUSHDB ASYNC against each distinct client's Redis. The
+// sharded, unsharded, and connect clients normally point at the same instance
+// and DB (different key prefixes), so a single flush clears everything; issuing
+// per distinct client is idempotent and stays correct if they ever diverge.
+// FLUSHDB is not a denyoom command, so this succeeds even when Redis has hit
+// maxmemory and ordinary writes are being rejected.
+func flushRedis(ctx context.Context, clients ...rueidis.Client) error {
+	seen := map[rueidis.Client]struct{}{}
+	for _, rc := range clients {
+		if rc == nil {
+			continue
+		}
+		if _, dup := seen[rc]; dup {
+			continue
+		}
+		seen[rc] = struct{}{}
+		if err := rc.Do(ctx, rc.B().Flushdb().Async().Build()).Error(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func connectToOrCreateRedis(redisURI string) (rueidis.Client, error) {

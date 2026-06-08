@@ -132,6 +132,7 @@ func action(ctx context.Context, cmd *cli.Command) error {
 		PostgresURI:             postgresURI,
 		QueueWorkers:            localconfig.GetIntValue(cmd, "queue-workers", devserver.DefaultQueueWorkers),
 		RedisURI:                redisURI,
+		Reset:                   localconfig.GetBoolValue(cmd, "reset", false),
 		RequireKeys:             true,
 		RetryInterval:           localconfig.GetIntValue(cmd, "retry-interval", 0),
 		SigningKey:              &signingKey,
