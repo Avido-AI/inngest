@@ -1918,6 +1918,156 @@ func TestCQRSGetTraceRunsExcludesSkipped(t *testing.T) {
 	assert.Equal(t, completedRunID, runs[0].RunID)
 }
 
+func TestCQRSGetTraceRunsCount(t *testing.T) {
+	// Verifies the preview count path (getSpanRunsCount) returns the same count
+	// as listing the runs, counts distinct runs, and honors the same filters.
+	ctx := context.Background()
+	appID := uuid.New()
+
+	cm, cleanup := initCQRS(t, withInitCQRSOptApp(appID))
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	functionID := uuid.New()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+
+	// 3 visible runs (one deferred) plus 1 skipped run that must not be counted.
+	for i := 0; i < 3; i++ {
+		insertTestSpan(t, cm, testSpanFields{
+			RunID:         ulid.MustNew(ulid.Now(), rand.Reader).String(),
+			DynamicSpanID: fmt.Sprintf("dyn-%d", i),
+			Name:          "executor.run",
+			Status:        enums.RunStatusCompleted.String(),
+			IsDeferred:    i == 0, // exactly one deferred run
+			StartTime:     baseTime.Add(time.Duration(i) * time.Second),
+			AccountID:     accountID.String(),
+			AppID:         appID.String(),
+			FunctionID:    functionID.String(),
+			EnvID:         workspaceID.String(),
+		})
+	}
+	insertTestSpan(t, cm, testSpanFields{
+		RunID:         ulid.MustNew(ulid.Now(), rand.Reader).String(),
+		DynamicSpanID: "dyn-skipped",
+		Name:          "executor.run",
+		Status:        enums.RunStatusSkipped.String(),
+		StartTime:     baseTime.Add(3 * time.Second),
+		AccountID:     accountID.String(),
+		AppID:         appID.String(),
+		FunctionID:    functionID.String(),
+		EnvID:         workspaceID.String(),
+	})
+
+	filter := cqrs.GetTraceRunFilter{
+		AccountID:   accountID,
+		WorkspaceID: workspaceID,
+		FunctionID:  []uuid.UUID{functionID},
+		TimeField:   enums.TraceRunTimeStartedAt,
+		From:        baseTime.Add(-time.Hour),
+		Until:       baseTime.Add(time.Hour),
+	}
+	opt := cqrs.GetTraceRunOpt{
+		Filter:  filter,
+		Order:   []cqrs.GetTraceRunOrder{{Field: enums.TraceRunTimeStartedAt, Direction: enums.TraceRunOrderDesc}},
+		Items:   100,
+		Preview: true,
+	}
+
+	t.Run("count matches list length and excludes skipped", func(t *testing.T) {
+		runs, err := cm.GetTraceRuns(ctx, opt)
+		require.NoError(t, err)
+		require.Len(t, runs, 3)
+
+		count, err := cm.GetTraceRunsCount(ctx, opt)
+		require.NoError(t, err)
+		assert.Equal(t, len(runs), count, "count should match the number of listed runs")
+	})
+
+	t.Run("count honors isDeferred filter", func(t *testing.T) {
+		deferred := true
+		deferredOpt := opt
+		deferredOpt.Filter.IsDeferred = &deferred
+
+		count, err := cm.GetTraceRunsCount(ctx, deferredOpt)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "only the single deferred run should be counted")
+	})
+
+	t.Run("count ignores pagination cursor", func(t *testing.T) {
+		// Fetch one page to obtain a real cursor partway through the result set.
+		pageOpt := opt
+		pageOpt.Items = 1
+		page, err := cm.GetTraceRuns(ctx, pageOpt)
+		require.NoError(t, err)
+		require.Len(t, page, 1)
+		require.NotEmpty(t, page[0].Cursor)
+
+		// The count must reflect the full result set, not just the runs after the
+		// cursor, so totalCount stays constant as the user pages.
+		cursorOpt := opt
+		cursorOpt.Cursor = page[0].Cursor
+		count, err := cm.GetTraceRunsCount(ctx, cursorOpt)
+		require.NoError(t, err)
+		assert.Equal(t, 3, count, "count should ignore the pagination cursor")
+	})
+}
+
+func TestCQRSGetTraceRunsCountNonPreview(t *testing.T) {
+	// Exercises the non-preview SQL COUNT(*) path (getTraceRunsCountSQL) against
+	// the trace_runs table.
+	ctx := context.Background()
+	appID := uuid.New()
+
+	cm, cleanup := initCQRS(t, withInitCQRSOptApp(appID))
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	functionID := uuid.New()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+
+	for i := 0; i < 4; i++ {
+		runID := ulid.MustNew(ulid.Now(), rand.Reader)
+		ts := baseTime.Add(time.Duration(i) * time.Second)
+		require.NoError(t, cm.InsertTraceRun(ctx, &cqrs.TraceRun{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			AppID:       appID,
+			FunctionID:  functionID,
+			TraceID:     "trace-" + runID.String(),
+			RunID:       runID.String(),
+			QueuedAt:    ts,
+			StartedAt:   ts,
+			EndedAt:     ts.Add(time.Second),
+			TriggerIDs:  []string{ulid.Make().String()},
+			Status:      enums.RunStatusCompleted,
+		}))
+	}
+
+	opt := cqrs.GetTraceRunOpt{
+		Filter: cqrs.GetTraceRunFilter{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			FunctionID:  []uuid.UUID{functionID},
+			TimeField:   enums.TraceRunTimeStartedAt,
+			From:        baseTime.Add(-time.Hour),
+			Until:       baseTime.Add(time.Hour),
+		},
+		Order:   []cqrs.GetTraceRunOrder{{Field: enums.TraceRunTimeStartedAt, Direction: enums.TraceRunOrderDesc}},
+		Items:   100,
+		Preview: false,
+	}
+
+	runs, err := cm.GetTraceRuns(ctx, opt)
+	require.NoError(t, err)
+	require.Len(t, runs, 4)
+
+	count, err := cm.GetTraceRunsCount(ctx, opt)
+	require.NoError(t, err)
+	assert.Equal(t, len(runs), count, "non-preview count should match the listed runs")
+}
+
 //
 // Span Tests
 //
@@ -2106,6 +2256,7 @@ type testSpanFields struct {
 	DebugSessionID string    // for debug session tests
 	Name           string    // default: "test-span"
 	Status         string    // default: "" (NULL)
+	IsDeferred     bool      // sets is_deferred TRUE; false leaves it NULL (non-deferred)
 	StartTime      time.Time // default: time.Now()
 	AccountID      string    // default: "acct"
 	AppID          string    // default: "app"
@@ -2159,6 +2310,7 @@ func insertTestSpan(t *testing.T, cm cqrs.Manager, spanFields testSpanFields) {
 		FunctionID:     spanFields.FunctionID,
 		EnvID:          spanFields.EnvID,
 		DynamicSpanID:  sql.NullString{String: spanFields.DynamicSpanID, Valid: spanFields.DynamicSpanID != ""},
+		IsDeferred:     sql.NullBool{Bool: true, Valid: spanFields.IsDeferred},
 		DebugRunID:     sql.NullString{String: spanFields.DebugRunID, Valid: spanFields.DebugRunID != ""},
 		DebugSessionID: sql.NullString{String: spanFields.DebugSessionID, Valid: spanFields.DebugSessionID != ""},
 		Attributes:     spanFields.Attributes,
