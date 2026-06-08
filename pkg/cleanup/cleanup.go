@@ -68,6 +68,9 @@ func (s *Service) Run(ctx context.Context) error {
 	if s.cfg.RetentionDays <= 0 {
 		s.cfg.RetentionDays = DefaultRetentionDays
 	}
+	if s.cfg.BatchSize <= 0 {
+		s.cfg.BatchSize = DefaultBatchSize
+	}
 
 	// Run immediately on startup to catch up after restarts.
 	s.runCleanup(ctx)

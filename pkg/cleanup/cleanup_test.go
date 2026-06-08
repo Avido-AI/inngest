@@ -83,6 +83,21 @@ func TestRun_ZeroRetentionDefaultsToSafe(t *testing.T) {
 	}
 }
 
+func TestRun_ZeroBatchSizeDefaultsToSafe(t *testing.T) {
+	logger := &testLogger{}
+	svc := NewService(Config{
+		Enabled:       true,
+		Interval:      10 * time.Minute,
+		RetentionDays: 7,
+		BatchSize:     0, // would cause LIMIT 0 (silent no-op) without guard
+	}, nil, logger)
+
+	ctx := context.Background()
+	if err := svc.Run(ctx); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Enabled {
