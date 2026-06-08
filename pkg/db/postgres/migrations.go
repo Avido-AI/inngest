@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/inngest/inngest/pkg/azure"
+	"github.com/inngest/inngest/pkg/db/dbutil"
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -33,10 +34,9 @@ type Options struct {
 	// purposes. By default database handlers are singletons, but when this flag
 	// is enabled, each call creates a new connection.
 	ForTest bool
-	// Reset, when true, drops every table in the connection's current schema
-	// before running migrations, so Migrate recreates a clean database. Used to
-	// wipe all Inngest state for a full reset. Assumes a dedicated Inngest
-	// database.
+	// Reset, when true, drops Inngest's own tables before running migrations, so
+	// Migrate recreates a clean database. Used to wipe all Inngest state for a
+	// full reset. Other tables in the database are left untouched.
 	Reset bool
 }
 
@@ -142,30 +142,15 @@ func Open(ctx context.Context, opts Options) (*sql.DB, error) {
 	return conn, nil
 }
 
-// resetSchema drops every table in the connection's current schema so that
-// Migrate recreates a clean database, including goose's own version table.
-// Assumes a dedicated Inngest database.
+// resetSchema drops only the tables Inngest owns (those its migrations create,
+// plus goose's version table) so that Migrate recreates a clean database. Any
+// other tables in the database are left untouched, so it is safe to run against
+// a database shared with other applications.
 func resetSchema(ctx context.Context, conn *sql.DB) error {
-	rows, err := conn.QueryContext(ctx,
-		`SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)
+	tables, err := dbutil.MigrationTableNames(MigrationsFS, "migrations")
 	if err != nil {
 		return err
 	}
-	var tables []string
-	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err != nil {
-			rows.Close()
-			return err
-		}
-		tables = append(tables, t)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close()
-
 	for _, t := range tables {
 		// pgx.Identifier.Sanitize quotes per Postgres identifier rules (doubling
 		// embedded quotes); Go's %q uses Go string escaping, which is wrong here.

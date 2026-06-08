@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/inngest/inngest/pkg/consts"
+	"github.com/inngest/inngest/pkg/db/dbutil"
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/oklog/ulid/v2"
 	"github.com/pressly/goose/v3"
@@ -37,9 +38,9 @@ type Options struct {
 	ForTest bool
 	// Directory is the path at which the SQLite database should be stored.
 	Directory string
-	// Reset, when true, drops every user table before running migrations, so
+	// Reset, when true, drops Inngest's own tables before running migrations, so
 	// Migrate recreates a clean database. Used to wipe all Inngest state for a
-	// full reset.
+	// full reset. Other tables in the database are left untouched.
 	Reset bool
 }
 
@@ -96,10 +97,17 @@ func Open(ctx context.Context, opts Options) (*sql.DB, error) {
 	return conn, nil
 }
 
-// resetSchema drops every user table (including goose's version table) so that
-// Migrate recreates a clean database. It runs on a single connection with
+// resetSchema drops only the tables Inngest owns (those its migrations create,
+// plus goose's version table) so that Migrate recreates a clean database. Any
+// other tables are left untouched, so it is safe to run against a database
+// shared with other applications. It runs on a single connection with
 // foreign-key enforcement disabled so tables can be dropped in any order.
 func resetSchema(ctx context.Context, db *sql.DB) error {
+	tables, err := dbutil.MigrationTableNames(MigrationsFS, "migrations")
+	if err != nil {
+		return err
+	}
+
 	c, err := db.Conn(ctx)
 	if err != nil {
 		return err
@@ -109,26 +117,6 @@ func resetSchema(ctx context.Context, db *sql.DB) error {
 	if _, err := c.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 		return err
 	}
-
-	rows, err := c.QueryContext(ctx,
-		`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
-	if err != nil {
-		return err
-	}
-	var tables []string
-	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err != nil {
-			rows.Close()
-			return err
-		}
-		tables = append(tables, t)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close()
 
 	for _, t := range tables {
 		quoted := `"` + strings.ReplaceAll(t, `"`, `""`) + `"`
