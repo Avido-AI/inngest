@@ -17,9 +17,9 @@ var (
 // stripSQLComments removes block (/* */) and line (--) comments so that a
 // commented-out CREATE TABLE is not mistaken for a real one.
 func stripSQLComments(b []byte) []byte {
-	b = blockCommentRe.ReplaceAll(b, []byte(" "))
-	b = lineCommentRe.ReplaceAll(b, []byte(""))
-	return b
+	stripped := blockCommentRe.ReplaceAll(b, []byte(" "))
+	stripped = lineCommentRe.ReplaceAll(stripped, []byte(""))
+	return stripped
 }
 
 // MigrationTableNames returns the names of every table created by the SQL
