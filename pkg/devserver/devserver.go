@@ -309,8 +309,9 @@ func start(ctx context.Context, opts StartOpts) error {
 	}
 
 	if opts.Reset {
-		// Postgres was already dropped + re-migrated in dbpostgres.Open above.
-		// Flush Redis here, then exit cleanly without starting any service. We
+		// The database (Postgres or SQLite) was already dropped + re-migrated in
+		// the dbpostgres/dbsqlite Open call above. Flush Redis here, then exit
+		// cleanly without starting any service. We
 		// land after Redis client setup but before any manager/service is
 		// constructed, so nothing attempts to claim a lease or enqueue (which
 		// would fail under maxmemory anyway). FLUSHDB is not a denyoom command,
