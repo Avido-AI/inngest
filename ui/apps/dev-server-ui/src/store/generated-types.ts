@@ -839,6 +839,7 @@ export type RunTraceSpan = {
   duration: Maybe<Scalars['Int']['output']>;
   endedAt: Maybe<Scalars['Time']['output']>;
   functionID: Scalars['UUID']['output'];
+  groupID: Maybe<Scalars['String']['output']>;
   isRoot: Scalars['Boolean']['output'];
   isUserland: Scalars['Boolean']['output'];
   metadata: Array<SpanMetadata>;
@@ -850,6 +851,7 @@ export type RunTraceSpan = {
   response: Maybe<RunTraceSpanResponseInfo>;
   run: FunctionRun;
   runID: Scalars['ULID']['output'];
+  scheduledAt: Maybe<Scalars['Time']['output']>;
   skipExistingRunID: Maybe<Scalars['String']['output']>;
   skipReason: Maybe<Scalars['String']['output']>;
   spanID: Scalars['String']['output'];

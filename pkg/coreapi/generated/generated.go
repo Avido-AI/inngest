@@ -472,6 +472,7 @@ type ComplexityRoot struct {
 		Duration          func(childComplexity int) int
 		EndedAt           func(childComplexity int) int
 		FunctionID        func(childComplexity int) int
+		GroupID           func(childComplexity int) int
 		IsRoot            func(childComplexity int) int
 		IsUserland        func(childComplexity int) int
 		Metadata          func(childComplexity int) int
@@ -483,6 +484,7 @@ type ComplexityRoot struct {
 		Response          func(childComplexity int) int
 		Run               func(childComplexity int) int
 		RunID             func(childComplexity int) int
+		ScheduledAt       func(childComplexity int) int
 		SkipExistingRunID func(childComplexity int) int
 		SkipReason        func(childComplexity int) int
 		SpanID            func(childComplexity int) int
@@ -2599,6 +2601,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.RunTraceSpan.FunctionID(childComplexity), true
+	case "RunTraceSpan.groupID":
+		if e.ComplexityRoot.RunTraceSpan.GroupID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RunTraceSpan.GroupID(childComplexity), true
 	case "RunTraceSpan.isRoot":
 		if e.ComplexityRoot.RunTraceSpan.IsRoot == nil {
 			break
@@ -2665,6 +2673,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.RunTraceSpan.RunID(childComplexity), true
+	case "RunTraceSpan.scheduledAt":
+		if e.ComplexityRoot.RunTraceSpan.ScheduledAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RunTraceSpan.ScheduledAt(childComplexity), true
 	case "RunTraceSpan.skipExistingRunID":
 		if e.ComplexityRoot.RunTraceSpan.SkipExistingRunID == nil {
 			break
@@ -4022,6 +4036,7 @@ type RunTraceSpan {
   # Internal
   spanID: String! # internal span ID, or a virtual span ID
   traceID: String! # the internal ID of the trace this span belongs to
+  groupID: String # the group ID of this span, used for grouping spans together in the UI, e.g. retries
   # Required
   name: String! # the name of the span
   status: RunTraceSpanStatus! # the status of the span
@@ -4032,6 +4047,7 @@ type RunTraceSpan {
   duration: Int # the duration of the span in milliseconds (calculated), if null, it's still running
   outputID: String
   queuedAt: Time!
+  scheduledAt: Time # the time this span was scheduled to run
   startedAt: Time # the start time of the span
   endedAt: Time # the end time of the span, only present if it's ended
   childrenSpans: [RunTraceSpan!]! # the children spans of this span - invoke
@@ -4904,6 +4920,8 @@ func (ec *executionContext) childFields_RunTraceSpan(ctx context.Context, field 
 		return ec.fieldContext_RunTraceSpan_spanID(ctx, field)
 	case "traceID":
 		return ec.fieldContext_RunTraceSpan_traceID(ctx, field)
+	case "groupID":
+		return ec.fieldContext_RunTraceSpan_groupID(ctx, field)
 	case "name":
 		return ec.fieldContext_RunTraceSpan_name(ctx, field)
 	case "status":
@@ -4916,6 +4934,8 @@ func (ec *executionContext) childFields_RunTraceSpan(ctx context.Context, field 
 		return ec.fieldContext_RunTraceSpan_outputID(ctx, field)
 	case "queuedAt":
 		return ec.fieldContext_RunTraceSpan_queuedAt(ctx, field)
+	case "scheduledAt":
+		return ec.fieldContext_RunTraceSpan_scheduledAt(ctx, field)
 	case "startedAt":
 		return ec.fieldContext_RunTraceSpan_startedAt(ctx, field)
 	case "endedAt":
@@ -13371,6 +13391,29 @@ func (ec *executionContext) fieldContext_RunTraceSpan_traceID(_ context.Context,
 	return graphql.NewScalarFieldContext("RunTraceSpan", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _RunTraceSpan_groupID(ctx context.Context, field graphql.CollectedField, obj *models.RunTraceSpan) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunTraceSpan_groupID(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.GroupID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_RunTraceSpan_groupID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RunTraceSpan", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _RunTraceSpan_name(ctx context.Context, field graphql.CollectedField, obj *models.RunTraceSpan) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -13506,6 +13549,29 @@ func (ec *executionContext) _RunTraceSpan_queuedAt(ctx context.Context, field gr
 	)
 }
 func (ec *executionContext) fieldContext_RunTraceSpan_queuedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RunTraceSpan", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _RunTraceSpan_scheduledAt(ctx context.Context, field graphql.CollectedField, obj *models.RunTraceSpan) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RunTraceSpan_scheduledAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ScheduledAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *time.Time) graphql.Marshaler {
+			return ec.marshalOTime2ᚖtimeᚐTime(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_RunTraceSpan_scheduledAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("RunTraceSpan", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
@@ -21628,6 +21694,8 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "groupID":
+			out.Values[i] = ec._RunTraceSpan_groupID(ctx, field, obj)
 		case "name":
 			out.Values[i] = ec._RunTraceSpan_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21649,6 +21717,8 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "scheduledAt":
+			out.Values[i] = ec._RunTraceSpan_scheduledAt(ctx, field, obj)
 		case "startedAt":
 			out.Values[i] = ec._RunTraceSpan_startedAt(ctx, field, obj)
 		case "endedAt":

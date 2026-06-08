@@ -33,9 +33,7 @@ func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpt
 	}
 
 	if item.QueueName == nil {
-		if name, ok := q.queueKindMapping[item.Kind]; ok {
-			item.QueueName = &name
-		}
+		item.QueueName = q.defaultQueueNameForItemKind(item.Kind)
 	}
 
 	qi := QueueItem{
@@ -77,7 +75,9 @@ func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, o
 		return err
 	}
 
+	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.Enqueue.select_shard", item.Identifier.AccountID, item.Identifier.WorkspaceID, item.Identifier.WorkflowID)
 	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, qi)
+	span.End()
 	if err != nil {
 		return err
 	}

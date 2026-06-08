@@ -243,6 +243,8 @@ type ScheduleRequest struct {
 	WorkspaceID uuid.UUID
 	// AppID is the app that this request belongs to.
 	AppID uuid.UUID
+	// AppName is the app ID defined in user code.
+	AppName string
 	// RunID allows specifying a run ID for the scheduled run.  This is entirely
 	// optional, and allows clients to choose a run ID when scheduling.  We need this
 	// for run IDs with API-based checkpointing.
@@ -318,6 +320,7 @@ func NewScheduleRequest(f inngest.DeployedFunction) ScheduleRequest {
 		AccountID:   f.AccountID,
 		WorkspaceID: f.EnvironmentID,
 		AppID:       f.AppID,
+		AppName:     f.AppName,
 	}
 	if !f.PausedAt.IsZero() {
 		req.FunctionPausedAt = &f.PausedAt
