@@ -9,6 +9,7 @@ import (
 	localconfig "github.com/inngest/inngest/cmd/internal/config"
 	"github.com/inngest/inngest/pkg/api"
 	"github.com/inngest/inngest/pkg/authn"
+	"github.com/inngest/inngest/pkg/cleanup"
 	"github.com/inngest/inngest/pkg/config"
 	connectConfig "github.com/inngest/inngest/pkg/config/connect"
 	connectgrpc "github.com/inngest/inngest/pkg/connect/grpc"
@@ -139,6 +140,12 @@ func action(ctx context.Context, cmd *cli.Command) error {
 		SQLiteDir:               sqliteDir,
 		Tick:                    time.Duration(tick) * time.Millisecond,
 		URLs:                    sdkURLs,
+		Cleanup: cleanup.Config{
+			Enabled:       localconfig.GetBoolValue(cmd, "cleanup-enabled", true),
+			Interval:      time.Duration(localconfig.GetIntValue(cmd, "cleanup-interval-minutes", 10)) * time.Minute,
+			RetentionDays: localconfig.GetIntValue(cmd, "cleanup-retention-days", 7),
+			BatchSize:     localconfig.GetIntValue(cmd, "cleanup-batch-size", 5000),
+		},
 		ConnectGRPCConfig: connectConfig.NewGRPCConfig(
 			ctx,
 			connectgrpc.DefaultConnectGRPCIP, connectGatewayGRPCPort,
