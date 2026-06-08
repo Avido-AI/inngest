@@ -1993,6 +1993,79 @@ func TestCQRSGetTraceRunsCount(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, count, "only the single deferred run should be counted")
 	})
+
+	t.Run("count ignores pagination cursor", func(t *testing.T) {
+		// Fetch one page to obtain a real cursor partway through the result set.
+		pageOpt := opt
+		pageOpt.Items = 1
+		page, err := cm.GetTraceRuns(ctx, pageOpt)
+		require.NoError(t, err)
+		require.Len(t, page, 1)
+		require.NotEmpty(t, page[0].Cursor)
+
+		// The count must reflect the full result set, not just the runs after the
+		// cursor, so totalCount stays constant as the user pages.
+		cursorOpt := opt
+		cursorOpt.Cursor = page[0].Cursor
+		count, err := cm.GetTraceRunsCount(ctx, cursorOpt)
+		require.NoError(t, err)
+		assert.Equal(t, 3, count, "count should ignore the pagination cursor")
+	})
+}
+
+func TestCQRSGetTraceRunsCountNonPreview(t *testing.T) {
+	// Exercises the non-preview SQL COUNT(*) path (getTraceRunsCountSQL) against
+	// the trace_runs table.
+	ctx := context.Background()
+	appID := uuid.New()
+
+	cm, cleanup := initCQRS(t, withInitCQRSOptApp(appID))
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	functionID := uuid.New()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+
+	for i := 0; i < 4; i++ {
+		runID := ulid.MustNew(ulid.Now(), rand.Reader)
+		ts := baseTime.Add(time.Duration(i) * time.Second)
+		require.NoError(t, cm.InsertTraceRun(ctx, &cqrs.TraceRun{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			AppID:       appID,
+			FunctionID:  functionID,
+			TraceID:     "trace-" + runID.String(),
+			RunID:       runID.String(),
+			QueuedAt:    ts,
+			StartedAt:   ts,
+			EndedAt:     ts.Add(time.Second),
+			TriggerIDs:  []string{ulid.Make().String()},
+			Status:      enums.RunStatusCompleted,
+		}))
+	}
+
+	opt := cqrs.GetTraceRunOpt{
+		Filter: cqrs.GetTraceRunFilter{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			FunctionID:  []uuid.UUID{functionID},
+			TimeField:   enums.TraceRunTimeStartedAt,
+			From:        baseTime.Add(-time.Hour),
+			Until:       baseTime.Add(time.Hour),
+		},
+		Order:   []cqrs.GetTraceRunOrder{{Field: enums.TraceRunTimeStartedAt, Direction: enums.TraceRunOrderDesc}},
+		Items:   100,
+		Preview: false,
+	}
+
+	runs, err := cm.GetTraceRuns(ctx, opt)
+	require.NoError(t, err)
+	require.Len(t, runs, 4)
+
+	count, err := cm.GetTraceRunsCount(ctx, opt)
+	require.NoError(t, err)
+	assert.Equal(t, len(runs), count, "non-preview count should match the listed runs")
 }
 
 //

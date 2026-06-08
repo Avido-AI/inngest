@@ -220,6 +220,10 @@ func spanRunWindowPredicate(opt cqrs.GetTraceRunOpt, h driverhelp.DialectHelpers
 func (w wrapper) GetTraceRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt) (int, error) {
 	// explicitly set it to zero so it would not attempt to paginate
 	opt.Items = 0
+	// Clear any pagination cursor so the count reflects the full result set, not
+	// just the runs after the current page position — otherwise totalCount would
+	// shrink with every page turn.
+	opt.Cursor = ""
 
 	// The span path expresses every filter in SQL, so it can count the grouped
 	// subquery directly instead of materializing every matching run.
@@ -286,6 +290,7 @@ func (w wrapper) getSpanRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt) 
 // Only safe when the caller has confirmed there are no Go-side post-filters
 // (event-ID / output CEL); see GetTraceRunsCount.
 func (w wrapper) getTraceRunsCountSQL(ctx context.Context, opt cqrs.GetTraceRunOpt) (int, error) {
+	l := logger.StdlibLogger(ctx)
 	builder := newRunsQueryBuilder(ctx, opt)
 	sqlQuery, args, err := sq.Dialect(w.dialect()).
 		From("trace_runs").
@@ -296,8 +301,11 @@ func (w wrapper) getTraceRunsCountSQL(ctx context.Context, opt cqrs.GetTraceRunO
 		return 0, err
 	}
 
+	l.Debug("getTraceRunsCountSQL query", "sql", sqlQuery, "args", args)
+
 	var count int
 	if err := w.adapter.Conn().QueryRowContext(ctx, sqlQuery, args...).Scan(&count); err != nil {
+		l.Debug("getTraceRunsCountSQL query error", "error", err)
 		return 0, err
 	}
 	return count, nil
