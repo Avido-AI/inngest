@@ -211,6 +211,7 @@ func start(ctx context.Context, opts StartOpts) error {
 		db, err := dbsqlite.Open(ctx, dbsqlite.Options{
 			Persist:   opts.Persist,
 			Directory: opts.SQLiteDir,
+			Reset:     opts.Reset,
 		})
 		if err != nil {
 			return err
@@ -315,10 +316,10 @@ func start(ctx context.Context, opts StartOpts) error {
 		// would fail under maxmemory anyway). FLUSHDB is not a denyoom command,
 		// so it succeeds even when Redis has hit maxmemory.
 		l.Warn("reset is set: flushing ALL Inngest data from Redis (queued + in-flight runs will be lost)")
-		if err := flushRedis(ctx, shardedRc, unshardedRc, connectRc); err != nil {
+		if err := flushRedis(ctx, shardedRc, unshardedRc, connectRc, realtimePubRc, realtimeSubRc); err != nil {
 			return fmt.Errorf("reset redis flush failed: %w", err)
 		}
-		l.Warn("reset complete (Postgres + Redis wiped); remove --reset / INNGEST_RESET and start normally")
+		l.Warn("reset complete (database + Redis wiped); remove --reset / INNGEST_RESET and start normally")
 		return nil
 	}
 

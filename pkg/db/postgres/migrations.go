@@ -167,8 +167,11 @@ func resetSchema(ctx context.Context, conn *sql.DB) error {
 	rows.Close()
 
 	for _, t := range tables {
+		// Quote the identifier per Postgres rules (double internal quotes); Go's
+		// %q produces Go-style escaping, which is wrong for SQL identifiers.
+		quoted := `"` + strings.ReplaceAll(t, `"`, `""`) + `"`
 		if _, err := conn.ExecContext(ctx,
-			fmt.Sprintf(`DROP TABLE IF EXISTS %q CASCADE`, t)); err != nil {
+			`DROP TABLE IF EXISTS `+quoted+` CASCADE`); err != nil {
 			return err
 		}
 	}

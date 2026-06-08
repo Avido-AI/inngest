@@ -37,6 +37,10 @@ type Options struct {
 	ForTest bool
 	// Directory is the path at which the SQLite database should be stored.
 	Directory string
+	// Reset, when true, drops every user table before running migrations, so
+	// Migrate recreates a clean database. Used to wipe all Inngest state for a
+	// full reset.
+	Reset bool
 }
 
 func Open(ctx context.Context, opts Options) (*sql.DB, error) {
@@ -77,12 +81,62 @@ func Open(ctx context.Context, opts Options) (*sql.DB, error) {
 		return nil, err
 	}
 
+	if opts.Reset {
+		l.Warn("reset is set: dropping all Inngest SQLite tables before migrating")
+		if err := resetSchema(ctx, conn); err != nil {
+			return nil, fmt.Errorf("error resetting sqlite: %w", err)
+		}
+	}
+
 	if err := Migrate(ctx, conn); err != nil {
 		return nil, err
 	}
 	l.Info("ran database migrations")
 
 	return conn, nil
+}
+
+// resetSchema drops every user table (including goose's version table) so that
+// Migrate recreates a clean database. It runs on a single connection with
+// foreign-key enforcement disabled so tables can be dropped in any order.
+func resetSchema(ctx context.Context, db *sql.DB) error {
+	c, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	if _, err := c.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return err
+	}
+
+	rows, err := c.QueryContext(ctx,
+		`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+	if err != nil {
+		return err
+	}
+	var tables []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			rows.Close()
+			return err
+		}
+		tables = append(tables, t)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, t := range tables {
+		quoted := `"` + strings.ReplaceAll(t, `"`, `""`) + `"`
+		if _, err := c.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoted); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Migrate(ctx context.Context, conn *sql.DB) error {
