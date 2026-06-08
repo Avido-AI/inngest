@@ -10,6 +10,12 @@
 			"matchPackageNames": ["github.com/getsentry/sentry-go"],
 			"allowedVersions": "<0.46.0",
 			"description": "Pin below v0.46.0: it removes Event.Extra, which breaks vendored github.com/cockroachdb/errors/report (still references event.Extra as of v1.12.0)."
+		},
+		{
+			"matchPackageNames": ["inngest"],
+			"matchManagers": ["npm"],
+			"enabled": false,
+			"description": "Pinned to the 4.4.1-pr-1521.x prerelease for the experimental scoreMiddleware / inngest.score() API (inngest-js PR #1521), which is not in any stable release. Renovate upgrades to stable (e.g. 4.5.0) break the dashboard type-check."
 		}
 	]
 }

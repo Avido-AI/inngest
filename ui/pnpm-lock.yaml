@@ -116,7 +116,7 @@ importers:
         version: 0.2.2(tailwindcss@3.4.19(yaml@2.9.0))
       '@inngest/agent-kit':
         specifier: ^0.13.2
-        version: 0.13.2(inngest@4.5.0(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3))(supports-color@5.5.0)(zod@4.4.3)
+        version: 0.13.2(inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3))(supports-color@5.5.0)(zod@4.4.3)
       '@inngest/realtime':
         specifier: 0.4.7
         version: 0.4.7(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
@@ -211,8 +211,8 @@ importers:
         specifier: ^7.0.0
         version: 7.4.0(graphql@16.14.1)
       inngest:
-        specifier: 4.5.0
-        version: 4.5.0(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
+        specifier: 4.4.1-pr-1521.15
+        version: 4.4.1-pr-1521.15(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
       ky:
         specifier: ^2.0.0
         version: 2.0.2
@@ -7996,8 +7996,8 @@ packages:
       typescript:
         optional: true
 
-  inngest@4.5.0:
-    resolution: {integrity: sha512-hpkXbShvbwV+YJoGDiJLuVQwMCCZ53P7q5s090hOa57CmQvUPn77M3/hSCv80VJgPd8UQy4+TcdYqOgnQ9mHzw==}
+  inngest@4.4.1-pr-1521.15:
+    resolution: {integrity: sha512-T27gkeudWBYSzWgCcBUhNlkACyGUQV3dCwiHBO2QAqnmZd0GEpWVS3epGs3wLmgBYYTq6MKF/xH+daB1+sVbJQ==}
     engines: {node: '>=20'}
     peerDependencies:
       '@sveltejs/kit': '>=1.27.3'
@@ -13276,14 +13276,14 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
-  '@inngest/agent-kit@0.13.2(inngest@4.5.0(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3))(supports-color@5.5.0)(zod@4.4.3)':
+  '@inngest/agent-kit@0.13.2(inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3))(supports-color@5.5.0)(zod@4.4.3)':
     dependencies:
       '@dmitryrechkin/json-schema-to-zod': 1.0.1
       '@inngest/ai': 0.1.6
       '@modelcontextprotocol/sdk': 1.29.0(supports-color@5.5.0)(zod@4.4.3)
       eventsource: 3.0.7
       express: 4.22.2
-      inngest: 4.5.0(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
+      inngest: 4.4.1-pr-1521.15(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
       xxhashjs: 0.2.2
       zod: 4.4.3
     transitivePeerDependencies:
@@ -19835,7 +19835,7 @@ snapshots:
       - encoding
       - supports-color
 
-  inngest@4.5.0(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3):
+  inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.5(srvx@0.11.16)))(hono@4.12.23)(next@16.2.7(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(zod@4.4.3):
     dependencies:
       '@bufbuild/protobuf': 2.12.0
       '@inngest/ai': 0.1.7
