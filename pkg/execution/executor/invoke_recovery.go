@@ -221,7 +221,9 @@ func (s *invokeRecoveryService) Stop(ctx context.Context) error { return nil }
 // acquireLease grabs/refreshes the singleton leader lease via SET NX EX. Only the
 // holder reconciles, so pods don't double-process (critical for Tier-2 re-runs).
 func (s *invokeRecoveryService) acquireLease(ctx context.Context) bool {
-	key := "{estate}:invoke-recovery:leader"
+	// Scope the leader lease per environment so a future multi-env deployment
+	// doesn't let one env's leader block recovery for the others.
+	key := fmt.Sprintf("{estate}:invoke-recovery:leader:%s", s.opts.EnvID)
 	leaseSecs := int64(s.opts.LeaseDuration.Seconds())
 
 	// Fresh acquire wins immediately.
@@ -292,6 +294,13 @@ func (s *invokeRecoveryService) reconcile(ctx context.Context) (resumed, rerun, 
 		default:
 			skipped++
 		}
+	}
+
+	// Redis iterators signal normal completion with context.Canceled; any other
+	// error means the scan ended early. Surface it (and skip pruning, since the
+	// seen-set is partial) rather than masking a partial scan as a clean tick.
+	if ierr := iter.Error(); ierr != nil && ierr != context.Canceled {
+		return resumed, rerun, cleaned, skipped, fmt.Errorf("pause iteration: %w", ierr)
 	}
 
 	// Prune attempt counters for pauses no longer present (resumed, cleaned up,
