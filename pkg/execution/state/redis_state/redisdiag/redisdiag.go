@@ -443,6 +443,7 @@ type runClassification struct {
 
 	pendingChecked  int      // runs whose pending-ops set we could read
 	pendingResident int      // runs with a non-empty pending set — STUCK (primary leak signal)
+	pendingUnknown  int      // runs whose SCARD failed (lookup error) — undercounts pending_resident
 	pendingSample   []string // sample of stuck run IDs (unresolved pending ops)
 }
 
@@ -488,6 +489,7 @@ func (r *Reporter) classifyAndLog(ctx context.Context, log logger.Logger, node r
 		// pending_resident near pending_checked => the resident set is a leak.
 		"pending_checked", c.pendingChecked,
 		"pending_resident", c.pendingResident,
+		"pending_unknown", c.pendingUnknown,
 		// Concrete jobs to inspect.
 		"oldest_run_id", c.oldestID,
 		"sample_stuck_run_ids", strings.Join(c.pendingSample, ","),
@@ -551,6 +553,9 @@ func (r *Reporter) classifyRuns(ctx context.Context, node rueidis.Client, runs m
 func (c *runClassification) recordPending(id ulid.ULID, res rueidis.RedisResult) {
 	n, err := res.AsInt64()
 	if err != nil {
+		// SCARD failed (transient Redis error / wrong type). Record it so the
+		// failure is visible and pending_resident is understood as a lower bound.
+		c.pendingUnknown++
 		return
 	}
 	c.pendingChecked++
