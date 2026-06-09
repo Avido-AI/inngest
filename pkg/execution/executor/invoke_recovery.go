@@ -252,11 +252,13 @@ func (s *invokeRecoveryService) reconcile(ctx context.Context) (resumed, rerun, 
 	}
 
 	rerunsThisTick := 0
+	seen := make(map[string]struct{})
 	for iter.Next(ctx) {
 		p := iter.Val(ctx)
 		if p == nil || p.InvokeCorrelationID == nil || p.TriggeringEventID == nil {
 			continue
 		}
+		seen[*p.InvokeCorrelationID] = struct{}{}
 
 		action, childRun := s.classify(ctx, p)
 		switch action {
@@ -289,6 +291,14 @@ func (s *invokeRecoveryService) reconcile(ctx context.Context) (resumed, rerun, 
 			cleaned++
 		default:
 			skipped++
+		}
+	}
+
+	// Prune attempt counters for pauses no longer present (resumed, cleaned up,
+	// or gone), so the map can't grow without bound over the service lifetime.
+	for corrID := range s.rerunAttempts {
+		if _, ok := seen[corrID]; !ok {
+			delete(s.rerunAttempts, corrID)
 		}
 	}
 	return resumed, rerun, cleaned, skipped, nil
@@ -401,8 +411,11 @@ func (s *invokeRecoveryService) rerunChild(ctx context.Context, p *state.Pause) 
 		return fmt.Errorf("parsing triggering event id: %w", err)
 	}
 	ce, err := s.opts.Data.GetEventByInternalID(ctx, triggerID)
-	if err != nil || ce == nil {
+	if err != nil {
 		return fmt.Errorf("loading original invocation event %s: %w", triggerID, err)
+	}
+	if ce == nil {
+		return fmt.Errorf("original invocation event %s not found", triggerID)
 	}
 	evt := ce.GetEvent()
 	// Re-publishing the same event (same correlation ID + deterministic child
