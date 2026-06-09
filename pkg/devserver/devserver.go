@@ -352,6 +352,22 @@ func start(ctx context.Context, opts StartOpts) error {
 	redisdiag.Run(ctx, l, opts.RedisDiag, redisdiag.Config{
 		Interval:    opts.RedisDiagInterval,
 		SampleLimit: opts.RedisDiagSample,
+		// Function names aren't stored in Redis; resolve the run-state UUIDs to
+		// names via the CQRS store (Postgres).
+		ResolveFunction: func(ctx context.Context, fnID string) (string, bool) {
+			id, err := uuid.Parse(fnID)
+			if err != nil {
+				return "", false
+			}
+			fn, err := dbcqrs.GetFunctionByInternalUUID(ctx, id)
+			if err != nil || fn == nil {
+				return "", false
+			}
+			if fn.Name != "" {
+				return fn.Name, true
+			}
+			return fn.Slug, fn.Slug != ""
+		},
 	},
 		redisdiag.NamedClient{Name: "sharded", Client: shardedRc},
 		redisdiag.NamedClient{Name: "unsharded", Client: unshardedRc},

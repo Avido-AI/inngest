@@ -56,6 +56,11 @@ type NamedClient struct {
 	Client rueidis.Client
 }
 
+// FunctionNamer resolves a function's internal UUID (as a string) to a
+// human-readable name. Function names are not stored in Redis, so this is
+// backed by the CQRS store (Postgres). Returns ok=false when unresolvable.
+type FunctionNamer func(ctx context.Context, fnID string) (name string, ok bool)
+
 // Reporter periodically samples one or more Redis clients and logs a per-prefix
 // memory breakdown.
 type Reporter struct {
@@ -64,6 +69,9 @@ type Reporter struct {
 	interval    time.Duration
 	sampleLimit int
 	topN        int
+
+	resolveFn FunctionNamer
+	nameCache map[string]string // fnID -> resolved name (or "" if unresolvable)
 }
 
 // Config tunes the reporter. Zero values fall back to sensible defaults.
@@ -71,6 +79,9 @@ type Config struct {
 	Interval    time.Duration
 	SampleLimit int
 	TopN        int
+	// ResolveFunction optionally maps a function UUID to its name via Postgres.
+	// When nil, the breakdown logs UUIDs only.
+	ResolveFunction FunctionNamer
 }
 
 // New builds a Reporter. Clients with a nil underlying client are skipped.
@@ -80,6 +91,8 @@ func New(log logger.Logger, cfg Config, clients ...NamedClient) *Reporter {
 		interval:    cfg.Interval,
 		sampleLimit: cfg.SampleLimit,
 		topN:        cfg.TopN,
+		resolveFn:   cfg.ResolveFunction,
+		nameCache:   map[string]string{},
 	}
 	if r.interval <= 0 {
 		r.interval = defaultInterval
@@ -175,7 +188,7 @@ func (r *Reporter) reportNode(ctx context.Context, name, addr string, node rueid
 
 	r.logSummary(log, mem, dbsize, sample.sampled, sample.complete)
 	r.logPrefixBreakdown(log, sample.stats, mem.usedMemory)
-	r.logFunctionBreakdown(log, sample.byFunction, mem.usedMemory)
+	r.logFunctionBreakdown(ctx, log, sample.byFunction, mem.usedMemory)
 	r.classifyAndLog(ctx, log, node, sample.runs)
 }
 
@@ -312,58 +325,70 @@ func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, 
 		results := node.DoMulti(ctx, cmds...)
 
 		for i, k := range batch {
-			memRes := results[i*2]
-			ttlRes := results[i*2+1]
-
-			usage, err := memRes.AsInt64()
-			if err != nil {
-				// Key may have been deleted between SCAN and lookup, or MEMORY
-				// USAGE is unsupported. Skip it.
-				continue
-			}
-			// -1 no expiry, -2 missing, >=0 has TTL. Default to -1 on error so a
-			// failed lookup (e.g. key deleted between SCAN and lookup) is not
-			// miscounted as "has TTL", which would inflate ttl_pct.
-			ttl := int64(-1)
-			if v, err := ttlRes.AsInt64(); err == nil {
-				ttl = v
-			}
-
-			prefix := normalizeKey(k)
-			s := agg[prefix]
-			if s == nil {
-				s = &prefixStat{prefix: prefix}
-				agg[prefix] = s
-			}
-			s.sampledKeys++
-			s.sampledBytes += usage
-			if ttl >= 0 {
-				s.keysWithTTL++
-			}
-			*sampled++
-
-			// Attribute bytes to the function UUID, when the key carries one
-			// (e.g. run-state actions/events keys: ...:actions:<fnID>:<runID>).
-			if fnID, ok := functionID(k); ok {
-				fs := byFn[fnID]
-				if fs == nil {
-					fs = &prefixStat{prefix: fnID}
-					byFn[fnID] = fs
-				}
-				fs.sampledKeys++
-				fs.sampledBytes += usage
-			}
-
-			// Record run metadata keys for classification (deduped, capped).
-			if len(runs) < maxClassifyRuns {
-				if id, metaKey, ok := runMetadataKey(k); ok {
-					if _, seen := runs[id]; !seen {
-						runs[id] = metaKey
-					}
-				}
-			}
+			r.recordKey(k, results[i*2], results[i*2+1], agg, byFn, runs, sampled)
 		}
 	}
+}
+
+// recordKey folds one sampled key's MEMORY USAGE + TTL into the per-prefix and
+// per-function aggregates and, for run-state keys, the run set. Guard clauses
+// keep the happy path flat.
+func (r *Reporter) recordKey(k string, memRes, ttlRes rueidis.RedisResult, agg, byFn map[string]*prefixStat, runs map[ulid.ULID]string, sampled *int64) {
+	usage, err := memRes.AsInt64()
+	if err != nil {
+		// Key was deleted between SCAN and lookup, or MEMORY USAGE is
+		// unsupported. Skip it.
+		return
+	}
+	// -1 no expiry, -2 missing, >=0 has TTL. Default to -1 on error so a failed
+	// lookup is not miscounted as "has TTL", which would inflate ttl_pct.
+	ttl := int64(-1)
+	if v, err := ttlRes.AsInt64(); err == nil {
+		ttl = v
+	}
+
+	s := upsertStat(agg, normalizeKey(k))
+	s.sampledKeys++
+	s.sampledBytes += usage
+	if ttl >= 0 {
+		s.keysWithTTL++
+	}
+	*sampled++
+
+	// Attribute bytes to the function UUID, when the key carries one (e.g.
+	// run-state keys: ...:actions:<fnID>:<runID>).
+	if fnID, ok := functionID(k); ok {
+		fs := upsertStat(byFn, fnID)
+		fs.sampledKeys++
+		fs.sampledBytes += usage
+	}
+
+	r.recordRunKey(k, runs)
+}
+
+// recordRunKey records a run's metadata key for later classification, deduped
+// by run ID and capped at maxClassifyRuns. No-op for non-run keys.
+func (r *Reporter) recordRunKey(k string, runs map[ulid.ULID]string) {
+	if len(runs) >= maxClassifyRuns {
+		return
+	}
+	id, metaKey, ok := runMetadataKey(k)
+	if !ok {
+		return
+	}
+	if _, seen := runs[id]; seen {
+		return
+	}
+	runs[id] = metaKey
+}
+
+func upsertStat(m map[string]*prefixStat, key string) *prefixStat {
+	s := m[key]
+	if s == nil {
+		s = &prefixStat{prefix: key}
+		m[key] = s
+	}
+	return s
 }
 
 // runClassification aggregates the status + age of sampled runs.
@@ -542,8 +567,9 @@ func functionID(key string) (string, bool) {
 }
 
 // logFunctionBreakdown logs the top functions by sampled bytes, with an
-// estimated share of used_memory (same attribution as logPrefixBreakdown).
-func (r *Reporter) logFunctionBreakdown(log logger.Logger, fns []prefixStat, usedMemory int64) {
+// estimated share of used_memory (same attribution as logPrefixBreakdown) and,
+// when a resolver is configured, the function name looked up from Postgres.
+func (r *Reporter) logFunctionBreakdown(ctx context.Context, log logger.Logger, fns []prefixStat, usedMemory int64) {
 	if len(fns) == 0 {
 		return
 	}
@@ -564,12 +590,31 @@ func (r *Reporter) logFunctionBreakdown(log logger.Logger, fns []prefixStat, use
 		}
 		log.Info("redis run-state by function",
 			"function_id", f.prefix, // UUID; maps to the function in the dashboard
+			"function_name", r.functionName(ctx, f.prefix),
 			"sampled_keys", f.sampledKeys,
 			"sampled_bytes", f.sampledBytes,
 			"avg_bytes", safeDiv(f.sampledBytes, f.sampledKeys),
 			"est_used_mb", estMB,
 		)
 	}
+}
+
+// functionName resolves a function UUID to its name via the configured Postgres
+// resolver, caching results (function names are immutable per ID). Returns ""
+// when no resolver is set or the lookup fails.
+func (r *Reporter) functionName(ctx context.Context, fnID string) string {
+	if r.resolveFn == nil {
+		return ""
+	}
+	if name, ok := r.nameCache[fnID]; ok {
+		return name
+	}
+	name, ok := r.resolveFn(ctx, fnID)
+	if !ok {
+		name = ""
+	}
+	r.nameCache[fnID] = name
+	return name
 }
 
 func isRunStateKey(key string) bool {
