@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -221,31 +222,34 @@ func (s *invokeRecoveryService) Run(ctx context.Context) error {
 
 func (s *invokeRecoveryService) Stop(ctx context.Context) error { return nil }
 
-// acquireLease grabs/refreshes the singleton leader lease via SET NX EX. Only the
-// holder reconciles, so pods don't double-process (critical for Tier-2 re-runs).
+// leaderLeaseScript atomically acquires-or-refreshes the singleton leader lease:
+// acquire if unset, refresh the TTL if we already hold it, otherwise deny. Doing
+// this in one Lua eval avoids the GET->EXPIRE race that two pods could otherwise
+// hit when refreshing concurrently.
+var leaderLeaseScript = rueidis.NewLuaScript(`
+local cur = redis.call("GET", KEYS[1])
+if not cur then
+	redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[2])
+	return 1
+elseif cur == ARGV[1] then
+	redis.call("EXPIRE", KEYS[1], ARGV[2])
+	return 1
+end
+return 0
+`)
+
+// acquireLease returns whether this pod holds the singleton leader lease. Only
+// the holder reconciles, so pods don't double-process (critical for Tier-2
+// re-runs). The lease key is scoped per environment.
 func (s *invokeRecoveryService) acquireLease(ctx context.Context) bool {
-	// Scope the leader lease per environment so a future multi-env deployment
-	// doesn't let one env's leader block recovery for the others.
 	key := fmt.Sprintf("{estate}:invoke-recovery:leader:%s", s.opts.EnvID)
-	leaseSecs := int64(s.opts.LeaseDuration.Seconds())
-
-	// Fresh acquire wins immediately.
-	if err := s.opts.Redis.Do(ctx, s.opts.Redis.B().Set().Key(key).Value(s.holderID).Nx().ExSeconds(leaseSecs).Build()).Error(); err == nil {
-		return true
-	}
-
-	// Not acquired: only proceed if we already hold it (refresh across ticks).
-	got, err := s.opts.Redis.Do(ctx, s.opts.Redis.B().Get().Key(key).Build()).ToString()
-	if err != nil || got != s.holderID {
+	ttl := strconv.Itoa(int(s.opts.LeaseDuration.Seconds()))
+	held, err := leaderLeaseScript.Exec(ctx, s.opts.Redis, []string{key}, []string{s.holderID, ttl}).AsInt64()
+	if err != nil {
+		s.opts.Log.Warn("invoke-recovery: leader lease check failed", "error", err)
 		return false
 	}
-
-	// We own it: refresh the TTL. A failed refresh isn't fatal (we'll re-try to
-	// acquire next tick), but surface it for observability.
-	if rerr := s.opts.Redis.Do(ctx, s.opts.Redis.B().Expire().Key(key).Seconds(leaseSecs).Build()).Error(); rerr != nil {
-		s.opts.Log.Warn("invoke-recovery: failed to refresh leader lease", "error", rerr)
-	}
-	return true
+	return held == 1
 }
 
 // reconcile scans open invoke pauses and acts on each.
@@ -427,7 +431,16 @@ func (s *invokeRecoveryService) resume(ctx context.Context, p *state.Pause, chil
 		Data:      data,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	tracked := event.NewBaseTrackedEvent(evt, nil)
+	// Carry the pause's tenant on the tracked event. HandleInvokeFinish resolves
+	// the pause via GetWorkspaceID(), so an unset workspace would look in the
+	// wrong (zero) workspace and miss the pause — and it's required for correct
+	// routing in a multi-tenant/multi-env deployment.
+	tracked := event.BaseTrackedEvent{
+		ID:          ulid.Make(),
+		AccountID:   p.Identifier.AccountID,
+		WorkspaceID: p.WorkspaceID,
+		Event:       evt,
+	}
 	return s.opts.Executor.HandleInvokeFinish(ctx, tracked)
 }
 

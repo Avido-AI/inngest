@@ -50,10 +50,14 @@ func (f *fakePauses) Delete(ctx context.Context, _ pauses.Index, _ state.Pause, 
 	return nil
 }
 
-type fakeResumer struct{ calls int }
+type fakeResumer struct {
+	calls   int
+	lastEvt event.TrackedEvent
+}
 
-func (f *fakeResumer) HandleInvokeFinish(ctx context.Context, _ event.TrackedEvent) error {
+func (f *fakeResumer) HandleInvokeFinish(ctx context.Context, e event.TrackedEvent) error {
 	f.calls++
+	f.lastEvt = e
 	return nil
 }
 
@@ -75,6 +79,11 @@ func (f *fakeData) GetEventByInternalID(ctx context.Context, _ ulid.ULID) (*cqrs
 
 // --- helpers ---
 
+var (
+	testWsID   = uuid.New()
+	testAcctID = uuid.New()
+)
+
 func oldRunID() ulid.ULID {
 	// Very old timestamp => well past the min-age churn filter.
 	return ulid.MustParse("01000000000000000000000000")
@@ -85,7 +94,8 @@ func invokePause(withInternalID bool) *state.Pause {
 	internal := ulid.Make().String()
 	p := &state.Pause{
 		ID:                  uuid.New(),
-		Identifier:          state.PauseIdentifier{RunID: oldRunID(), FunctionID: uuid.New()},
+		WorkspaceID:         testWsID,
+		Identifier:          state.PauseIdentifier{RunID: oldRunID(), FunctionID: uuid.New(), AccountID: testAcctID},
 		InvokeCorrelationID: &corr,
 		Expires:             state.Time(time.Now().Add(24 * time.Hour)),
 	}
@@ -133,6 +143,14 @@ func TestReconcileTerminalChildResumes(t *testing.T) {
 	}
 	if rerun != 0 || cleaned != 0 {
 		t.Fatalf("unexpected rerun=%d cleaned=%d", rerun, cleaned)
+	}
+	// The resumed event must carry the pause's tenant, or HandleInvokeFinish
+	// would look up the pause in the wrong (zero) workspace and miss it.
+	if got := resumer.lastEvt.GetWorkspaceID(); got != testWsID {
+		t.Fatalf("resumed event workspace = %v, want %v", got, testWsID)
+	}
+	if got := resumer.lastEvt.GetAccountID(); got != testAcctID {
+		t.Fatalf("resumed event account = %v, want %v", got, testAcctID)
 	}
 }
 
