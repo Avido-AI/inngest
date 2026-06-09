@@ -3,6 +3,8 @@ package redisdiag
 import (
 	"strings"
 	"testing"
+
+	"github.com/oklog/ulid/v2"
 )
 
 func TestNormalizeKey(t *testing.T) {
@@ -238,6 +240,34 @@ func TestFunctionID(t *testing.T) {
 	}
 	if _, ok := functionID("{queue}:queue:item"); ok {
 		t.Error("functionID should be false for non-run keys")
+	}
+}
+
+func TestRecordRunKeyDerivesPendingKey(t *testing.T) {
+	r := &Reporter{}
+	runs := map[ulid.ULID]runRef{}
+	actions := "{estate:01KTM8G2NASW1A19FFBKHD0H9R}:actions:cd1755d1-6cab-5081-a94c-61fc9d09add6:01KTM8G2NASW1A19FFBKHD0H9R"
+	r.recordRunKey(actions, runs)
+
+	id := ulid.MustParse("01KTM8G2NASW1A19FFBKHD0H9R")
+	ref, ok := runs[id]
+	if !ok {
+		t.Fatalf("run not recorded")
+	}
+	wantMeta := "{estate:01KTM8G2NASW1A19FFBKHD0H9R}:metadata:01KTM8G2NASW1A19FFBKHD0H9R"
+	wantPending := "{estate:01KTM8G2NASW1A19FFBKHD0H9R}:pending:cd1755d1-6cab-5081-a94c-61fc9d09add6:01KTM8G2NASW1A19FFBKHD0H9R"
+	if ref.metaKey != wantMeta {
+		t.Errorf("metaKey = %q, want %q", ref.metaKey, wantMeta)
+	}
+	if ref.pendingKey != wantPending {
+		t.Errorf("pendingKey = %q, want %q", ref.pendingKey, wantPending)
+	}
+
+	// A non-actions run key (stack) records metadata but no pending key.
+	runs2 := map[ulid.ULID]runRef{}
+	r.recordRunKey("{estate:01KTM8G2NASW1A19FFBKHD0H9R}:stack:01KTM8G2NASW1A19FFBKHD0H9R", runs2)
+	if ref2 := runs2[id]; ref2.metaKey != wantMeta || ref2.pendingKey != "" {
+		t.Errorf("stack key: got meta=%q pending=%q, want meta set + pending empty", ref2.metaKey, ref2.pendingKey)
 	}
 }
 

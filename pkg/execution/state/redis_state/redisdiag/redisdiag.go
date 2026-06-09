@@ -258,11 +258,20 @@ func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, use
 	})
 }
 
+// runRef holds the keys needed to classify a run. metaKey is always set;
+// pendingKey is set only when the run was seen via an actions key (it carries
+// the function UUID needed to build it), and points at the run's pending-ops
+// set — a non-empty pending set is the definitive "stuck" signal.
+type runRef struct {
+	metaKey    string
+	pendingKey string
+}
+
 // keyspaceSample holds the aggregated result of one keyspace scan.
 type keyspaceSample struct {
 	stats      []prefixStat         // per normalized-prefix memory
 	byFunction []prefixStat         // per function UUID (prefix field = fnID)
-	runs       map[ulid.ULID]string // runID -> metadata key, for classification
+	runs       map[ulid.ULID]runRef // runID -> run refs, for classification
 	sampled    int64
 	complete   bool
 }
@@ -274,7 +283,7 @@ type keyspaceSample struct {
 func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) keyspaceSample {
 	agg := map[string]*prefixStat{}
 	byFn := map[string]*prefixStat{}
-	runs := map[ulid.ULID]string{}
+	runs := map[ulid.ULID]runRef{}
 	var sampled int64
 	cursor := uint64(0)
 	complete := false
@@ -327,7 +336,7 @@ func sumSampledBytes(stats []prefixStat) int64 {
 // lookupAndAggregate pipelines MEMORY USAGE + TTL for the given keys and folds
 // the results into agg (by normalized prefix) and byFn (by function UUID). It
 // also records run metadata keys (deduped into runs, capped) for run-state keys.
-func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, keys []string, agg, byFn map[string]*prefixStat, runs map[ulid.ULID]string, sampled *int64) {
+func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, keys []string, agg, byFn map[string]*prefixStat, runs map[ulid.ULID]runRef, sampled *int64) {
 	for start := 0; start < len(keys); start += lookupChunk {
 		end := start + lookupChunk
 		if end > len(keys) {
@@ -351,7 +360,7 @@ func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, 
 // recordKey folds one sampled key's MEMORY USAGE + TTL into the per-prefix and
 // per-function aggregates and, for run-state keys, the run set. Guard clauses
 // keep the happy path flat.
-func (r *Reporter) recordKey(k string, memRes, ttlRes rueidis.RedisResult, agg, byFn map[string]*prefixStat, runs map[ulid.ULID]string, sampled *int64) {
+func (r *Reporter) recordKey(k string, memRes, ttlRes rueidis.RedisResult, agg, byFn map[string]*prefixStat, runs map[ulid.ULID]runRef, sampled *int64) {
 	usage, err := memRes.AsInt64()
 	if err != nil {
 		// Key was deleted between SCAN and lookup, or MEMORY USAGE is
@@ -384,20 +393,26 @@ func (r *Reporter) recordKey(k string, memRes, ttlRes rueidis.RedisResult, agg, 
 	r.recordRunKey(k, runs)
 }
 
-// recordRunKey records a run's metadata key for later classification, deduped
-// by run ID and capped at maxClassifyRuns. No-op for non-run keys.
-func (r *Reporter) recordRunKey(k string, runs map[ulid.ULID]string) {
-	if len(runs) >= maxClassifyRuns {
-		return
-	}
+// recordRunKey records a run's keys for later classification, deduped by run ID
+// and capped at maxClassifyRuns. From an actions key it also derives the
+// pending-ops key (same hash-tag/fnID, ":actions:" -> ":pending:"), which is
+// what lets classification detect stuck runs. No-op for non-run keys.
+func (r *Reporter) recordRunKey(k string, runs map[ulid.ULID]runRef) {
 	id, metaKey, ok := runMetadataKey(k)
 	if !ok {
 		return
 	}
-	if _, seen := runs[id]; seen {
-		return
+	ref, seen := runs[id]
+	if !seen {
+		if len(runs) >= maxClassifyRuns {
+			return
+		}
+		ref = runRef{metaKey: metaKey}
 	}
-	runs[id] = metaKey
+	if strings.Contains(k, ":actions:") {
+		ref.pendingKey = strings.Replace(k, ":actions:", ":pending:", 1)
+	}
+	runs[id] = ref
 }
 
 func upsertStat(m map[string]*prefixStat, key string) *prefixStat {
@@ -425,13 +440,17 @@ type runClassification struct {
 
 	oldestID       string   // run ID with the greatest age (a problematic job)
 	terminalSample []string // sample of terminal-but-resident run IDs (leaked jobs)
+
+	pendingChecked  int      // runs whose pending-ops set we could read
+	pendingResident int      // runs with a non-empty pending set — STUCK (primary leak signal)
+	pendingSample   []string // sample of stuck run IDs (unresolved pending ops)
 }
 
 // classifyAndLog reads the status of each sampled run and decodes its age from
 // the run ULID, then logs an aggregate. This distinguishes a leak (runs that
 // have FINISHED but whose state is still resident — terminal status, and/or
 // old age) from a legitimate working set (runs still Running/Scheduled, young).
-func (r *Reporter) classifyAndLog(ctx context.Context, log logger.Logger, node rueidis.Client, runs map[ulid.ULID]string) {
+func (r *Reporter) classifyAndLog(ctx context.Context, log logger.Logger, node rueidis.Client, runs map[ulid.ULID]runRef) {
 	if len(runs) == 0 {
 		return
 	}
@@ -464,44 +483,83 @@ func (r *Reporter) classifyAndLog(ctx context.Context, log logger.Logger, node r
 		// step counts: high avg/max => many steps; low => few fat step outputs.
 		"avg_steps", round2(avgSteps),
 		"max_steps", c.maxSteps,
-		// Concrete jobs to inspect: oldest resident run, and a sample of
-		// finished-but-resident (leaked) run IDs.
+		// PRIMARY leak signal: runs with a non-empty pending-ops set are stuck
+		// mid-step (e.g. an unresolved step.invoke) and will never finalize.
+		// pending_resident near pending_checked => the resident set is a leak.
+		"pending_checked", c.pendingChecked,
+		"pending_resident", c.pendingResident,
+		// Concrete jobs to inspect.
 		"oldest_run_id", c.oldestID,
+		"sample_stuck_run_ids", strings.Join(c.pendingSample, ","),
 		"sample_terminal_run_ids", strings.Join(c.terminalSample, ","),
 	)
 }
 
-// classifyRuns pipelines HGET status for each run's metadata and decodes age
-// from the run ULID, folding both into a runClassification.
-func (r *Reporter) classifyRuns(ctx context.Context, node rueidis.Client, runs map[ulid.ULID]string) runClassification {
+// classifyRuns folds each sampled run into a runClassification via two pipelined
+// passes: (1) HMGET status+step_count on the metadata (plus age from the ULID),
+// and (2) SCARD on the pending-ops set for runs that have one. A non-empty
+// pending set means the run is stuck mid-step (e.g. an unresolved step.invoke)
+// and will never finalize — the most reliable leak signal, since the metadata
+// status field can stay "Scheduled" for the whole run.
+func (r *Reporter) classifyRuns(ctx context.Context, node rueidis.Client, runs map[ulid.ULID]runRef) runClassification {
 	ids := make([]ulid.ULID, 0, len(runs))
 	metaKeys := make([]string, 0, len(runs))
-	for id, mk := range runs {
+	pendIDs := make([]ulid.ULID, 0, len(runs))
+	pendKeys := make([]string, 0, len(runs))
+	for id, ref := range runs {
 		ids = append(ids, id)
-		metaKeys = append(metaKeys, mk)
+		metaKeys = append(metaKeys, ref.metaKey)
+		if ref.pendingKey != "" {
+			pendIDs = append(pendIDs, id)
+			pendKeys = append(pendKeys, ref.pendingKey)
+		}
 	}
 
 	c := runClassification{byStatus: map[int]int{}}
 	now := time.Now()
-	for start := 0; start < len(ids); start += lookupChunk {
-		end := start + lookupChunk
-		if end > len(ids) {
-			end = len(ids)
-		}
 
+	// Pass 1: status + step_count + age.
+	for start := 0; start < len(ids); start += lookupChunk {
+		end := min(start+lookupChunk, len(ids))
 		cmds := make([]rueidis.Completed, 0, end-start)
 		for _, mk := range metaKeys[start:end] {
 			cmds = append(cmds, node.B().Hmget().Key(mk).Field("status", "step_count").Build())
 		}
-		results := node.DoMulti(ctx, cmds...)
-
-		for i, res := range results {
+		for i, res := range node.DoMulti(ctx, cmds...) {
 			id := ids[start+i]
 			c.recordAge(now, id)
 			c.recordMeta(id, res)
 		}
 	}
+
+	// Pass 2: pending-ops set cardinality (the stuck signal).
+	for start := 0; start < len(pendKeys); start += lookupChunk {
+		end := min(start+lookupChunk, len(pendKeys))
+		cmds := make([]rueidis.Completed, 0, end-start)
+		for _, pk := range pendKeys[start:end] {
+			cmds = append(cmds, node.B().Scard().Key(pk).Build())
+		}
+		for i, res := range node.DoMulti(ctx, cmds...) {
+			c.recordPending(pendIDs[start+i], res)
+		}
+	}
 	return c
+}
+
+// recordPending folds a run's pending-ops set cardinality into the
+// classification. A non-empty set means the run is stuck mid-step.
+func (c *runClassification) recordPending(id ulid.ULID, res rueidis.RedisResult) {
+	n, err := res.AsInt64()
+	if err != nil {
+		return
+	}
+	c.pendingChecked++
+	if n > 0 {
+		c.pendingResident++
+		if len(c.pendingSample) < sampleRunIDs {
+			c.pendingSample = append(c.pendingSample, id.String())
+		}
+	}
 }
 
 // recordAge folds a run's age (from its ULID timestamp) into the classification.
