@@ -187,9 +187,14 @@ func (r *Reporter) reportNode(ctx context.Context, name, addr string, node rueid
 	dbsize := r.dbsize(ctx, node)
 	sample := r.sampleKeyspace(ctx, node)
 
+	// Single denominator for all est_used_mb estimates: total bytes across the
+	// whole sample. Both the prefix and function breakdowns must divide by this
+	// same base so their estimates are on the same scale and comparable.
+	totalBytes := sumSampledBytes(sample.stats)
+
 	r.logSummary(log, mem, dbsize, sample.sampled, sample.complete)
-	r.logPrefixBreakdown(log, sample.stats, mem.usedMemory)
-	r.logFunctionBreakdown(ctx, log, sample.byFunction, mem.usedMemory)
+	r.logPrefixBreakdown(log, sample.stats, mem.usedMemory, totalBytes)
+	r.logFunctionBreakdown(ctx, log, sample.byFunction, mem.usedMemory, totalBytes)
 	r.classifyAndLog(ctx, log, node, sample.runs)
 }
 
@@ -215,14 +220,9 @@ func (r *Reporter) logSummary(log logger.Logger, mem memStats, dbsize, sampled i
 
 // logPrefixBreakdown sorts prefixes by sampled bytes desc and logs the top N
 // with an estimated share of used_memory. The estimate attributes used_memory
-// proportionally to each prefix's share of sampled bytes — approximate, but
-// enough to identify the dominant consumer.
-func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, usedMemory int64) {
-	var totalSampledBytes int64
-	for _, s := range stats {
-		totalSampledBytes += s.sampledBytes
-	}
-
+// proportionally to each prefix's share of totalSampledBytes (the whole-sample
+// total) — approximate, but enough to identify the dominant consumer.
+func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, usedMemory, totalSampledBytes int64) {
 	sort.Slice(stats, func(i, j int) bool {
 		return stats[i].sampledBytes > stats[j].sampledBytes
 	})
@@ -305,6 +305,16 @@ func flattenStats(m map[string]*prefixStat) []prefixStat {
 		out = append(out, *s)
 	}
 	return out
+}
+
+// sumSampledBytes totals sampled bytes across all prefix buckets, i.e. the whole
+// sample — the shared denominator for every est_used_mb estimate.
+func sumSampledBytes(stats []prefixStat) int64 {
+	var t int64
+	for _, s := range stats {
+		t += s.sampledBytes
+	}
+	return t
 }
 
 // lookupAndAggregate pipelines MEMORY USAGE + TTL for the given keys and folds
@@ -580,15 +590,14 @@ func functionID(key string) (string, bool) {
 }
 
 // logFunctionBreakdown logs the top functions by sampled bytes, with an
-// estimated share of used_memory (same attribution as logPrefixBreakdown) and,
-// when a resolver is configured, the function name looked up from Postgres.
-func (r *Reporter) logFunctionBreakdown(ctx context.Context, log logger.Logger, fns []prefixStat, usedMemory int64) {
+// estimated share of used_memory and, when a resolver is configured, the
+// function name looked up from Postgres. It divides by totalSampledBytes (the
+// whole-sample total, same as logPrefixBreakdown) — NOT the function-only
+// subtotal — so per-function est_used_mb is on the same scale as the prefix
+// breakdown and the two tables are directly comparable.
+func (r *Reporter) logFunctionBreakdown(ctx context.Context, log logger.Logger, fns []prefixStat, usedMemory, totalSampledBytes int64) {
 	if len(fns) == 0 {
 		return
-	}
-	var total int64
-	for _, f := range fns {
-		total += f.sampledBytes
 	}
 	sort.Slice(fns, func(i, j int) bool { return fns[i].sampledBytes > fns[j].sampledBytes })
 	limit := r.topN
@@ -598,8 +607,8 @@ func (r *Reporter) logFunctionBreakdown(ctx context.Context, log logger.Logger, 
 	for i := 0; i < limit; i++ {
 		f := fns[i]
 		estMB := 0.0
-		if total > 0 {
-			estMB = bytesToMB(int64(float64(usedMemory) * float64(f.sampledBytes) / float64(total)))
+		if totalSampledBytes > 0 {
+			estMB = bytesToMB(int64(float64(usedMemory) * float64(f.sampledBytes) / float64(totalSampledBytes)))
 		}
 		log.Info("redis run-state by function",
 			"function_id", f.prefix, // UUID; maps to the function in the dashboard

@@ -8,11 +8,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-# Cancel superseded runs for the same ref (e.g. rapid PR pushes) so we don't
-# pile up builds. Keyed per-ref, so main/tag builds are unaffected by PR churn.
+# Cancel superseded PR builds (e.g. rapid PR pushes) so we don't pile up
+# preview images. cancel-in-progress is gated to pull_request events ONLY, so a
+# main/tag publish is never cancelled mid-push by a subsequent push.
 concurrency:
   group: publish-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REGISTRY: ghcr.io
