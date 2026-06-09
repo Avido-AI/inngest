@@ -20,6 +20,7 @@ package redisdiag
 
 import (
 	"context"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -457,7 +458,7 @@ func bytesToMB(b int64) float64 {
 }
 
 func round2(f float64) float64 {
-	return float64(int64(f*100+0.5)) / 100
+	return math.Round(f*100) / 100
 }
 
 func safeDiv(a, b int64) int64 {
