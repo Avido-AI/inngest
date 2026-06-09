@@ -13,6 +13,7 @@ func TestNormalizeKey(t *testing.T) {
 	}{
 		{"plain queue item", "{queue}:queue:item", "{queue}:queue:item"},
 		{"ulid collapsed", "{estate}:metadata:01JQ8ZK9X2YV5C7H3M4N6P8R0T", "{estate}:metadata:*"},
+		{"lowercase ulid collapsed", "{estate}:metadata:01jq8zk9x2yv5c7h3m4n6p8r0t", "{estate}:metadata:*"},
 		{"uuid collapsed", "{cancel}:9f8a7b6c-1d2e-3f4a-5b6c-7d8e9f0a1b2c", "{cancel}:*"},
 		{"hex id collapsed", "{queue}:seen:0123456789abcdef0123", "{queue}:seen:*"},
 		{"numeric collapsed", "{debounce}:pointer:1700000000000", "{debounce}:pointer:*"},
@@ -41,6 +42,7 @@ func TestIsIDLike(t *testing.T) {
 		want bool
 	}{
 		{"01JQ8ZK9X2YV5C7H3M4N6P8R0T", true},           // ULID (26 char base32)
+		{"01jq8zk9x2yv5c7h3m4n6p8r0t", true},           // lowercase ULID
 		{"9f8a7b6c-1d2e-3f4a-5b6c-7d8e9f0a1b2c", true}, // UUID
 		{"0123456789abcdef", true},                     // 16-char hex
 		{"deadBEEF00112233", true},                     // mixed-case hex >=16
@@ -60,11 +62,18 @@ func TestIsIDLike(t *testing.T) {
 }
 
 func TestIsCrockfordBase32(t *testing.T) {
-	if !isCrockfordBase32("0123456789ABCDEFGHJKMNPQRS") {
-		t.Error("expected valid Crockford base32 to pass")
+	// Valid, including lowercase (case-insensitive) — "abc" is valid base32.
+	for _, good := range []string{
+		"0123456789ABCDEFGHJKMNPQRS",
+		"abc",
+		"01jq8zk9x2yv5c7h3m4n6p8r0t", // lowercase ULID
+	} {
+		if !isCrockfordBase32(good) {
+			t.Errorf("isCrockfordBase32(%q) = false, want true", good)
+		}
 	}
-	// I, L, O, U are excluded from Crockford base32.
-	for _, bad := range []string{"I", "L", "O", "U", "abc", "!@#"} {
+	// I, L, O, U are excluded (in either case); non-alphanumerics fail.
+	for _, bad := range []string{"I", "L", "O", "U", "i", "l", "o", "u", "!@#"} {
 		if isCrockfordBase32(bad) {
 			t.Errorf("isCrockfordBase32(%q) = true, want false", bad)
 		}

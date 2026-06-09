@@ -300,7 +300,13 @@ func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, 
 				// USAGE is unsupported. Skip it.
 				continue
 			}
-			ttl, _ := ttlRes.AsInt64() // -1 no expiry, -2 missing, >=0 has TTL
+			// -1 no expiry, -2 missing, >=0 has TTL. Default to -1 on error so a
+			// failed lookup (e.g. key deleted between SCAN and lookup) is not
+			// miscounted as "has TTL", which would inflate ttl_pct.
+			ttl := int64(-1)
+			if v, err := ttlRes.AsInt64(); err == nil {
+				ttl = v
+			}
 
 			prefix := normalizeKey(k)
 			s := agg[prefix]
@@ -402,7 +408,9 @@ func isIDLike(s string) bool {
 }
 
 func isCrockfordBase32(s string) bool {
-	for _, c := range s {
+	// ULIDs are case-insensitive; some libraries emit lowercase. Uppercase
+	// first so lowercase ULIDs still collapse into their prefix.
+	for _, c := range strings.ToUpper(s) {
 		switch {
 		case c >= '0' && c <= '9':
 		case c >= 'A' && c <= 'Z' && c != 'I' && c != 'L' && c != 'O' && c != 'U':
