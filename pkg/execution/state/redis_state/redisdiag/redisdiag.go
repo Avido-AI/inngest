@@ -356,24 +356,42 @@ func (r *Reporter) dbsize(ctx context.Context, node rueidis.Client) int64 {
 }
 
 // normalizeKey collapses a concrete Redis key into a prefix suitable for
-// grouping, e.g. "{estate}:metadata:01J..." -> "{estate}:metadata:*". It keeps
-// leading segments until it hits an ID-like token (ULID/UUID/hex/numeric) or
-// the segment cap, then appends "*".
+// grouping, replacing each ID-like component with "*". For example:
+//   - "{estate}:metadata:01J..."        -> "{estate}:metadata:*"
+//   - "{estate:01J...}:actions:01K..."  -> "{estate:*}:actions:*"
+//
+// The second form matters because Inngest embeds the run ID inside the Redis
+// hash-tag ("{estate:<runID>}"); collapsing it is what lets all of a workload's
+// run-state keys aggregate into a single bucket instead of one bucket per run.
+// Segments beyond maxPrefixSegments are collapsed to a trailing "*".
 func normalizeKey(key string) string {
 	parts := strings.Split(key, ":")
 	out := make([]string, 0, len(parts))
 	for i, p := range parts {
 		if i >= maxPrefixSegments {
 			out = append(out, "*")
-			return strings.Join(out, ":")
+			break
 		}
-		if isIDLike(p) {
-			out = append(out, "*")
-			return strings.Join(out, ":")
-		}
-		out = append(out, p)
+		out = append(out, normalizeSegment(p))
 	}
 	return strings.Join(out, ":")
+}
+
+// normalizeSegment replaces a single ":"-delimited segment with "*" if its core
+// is ID-like, preserving any surrounding hash-tag braces. e.g. "01J...}" -> "*}"
+// (the closing brace of a "{estate:<id>}" hash-tag), "01J..." -> "*".
+func normalizeSegment(seg string) string {
+	prefix, suffix, core := "", "", seg
+	if strings.HasPrefix(core, "{") {
+		prefix, core = "{", core[1:]
+	}
+	if strings.HasSuffix(core, "}") {
+		suffix, core = "}", core[:len(core)-1]
+	}
+	if isIDLike(core) {
+		return prefix + "*" + suffix
+	}
+	return seg
 }
 
 // isIDLike reports whether a key segment looks like a generated identifier we

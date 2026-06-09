@@ -18,6 +18,14 @@ func TestNormalizeKey(t *testing.T) {
 		{"hex id collapsed", "{queue}:seen:0123456789abcdef0123", "{queue}:seen:*"},
 		{"numeric collapsed", "{debounce}:pointer:1700000000000", "{debounce}:pointer:*"},
 		{"no id stays intact", "{pauses}:index:global", "{pauses}:index:global"},
+		{
+			// Run ID embedded in the hash-tag must collapse so all run-state
+			// keys aggregate into one bucket instead of one per run.
+			name: "hashtag-embedded id collapsed",
+			key:  "{estate:01KTKR11Q3W56KB7E7T86JYKQQ}:actions:01KTKR4CE3AXJZWXWTEFY29N7N",
+			want: "{estate:*}:actions:*",
+		},
+		{"hashtag id no trailing segment", "{estate:01KTKR11Q3W56KB7E7T86JYKQQ}:actions", "{estate:*}:actions"},
 		{"empty string", "", ""},
 		{"single segment", "{queue}", "{queue}"},
 		{
