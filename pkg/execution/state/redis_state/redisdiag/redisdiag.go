@@ -20,6 +20,7 @@ package redisdiag
 
 import (
 	"context"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,13 @@ import (
 
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/redis/rueidis"
+)
+
+// Env vars controlling the opt-in profiler. See StartFromEnv.
+const (
+	envEnabled  = "INNGEST_REDIS_DIAG"
+	envInterval = "INNGEST_REDIS_DIAG_INTERVAL"
+	envSample   = "INNGEST_REDIS_DIAG_SAMPLE"
 )
 
 const (
@@ -100,6 +108,27 @@ func (r *Reporter) ReportOnce(ctx context.Context) {
 	r.reportAll(ctx)
 }
 
+// StartFromEnv starts the profiler iff INNGEST_REDIS_DIAG is truthy, reading
+// tunables (INNGEST_REDIS_DIAG_INTERVAL, INNGEST_REDIS_DIAG_SAMPLE) from the
+// environment. It emits one synchronous snapshot (so the breakdown reaches the
+// logs even if a later startup step crashes under maxmemory) and then samples
+// on an interval in the background until ctx is cancelled. No-op when disabled.
+func StartFromEnv(ctx context.Context, log logger.Logger, clients ...NamedClient) {
+	if enabled, _ := strconv.ParseBool(os.Getenv(envEnabled)); !enabled {
+		return
+	}
+	cfg := Config{}
+	if d, err := time.ParseDuration(os.Getenv(envInterval)); err == nil {
+		cfg.Interval = d
+	}
+	if n, err := strconv.Atoi(os.Getenv(envSample)); err == nil {
+		cfg.SampleLimit = n
+	}
+	r := New(log, cfg, clients...)
+	r.ReportOnce(ctx)
+	go r.Start(ctx)
+}
+
 // Start runs the report loop until ctx is cancelled. It blocks, so callers
 // typically run it in its own goroutine. It does not emit an immediate report —
 // call ReportOnce first if you want a snapshot at t=0 (recommended at startup).
@@ -145,16 +174,15 @@ func (r *Reporter) reportNode(ctx context.Context, name, addr string, node rueid
 
 	mem := r.memInfo(ctx, node)
 	dbsize := r.dbsize(ctx, node)
+	stats, sampled, complete := r.sampleKeyspace(ctx, node)
 
-	stats, sampled, cursorComplete := r.sampleKeyspace(ctx, node)
+	r.logSummary(log, mem, dbsize, sampled, complete)
+	r.logPrefixBreakdown(log, stats, mem.usedMemory)
+}
 
-	var totalSampledBytes int64
-	for _, s := range stats {
-		totalSampledBytes += s.sampledBytes
-	}
-
-	// Emit the node-level summary first so it is always present even if the
-	// per-prefix sample is empty (fresh / tiny keyspace).
+// logSummary emits the node-level memory summary. It is always logged, even
+// when the per-prefix sample is empty (fresh / tiny keyspace).
+func (r *Reporter) logSummary(log logger.Logger, mem memStats, dbsize, sampled int64, complete bool) {
 	usedPct := 0.0
 	if mem.maxmemory > 0 {
 		usedPct = float64(mem.usedMemory) / float64(mem.maxmemory) * 100
@@ -167,14 +195,21 @@ func (r *Reporter) reportNode(ctx context.Context, name, addr string, node rueid
 		"frag_ratio", mem.fragRatio,
 		"dbsize", dbsize,
 		"sampled_keys", sampled,
-		"sample_complete", cursorComplete,
+		"sample_complete", complete,
 		"maxmemory_policy", mem.policy,
 	)
+}
 
-	// Sort prefixes by sampled bytes desc and log the top N with an estimated
-	// share of used_memory. The estimate attributes used_memory proportionally
-	// to each prefix's share of sampled bytes — approximate, but enough to
-	// identify the dominant consumer.
+// logPrefixBreakdown sorts prefixes by sampled bytes desc and logs the top N
+// with an estimated share of used_memory. The estimate attributes used_memory
+// proportionally to each prefix's share of sampled bytes — approximate, but
+// enough to identify the dominant consumer.
+func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, usedMemory int64) {
+	var totalSampledBytes int64
+	for _, s := range stats {
+		totalSampledBytes += s.sampledBytes
+	}
+
 	sort.Slice(stats, func(i, j int) bool {
 		return stats[i].sampledBytes > stats[j].sampledBytes
 	})
@@ -186,7 +221,7 @@ func (r *Reporter) reportNode(ctx context.Context, name, addr string, node rueid
 		s := stats[i]
 		estMB := 0.0
 		if totalSampledBytes > 0 {
-			estMB = bytesToMB(int64(float64(mem.usedMemory) * float64(s.sampledBytes) / float64(totalSampledBytes)))
+			estMB = bytesToMB(int64(float64(usedMemory) * float64(s.sampledBytes) / float64(totalSampledBytes)))
 		}
 		ttlPct := 0.0
 		if s.sampledKeys > 0 {
