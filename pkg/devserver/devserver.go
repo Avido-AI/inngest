@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
@@ -65,6 +66,7 @@ import (
 	"github.com/inngest/inngest/pkg/execution/singleton"
 	"github.com/inngest/inngest/pkg/execution/state"
 	"github.com/inngest/inngest/pkg/execution/state/redis_state"
+	"github.com/inngest/inngest/pkg/execution/state/redis_state/redisdiag"
 	sv2 "github.com/inngest/inngest/pkg/execution/state/v2"
 	"github.com/inngest/inngest/pkg/expressions"
 	"github.com/inngest/inngest/pkg/expressions/expragg"
@@ -337,6 +339,30 @@ func start(ctx context.Context, opts StartOpts) error {
 		BatchClient:            shardedRc,
 		QueueDefaultKey:        redis_state.QueueDefaultKey,
 	})
+
+	// Opt-in, read-only Redis memory profiler. Enabled with INNGEST_REDIS_DIAG=1
+	// to diagnose Redis memory growth / OOM on deployments where operators cannot
+	// connect to Redis directly. It periodically SCAN-samples each keyspace and
+	// logs a per-prefix memory attribution. Off by default.
+	if v, _ := strconv.ParseBool(os.Getenv("INNGEST_REDIS_DIAG")); v {
+		diagCfg := redisdiag.Config{}
+		if d, err := time.ParseDuration(os.Getenv("INNGEST_REDIS_DIAG_INTERVAL")); err == nil {
+			diagCfg.Interval = d
+		}
+		if n, err := strconv.Atoi(os.Getenv("INNGEST_REDIS_DIAG_SAMPLE")); err == nil {
+			diagCfg.SampleLimit = n
+		}
+		reporter := redisdiag.New(l, diagCfg,
+			redisdiag.NamedClient{Name: "sharded", Client: shardedRc},
+			redisdiag.NamedClient{Name: "unsharded", Client: unshardedRc},
+			redisdiag.NamedClient{Name: "connect", Client: connectRc},
+		)
+		// Synchronous snapshot now, so the breakdown reaches the logs even if a
+		// later startup step crashes (e.g. a Redis write failing under maxmemory).
+		reporter.ReportOnce(ctx)
+		// Then keep sampling on an interval for as long as the process lives.
+		go reporter.Start(ctx)
+	}
 
 	pauseMgr := pauses.NewPauseStoreManager(unshardedClient)
 
