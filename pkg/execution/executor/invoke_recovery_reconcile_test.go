@@ -172,6 +172,31 @@ func TestReconcileSkipsLegacyPauseWithoutInternalID(t *testing.T) {
 	}
 }
 
+func TestReconcileRerunFailureStillCountsAttempt(t *testing.T) {
+	// No child run => Tier-2 re-run. Publish is nil in the test service, so
+	// rerunChild fails. The attempt must still be counted and the cooldown
+	// stamped, or the cap/cooldown would be bypassed and it would retry forever.
+	fd := &fakeData{runs: nil}
+	p := invokePause(true)
+	fp := &fakePauses{iter: &fakePauseIter{pauses: []*state.Pause{p}}}
+	s := newTestService(fp, &fakeRuns{exists: true}, fd, &fakeResumer{})
+
+	_, rerun, _, _, err := s.reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("reconcile error: %v", err)
+	}
+	if rerun != 0 {
+		t.Fatalf("failed re-run should not count as a successful rerun, got %d", rerun)
+	}
+	corr := *p.InvokeCorrelationID
+	if s.rerunAttempts[corr] != 1 {
+		t.Fatalf("failed re-run must still count as an attempt; got %d", s.rerunAttempts[corr])
+	}
+	if _, ok := s.lastRerun[corr]; !ok {
+		t.Fatalf("failed re-run must stamp the cooldown")
+	}
+}
+
 func TestReconcileSkipsRunningChild(t *testing.T) {
 	fd := &fakeData{runs: []cqrs.Run{{ID: ulid.Make(), Status: enums.RunStatusRunning}}}
 	fp := &fakePauses{iter: &fakePauseIter{pauses: []*state.Pause{invokePause(true)}}}

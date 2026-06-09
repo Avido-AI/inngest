@@ -294,14 +294,18 @@ func (s *invokeRecoveryService) reconcile(ctx context.Context) (resumed, rerun, 
 				skipped++
 				continue
 			}
+			// Record the attempt + stamp the cooldown BEFORE attempting, so a
+			// FAILED re-run (e.g. the invocation event was purged) still counts
+			// toward the cap and respects the cooldown. Otherwise it would retry
+			// every tick forever and never hand the unrecoverable case to ops.
+			s.rerunAttempts[corr]++
+			s.lastRerun[corr] = time.Now()
+			rerunsThisTick++
 			if e := s.rerunChild(ctx, p); e != nil {
 				s.opts.Log.Warn("invoke-recovery re-run failed", "error", e, "parent_run_id", p.Identifier.RunID.String())
 				skipped++
 				continue
 			}
-			s.rerunAttempts[corr]++
-			s.lastRerun[corr] = time.Now()
-			rerunsThisTick++
 			rerun++
 		case recoveryCleanup:
 			if e := s.opts.Pauses.Delete(ctx, index, *p); e != nil {
