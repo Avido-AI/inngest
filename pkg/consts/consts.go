@@ -135,6 +135,11 @@ const (
 	// InvokeRecoveryMaxRerunAttempts caps how many times the reconciler will
 	// re-run a child for the same pause before giving up (leaving it for ops).
 	InvokeRecoveryMaxRerunAttempts = 3
+	// InvokeRecoveryRerunCooldown spaces out Tier-2 re-runs for the same pause.
+	// A re-published child gets a fresh triggering-event ID, so the oracle won't
+	// see it under the original ID until it finishes; the cooldown gives each
+	// re-run time to complete and resume the parent before another is attempted.
+	InvokeRecoveryRerunCooldown = 10 * time.Minute
 	// InvokeRecoveryLeaseDuration is the singleton-leader lease TTL; only the
 	// holder runs the reconciler so pods don't double-process.
 	InvokeRecoveryLeaseDuration = 90 * time.Second

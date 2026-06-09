@@ -153,6 +153,8 @@ type invokeRecoveryService struct {
 	holderID string
 	// rerunAttempts caps Tier-2 re-runs per correlation ID across ticks.
 	rerunAttempts map[string]int
+	// lastRerun spaces Tier-2 re-runs per correlation ID (cooldown).
+	lastRerun map[string]time.Time
 }
 
 // NewInvokeRecoveryService builds the reconciler as a service.Service. It is
@@ -178,6 +180,7 @@ func NewInvokeRecoveryService(opts InvokeRecoveryOpts) service.Service {
 		opts:          opts,
 		holderID:      ulid.Make().String(),
 		rerunAttempts: map[string]int{},
+		lastRerun:     map[string]time.Time{},
 	}
 }
 
@@ -257,7 +260,10 @@ func (s *invokeRecoveryService) reconcile(ctx context.Context) (resumed, rerun, 
 	seen := make(map[string]struct{})
 	for iter.Next(ctx) {
 		p := iter.Val(ctx)
-		if p == nil || p.InvokeCorrelationID == nil || p.TriggeringEventID == nil {
+		// Fix-forward only: act on invoke pauses that carry the internal
+		// triggering-event ID (the indexed link to the child run). Legacy
+		// pauses without it are skipped — the oracle can't safely classify them.
+		if p == nil || p.InvokeCorrelationID == nil || p.TriggeringEventInternalID == nil {
 			continue
 		}
 		seen[*p.InvokeCorrelationID] = struct{}{}
@@ -272,6 +278,14 @@ func (s *invokeRecoveryService) reconcile(ctx context.Context) (resumed, rerun, 
 			}
 			resumed++
 		case recoveryRerun:
+			corr := *p.InvokeCorrelationID
+			// Cooldown: a re-published child gets a fresh triggering-event ID,
+			// so the oracle can't see it under the original ID until it
+			// finishes. Space attempts so we don't spawn duplicate children.
+			if last, ok := s.lastRerun[corr]; ok && time.Since(last) < consts.InvokeRecoveryRerunCooldown {
+				skipped++
+				continue
+			}
 			if rerunsThisTick >= s.opts.RerunsPerTick {
 				skipped++
 				continue
@@ -281,7 +295,8 @@ func (s *invokeRecoveryService) reconcile(ctx context.Context) (resumed, rerun, 
 				skipped++
 				continue
 			}
-			s.rerunAttempts[*p.InvokeCorrelationID]++
+			s.rerunAttempts[corr]++
+			s.lastRerun[corr] = time.Now()
 			rerunsThisTick++
 			rerun++
 		case recoveryCleanup:
@@ -310,13 +325,20 @@ func (s *invokeRecoveryService) reconcile(ctx context.Context) (resumed, rerun, 
 			delete(s.rerunAttempts, corrID)
 		}
 	}
+	for corrID := range s.lastRerun {
+		if _, ok := seen[corrID]; !ok {
+			delete(s.lastRerun, corrID)
+		}
+	}
 	return resumed, rerun, cleaned, skipped, nil
 }
 
 // classify runs the status oracle (child run lookup + parent existence) and
 // returns the decided action plus the terminal child run (for Tier 1).
 func (s *invokeRecoveryService) classify(ctx context.Context, p *state.Pause) (recoveryAction, *cqrs.Run) {
-	triggerID, perr := ulid.Parse(*p.TriggeringEventID)
+	// Use the INTERNAL triggering-event ID: child runs are keyed by it
+	// (function_runs.event_id) and events are indexed by internal_id.
+	triggerID, perr := ulid.Parse(*p.TriggeringEventInternalID)
 	if perr != nil {
 		return recoverySkip, nil
 	}
@@ -415,7 +437,7 @@ func (s *invokeRecoveryService) rerunChild(ctx context.Context, p *state.Pause) 
 	if s.opts.Publish == nil {
 		return fmt.Errorf("no event publisher configured")
 	}
-	triggerID, err := ulid.Parse(*p.TriggeringEventID)
+	triggerID, err := ulid.Parse(*p.TriggeringEventInternalID)
 	if err != nil {
 		return fmt.Errorf("parsing triggering event id: %w", err)
 	}

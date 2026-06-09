@@ -14,7 +14,6 @@ import (
 
 var tsSuffix = regexp.MustCompile(`\s*&&\s*\(\s*async.ts\s+==\s*null\s*\|\|\s*async.ts\s*>\s*\d*\)\s*$`)
 
-
 // PauseMutater manages creating, leasing, and consuming pauses from a backend implementation.
 type PauseMutater interface {
 	// SavePause indicates that the traversal of an edge is paused until some future time.
@@ -244,8 +243,16 @@ type Pause struct {
 	// event receives with other history items.
 	GroupID string `json:"groupID"`
 	// TriggeringEventID is the event that triggered the original run.  This allows us
-	// to exclude the original event ID when considering triggers.
+	// to exclude the original event ID when considering triggers.  NOTE: this is the
+	// EXTERNAL event ID and is surfaced in tracing/UI; do not use it to look up runs.
 	TriggeringEventID *string `json:"tID,omitempty"`
+	// TriggeringEventInternalID is the INTERNAL (tracked) ID of the event that
+	// triggered the invoked child run. Unlike TriggeringEventID (external), this
+	// is the ID runs are keyed by (function_runs.event_id) and events are indexed
+	// by (internal_id), so invoke recovery can look up the child run/result with
+	// an indexed query. Only set for invoke pauses created after this field was
+	// added; recovery skips pauses without it.
+	TriggeringEventInternalID *string `json:"tiID,omitempty"`
 	// Metadata is additional metadata that should be stored with the pause
 	Metadata map[string]any
 

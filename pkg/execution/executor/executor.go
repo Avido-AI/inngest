@@ -494,14 +494,14 @@ type executor struct {
 	useConstraintAPI              constraintapi.UseConstraintAPIFn
 	enableBatchingInstrumentation func(ctx context.Context, accountID, envID uuid.UUID) (enable bool)
 
-	fl                  state.FunctionLoader
-	evalFactory         func(ctx context.Context, expr string) (expressions.Evaluator, error)
-	finishHandler       execution.FinalizePublisher
-	invokeFailHandler   execution.InvokeFailHandler
-	handleInvokeEvent        execution.HandleInvokeEvent
+	fl                      state.FunctionLoader
+	evalFactory             func(ctx context.Context, expr string) (expressions.Evaluator, error)
+	finishHandler           execution.FinalizePublisher
+	invokeFailHandler       execution.InvokeFailHandler
+	handleInvokeEvent       execution.HandleInvokeEvent
 	handleInvokeEventsBatch execution.HandleInvokeEventsBatch
 	cancellationChecker     cancellation.Checker
-	httpClient          exechttp.RequestExecutor
+	httpClient              exechttp.RequestExecutor
 	// signingKeyLoader is used to load signing keys for an env.  This is required for the
 	// HTTPv2 driver.
 	signingKeyLoader func(ctx context.Context, envID uuid.UUID) ([]byte, error)
@@ -5183,23 +5183,25 @@ func (e *executor) buildInvokeTraceCarrier(ctx context.Context, now time.Time) *
 
 // buildInvokePause constructs the state.Pause for an invoke opcode.
 func (e *executor) buildInvokePause(i *runInstance, gen state.GeneratorOpcode, edge queue.PayloadEdge, groupID string, pauseID uuid.UUID, opcode string, eventName string, strExpr string, correlationID string, evt event.BaseTrackedEvent, opts *state.InvokeFunctionOpts, carrier *itrace.TraceCarrier, expires time.Time, now time.Time) state.Pause {
+	internalEvtID := evt.GetInternalID().String()
 	return state.Pause{
-		ID:                  pauseID,
-		WorkspaceID:         i.md.ID.Tenant.EnvID,
-		Identifier:          sv2.NewPauseIdentifier(i.md.ID),
-		GroupID:             groupID,
-		Outgoing:            gen.ID,
-		Incoming:            edge.Edge.Incoming,
-		StepName:            gen.UserDefinedName(),
-		Opcode:              &opcode,
-		Expires:             state.Time(expires),
-		Event:               &eventName,
-		Expression:          &strExpr,
-		DataKey:             gen.ID,
-		InvokeCorrelationID: &correlationID,
-		TriggeringEventID:   &evt.Event.ID,
-		InvokeTargetFnID:    &opts.FunctionID,
-		MaxAttempts:         i.MaxAttempts(),
+		ID:                        pauseID,
+		WorkspaceID:               i.md.ID.Tenant.EnvID,
+		Identifier:                sv2.NewPauseIdentifier(i.md.ID),
+		GroupID:                   groupID,
+		Outgoing:                  gen.ID,
+		Incoming:                  edge.Edge.Incoming,
+		StepName:                  gen.UserDefinedName(),
+		Opcode:                    &opcode,
+		Expires:                   state.Time(expires),
+		Event:                     &eventName,
+		Expression:                &strExpr,
+		DataKey:                   gen.ID,
+		InvokeCorrelationID:       &correlationID,
+		TriggeringEventID:         &evt.Event.ID,
+		TriggeringEventInternalID: &internalEvtID,
+		InvokeTargetFnID:          &opts.FunctionID,
+		MaxAttempts:               i.MaxAttempts(),
 		Metadata: map[string]any{
 			consts.OtelPropagationKey: carrier,
 		},
@@ -5213,13 +5215,13 @@ func (e *executor) buildInvokeTimeoutItem(i *runInstance, gen state.GeneratorOpc
 	jobID := fmt.Sprintf("%s-%s", i.md.IdempotencyKey(), gen.ID)
 	return queue.Item{
 		JobID:                 &jobID,
-		WorkspaceID:          i.md.ID.Tenant.EnvID,
-		GroupID:              groupID,
-		Kind:                 queue.KindPause,
-		Identifier:           sv2.V1FromMetadata(i.md),
-		PriorityFactor:       i.PriorityFactor(),
+		WorkspaceID:           i.md.ID.Tenant.EnvID,
+		GroupID:               groupID,
+		Kind:                  queue.KindPause,
+		Identifier:            sv2.V1FromMetadata(i.md),
+		PriorityFactor:        i.PriorityFactor(),
 		CustomConcurrencyKeys: i.ConcurrencyKeys(),
-		MaxAttempts:          i.MaxAttempts(),
+		MaxAttempts:           i.MaxAttempts(),
 		Payload: queue.PayloadPauseTimeout{
 			PauseID: pauseID,
 			Pause:   pause,
@@ -5514,23 +5516,25 @@ func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx exe
 		SourceFnVersion: runCtx.Metadata().Config.FunctionVersion,
 	})
 
+	internalEvtID := evt.GetInternalID().String()
 	pause := state.Pause{
-		ID:                  pauseID,
-		WorkspaceID:         runCtx.Metadata().ID.Tenant.EnvID,
-		Identifier:          sv2.NewPauseIdentifier(runCtx.Metadata().ID),
-		GroupID:             runCtx.GroupID(),
-		Outgoing:            gen.ID,
-		Incoming:            edge.Edge.Incoming,
-		StepName:            gen.UserDefinedName(),
-		Opcode:              &opcode,
-		Expires:             state.Time(expires),
-		Event:               &eventName,
-		Expression:          &strExpr,
-		DataKey:             gen.ID,
-		InvokeCorrelationID: &correlationID,
-		TriggeringEventID:   &evt.Event.ID,
-		InvokeTargetFnID:    &opts.FunctionID,
-		MaxAttempts:         runCtx.MaxAttempts(),
+		ID:                        pauseID,
+		WorkspaceID:               runCtx.Metadata().ID.Tenant.EnvID,
+		Identifier:                sv2.NewPauseIdentifier(runCtx.Metadata().ID),
+		GroupID:                   runCtx.GroupID(),
+		Outgoing:                  gen.ID,
+		Incoming:                  edge.Edge.Incoming,
+		StepName:                  gen.UserDefinedName(),
+		Opcode:                    &opcode,
+		Expires:                   state.Time(expires),
+		Event:                     &eventName,
+		Expression:                &strExpr,
+		DataKey:                   gen.ID,
+		InvokeCorrelationID:       &correlationID,
+		TriggeringEventID:         &evt.Event.ID,
+		TriggeringEventInternalID: &internalEvtID,
+		InvokeTargetFnID:          &opts.FunctionID,
+		MaxAttempts:               runCtx.MaxAttempts(),
 		Metadata: map[string]any{
 			consts.OtelPropagationKey: carrier,
 		},
