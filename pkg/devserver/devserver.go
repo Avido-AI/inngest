@@ -65,6 +65,7 @@ import (
 	"github.com/inngest/inngest/pkg/execution/singleton"
 	"github.com/inngest/inngest/pkg/execution/state"
 	"github.com/inngest/inngest/pkg/execution/state/redis_state"
+	"github.com/inngest/inngest/pkg/execution/state/redis_state/redisdiag"
 	sv2 "github.com/inngest/inngest/pkg/execution/state/v2"
 	"github.com/inngest/inngest/pkg/expressions"
 	"github.com/inngest/inngest/pkg/expressions/expragg"
@@ -165,6 +166,13 @@ type StartOpts struct {
 
 	// Cleanup configures the background database cleanup loop.
 	Cleanup cleanup.Config `json:"cleanup"`
+
+	// RedisDiag enables the opt-in, read-only Redis memory profiler, which
+	// periodically logs a per-key-prefix memory breakdown for diagnosing OOM.
+	// RedisDiagInterval and RedisDiagSample tune it; zero values use defaults.
+	RedisDiag         bool          `json:"redis_diag"`
+	RedisDiagInterval time.Duration `json:"redis_diag_interval"`
+	RedisDiagSample   int           `json:"redis_diag_sample"`
 
 	// Debug API
 	DebugAPIPort int `json:"debugAPIPort"`
@@ -337,6 +345,34 @@ func start(ctx context.Context, opts StartOpts) error {
 		BatchClient:            shardedRc,
 		QueueDefaultKey:        redis_state.QueueDefaultKey,
 	})
+
+	// Opt-in, read-only Redis memory profiler for diagnosing memory growth / OOM
+	// on deployments where operators cannot connect to Redis directly. Enabled
+	// via --redis-diag (or INNGEST_REDIS_DIAG); no-op otherwise. See redisdiag.
+	redisdiag.Run(ctx, l, opts.RedisDiag, redisdiag.Config{
+		Interval:    opts.RedisDiagInterval,
+		SampleLimit: opts.RedisDiagSample,
+		// Function names aren't stored in Redis; resolve the run-state UUIDs to
+		// names via the CQRS store (Postgres).
+		ResolveFunction: func(ctx context.Context, fnID string) (string, bool) {
+			id, err := uuid.Parse(fnID)
+			if err != nil {
+				return "", false
+			}
+			fn, err := dbcqrs.GetFunctionByInternalUUID(ctx, id)
+			if err != nil || fn == nil {
+				return "", false
+			}
+			if fn.Name != "" {
+				return fn.Name, true
+			}
+			return fn.Slug, fn.Slug != ""
+		},
+	},
+		redisdiag.NamedClient{Name: "sharded", Client: shardedRc},
+		redisdiag.NamedClient{Name: "unsharded", Client: unshardedRc},
+		redisdiag.NamedClient{Name: "connect", Client: connectRc},
+	)
 
 	pauseMgr := pauses.NewPauseStoreManager(unshardedClient)
 

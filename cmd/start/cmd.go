@@ -1,6 +1,8 @@
 package start
 
 import (
+	"time"
+
 	"github.com/inngest/inngest/pkg/api"
 	"github.com/inngest/inngest/pkg/devserver"
 	"github.com/urfave/cli/v3"
@@ -125,6 +127,26 @@ func Command() *cli.Command {
 				Category: "Advanced",
 				Name:     "reset",
 				Usage:    "DESTRUCTIVE: on startup, wipe ALL Inngest state (Redis queue/run-state AND Postgres history/config), then exit without serving. Discards queued/in-flight runs and history; apps re-sync on next boot. Use to recover an OOM-wedged instance, then remove this flag.",
+			},
+			&cli.BoolFlag{
+				Category: "Advanced",
+				Name:     "redis-diag",
+				Sources:  cli.EnvVars("INNGEST_REDIS_DIAG"),
+				Usage:    "Enable the read-only Redis memory profiler, which periodically logs a per-key-prefix memory breakdown to diagnose Redis OOM. Off by default; safe to leave off in steady state.",
+			},
+			&cli.DurationFlag{
+				Category: "Advanced",
+				Name:     "redis-diag-interval",
+				Sources:  cli.EnvVars("INNGEST_REDIS_DIAG_INTERVAL"),
+				Value:    60 * time.Second,
+				Usage:    "Interval between Redis memory profiler reports. Only used when --redis-diag is set.",
+			},
+			&cli.IntFlag{
+				Category: "Advanced",
+				Name:     "redis-diag-sample",
+				Sources:  cli.EnvVars("INNGEST_REDIS_DIAG_SAMPLE"),
+				Value:    1000,
+				Usage:    "Maximum number of keys sampled per Redis memory profiler cycle (bounds cost). Only used when --redis-diag is set.",
 			},
 
 			// Cleanup flags
