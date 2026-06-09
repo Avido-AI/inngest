@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/inngest/inngest/pkg/logger"
+	"github.com/oklog/ulid/v2"
 	"github.com/redis/rueidis"
 )
 
@@ -37,7 +38,16 @@ const (
 	scanCount          = 512 // COUNT hint per SCAN call
 	lookupChunk        = 50  // keys per pipelined MEMORY USAGE/TTL batch
 	maxPrefixSegments  = 5   // cap normalized prefix depth
+	maxClassifyRuns    = 256 // cap distinct runs classified per node per cycle
 )
+
+// Terminal run statuses (enums.RunStatus). A run in any of these has finished;
+// its state SHOULD have been deleted by finalize. If such a run is still
+// resident in Redis, that is a leak (finalize did not delete it). Kept as
+// literals to avoid importing the enums package into this diagnostic tool.
+//
+//	0 Running  1 Completed  2 Failed  3 Cancelled  4 Overflowed  5 Scheduled  6 Unknown
+var terminalRunStatus = map[int]bool{1: true, 2: true, 3: true, 4: true}
 
 // NamedClient pairs a rueidis client with a human label (e.g. "sharded",
 // "unsharded", "connect") so the report identifies which keyspace it sampled.
@@ -161,10 +171,11 @@ func (r *Reporter) reportNode(ctx context.Context, name, addr string, node rueid
 
 	mem := r.memInfo(ctx, node)
 	dbsize := r.dbsize(ctx, node)
-	stats, sampled, complete := r.sampleKeyspace(ctx, node)
+	stats, sampled, complete, runs := r.sampleKeyspace(ctx, node)
 
 	r.logSummary(log, mem, dbsize, sampled, complete)
 	r.logPrefixBreakdown(log, stats, mem.usedMemory)
+	r.classifyAndLog(ctx, log, node, runs)
 }
 
 // logSummary emits the node-level memory summary. It is always logged, even
@@ -227,9 +238,12 @@ func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, use
 
 // sampleKeyspace SCANs up to sampleLimit keys and aggregates MEMORY USAGE + TTL
 // per normalized prefix. It returns the per-prefix stats, the number of keys
-// sampled, and whether the full keyspace was scanned (cursor returned to 0).
-func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) ([]prefixStat, int64, bool) {
+// sampled, whether the full keyspace was scanned (cursor returned to 0), and a
+// deduped set of run metadata keys (runID -> metadata key) discovered along the
+// way, capped at maxClassifyRuns, for leak-vs-working-set classification.
+func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) ([]prefixStat, int64, bool, map[ulid.ULID]string) {
 	agg := map[string]*prefixStat{}
+	runs := map[ulid.ULID]string{}
 	var sampled int64
 	cursor := uint64(0)
 	complete := false
@@ -244,7 +258,7 @@ func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) ([]p
 		keys = append(keys[:0], entry.Elements...)
 		cursor = entry.Cursor
 
-		r.lookupAndAggregate(ctx, node, keys, agg, &sampled)
+		r.lookupAndAggregate(ctx, node, keys, agg, runs, &sampled)
 
 		if cursor == 0 {
 			complete = true
@@ -256,12 +270,13 @@ func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) ([]p
 	for _, s := range agg {
 		out = append(out, *s)
 	}
-	return out, sampled, complete
+	return out, sampled, complete, runs
 }
 
 // lookupAndAggregate pipelines MEMORY USAGE + TTL for the given keys and folds
-// the results into agg, bucketed by normalized prefix.
-func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, keys []string, agg map[string]*prefixStat, sampled *int64) {
+// the results into agg, bucketed by normalized prefix. It also records run
+// metadata keys (deduped into runs, capped) for keys that belong to a run.
+func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, keys []string, agg map[string]*prefixStat, runs map[ulid.ULID]string, sampled *int64) {
 	for start := 0; start < len(keys); start += lookupChunk {
 		end := start + lookupChunk
 		if end > len(keys) {
@@ -306,8 +321,185 @@ func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, 
 				s.keysWithTTL++
 			}
 			*sampled++
+
+			// Record run metadata keys for classification (deduped, capped).
+			if len(runs) < maxClassifyRuns {
+				if id, metaKey, ok := runMetadataKey(k); ok {
+					if _, seen := runs[id]; !seen {
+						runs[id] = metaKey
+					}
+				}
+			}
 		}
 	}
+}
+
+// runClassification aggregates the status + age of sampled runs.
+type runClassification struct {
+	classified       int
+	terminalResident int // finished runs still resident — the leak signal
+	statusUnknown    int
+	withAge          int
+	olderThan1h      int
+	sumAgeSec        float64
+	maxAgeSec        float64
+	byStatus         map[int]int
+}
+
+// classifyAndLog reads the status of each sampled run and decodes its age from
+// the run ULID, then logs an aggregate. This distinguishes a leak (runs that
+// have FINISHED but whose state is still resident — terminal status, and/or
+// old age) from a legitimate working set (runs still Running/Scheduled, young).
+func (r *Reporter) classifyAndLog(ctx context.Context, log logger.Logger, node rueidis.Client, runs map[ulid.ULID]string) {
+	if len(runs) == 0 {
+		return
+	}
+
+	c := r.classifyRuns(ctx, node, runs)
+
+	avgAge := 0.0
+	if c.withAge > 0 {
+		avgAge = c.sumAgeSec / float64(c.withAge)
+	}
+
+	log.Info("redis run-state classification",
+		"classified_runs", c.classified,
+		"running", c.byStatus[0],
+		"scheduled", c.byStatus[5],
+		"completed", c.byStatus[1],
+		"failed", c.byStatus[2],
+		"cancelled", c.byStatus[3],
+		"overflowed", c.byStatus[4],
+		"status_unknown", c.statusUnknown,
+		// terminal_resident > 0 means finished runs are still in Redis — a leak.
+		"terminal_resident", c.terminalResident,
+		"avg_age_sec", round2(avgAge),
+		"max_age_sec", round2(c.maxAgeSec),
+		"older_than_1h", c.olderThan1h,
+	)
+}
+
+// classifyRuns pipelines HGET status for each run's metadata and decodes age
+// from the run ULID, folding both into a runClassification.
+func (r *Reporter) classifyRuns(ctx context.Context, node rueidis.Client, runs map[ulid.ULID]string) runClassification {
+	ids := make([]ulid.ULID, 0, len(runs))
+	metaKeys := make([]string, 0, len(runs))
+	for id, mk := range runs {
+		ids = append(ids, id)
+		metaKeys = append(metaKeys, mk)
+	}
+
+	c := runClassification{byStatus: map[int]int{}}
+	now := time.Now()
+	for start := 0; start < len(ids); start += lookupChunk {
+		end := start + lookupChunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+
+		cmds := make([]rueidis.Completed, 0, end-start)
+		for _, mk := range metaKeys[start:end] {
+			cmds = append(cmds, node.B().Hget().Key(mk).Field("status").Build())
+		}
+		results := node.DoMulti(ctx, cmds...)
+
+		for i, res := range results {
+			c.recordAge(now, ids[start+i])
+			c.recordStatus(res)
+		}
+	}
+	return c
+}
+
+// recordAge folds a run's age (from its ULID timestamp) into the classification.
+func (c *runClassification) recordAge(now time.Time, id ulid.ULID) {
+	age := now.Sub(ulid.Time(id.Time())).Seconds()
+	if age < 0 {
+		return
+	}
+	c.withAge++
+	c.sumAgeSec += age
+	if age > c.maxAgeSec {
+		c.maxAgeSec = age
+	}
+	if age > 3600 {
+		c.olderThan1h++
+	}
+}
+
+// recordStatus folds a run's metadata "status" HGET result into the classification.
+func (c *runClassification) recordStatus(res rueidis.RedisResult) {
+	c.classified++
+	v, err := res.ToString()
+	if err != nil {
+		// Metadata gone (race) or unreadable; can't classify status.
+		c.statusUnknown++
+		return
+	}
+	code, err := strconv.Atoi(strings.TrimSuffix(v, ".0"))
+	if err != nil {
+		c.statusUnknown++
+		return
+	}
+	c.byStatus[code]++
+	if terminalRunStatus[code] {
+		c.terminalResident++
+	}
+}
+
+// runMetadataKey returns the run ULID and the run's metadata key for a run-state
+// key (one containing :actions:/:metadata:/:stack:), reusing the key's own
+// hash-tag so it is correct for both sharded ("{estate:<runID>}") and unsharded
+// ("{estate}") layouts. Returns ok=false for non-run keys.
+func runMetadataKey(key string) (ulid.ULID, string, bool) {
+	if !isRunStateKey(key) {
+		return ulid.ULID{}, "", false
+	}
+	tag, ok := hashTag(key)
+	if !ok {
+		return ulid.ULID{}, "", false
+	}
+	id, ok := lastULID(key)
+	if !ok {
+		return ulid.ULID{}, "", false
+	}
+	return id, tag + ":metadata:" + id.String(), true
+}
+
+func isRunStateKey(key string) bool {
+	return strings.Contains(key, ":actions:") ||
+		strings.Contains(key, ":metadata:") ||
+		strings.Contains(key, ":stack:")
+}
+
+// hashTag returns the leading "{...}" Redis hash-tag of a key, inclusive of
+// braces, or ok=false if absent.
+func hashTag(key string) (string, bool) {
+	open := strings.IndexByte(key, '{')
+	if open != 0 {
+		return "", false
+	}
+	close := strings.IndexByte(key, '}')
+	if close < 0 {
+		return "", false
+	}
+	return key[:close+1], true
+}
+
+// lastULID returns the last ":"-delimited segment that parses as a ULID, after
+// stripping any hash-tag braces. Run-state keys end with ":<runID>".
+func lastULID(key string) (ulid.ULID, bool) {
+	parts := strings.Split(key, ":")
+	for i := len(parts) - 1; i >= 0; i-- {
+		seg := strings.TrimRight(strings.TrimLeft(parts[i], "{"), "}")
+		if len(seg) != 26 {
+			continue
+		}
+		if id, err := ulid.Parse(strings.ToUpper(seg)); err == nil {
+			return id, true
+		}
+	}
+	return ulid.ULID{}, false
 }
 
 type memStats struct {
