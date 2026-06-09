@@ -171,11 +171,12 @@ func (r *Reporter) reportNode(ctx context.Context, name, addr string, node rueid
 
 	mem := r.memInfo(ctx, node)
 	dbsize := r.dbsize(ctx, node)
-	stats, sampled, complete, runs := r.sampleKeyspace(ctx, node)
+	sample := r.sampleKeyspace(ctx, node)
 
-	r.logSummary(log, mem, dbsize, sampled, complete)
-	r.logPrefixBreakdown(log, stats, mem.usedMemory)
-	r.classifyAndLog(ctx, log, node, runs)
+	r.logSummary(log, mem, dbsize, sample.sampled, sample.complete)
+	r.logPrefixBreakdown(log, sample.stats, mem.usedMemory)
+	r.logFunctionBreakdown(log, sample.byFunction, mem.usedMemory)
+	r.classifyAndLog(ctx, log, node, sample.runs)
 }
 
 // logSummary emits the node-level memory summary. It is always logged, even
@@ -236,13 +237,22 @@ func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, use
 	}
 }
 
+// keyspaceSample holds the aggregated result of one keyspace scan.
+type keyspaceSample struct {
+	stats      []prefixStat         // per normalized-prefix memory
+	byFunction []prefixStat         // per function UUID (prefix field = fnID)
+	runs       map[ulid.ULID]string // runID -> metadata key, for classification
+	sampled    int64
+	complete   bool
+}
+
 // sampleKeyspace SCANs up to sampleLimit keys and aggregates MEMORY USAGE + TTL
-// per normalized prefix. It returns the per-prefix stats, the number of keys
-// sampled, whether the full keyspace was scanned (cursor returned to 0), and a
-// deduped set of run metadata keys (runID -> metadata key) discovered along the
-// way, capped at maxClassifyRuns, for leak-vs-working-set classification.
-func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) ([]prefixStat, int64, bool, map[ulid.ULID]string) {
+// per normalized prefix and per function UUID, and collects a deduped set of
+// run metadata keys (capped at maxClassifyRuns) for leak-vs-working-set
+// classification. complete reports whether the full keyspace was scanned.
+func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) keyspaceSample {
 	agg := map[string]*prefixStat{}
+	byFn := map[string]*prefixStat{}
 	runs := map[ulid.ULID]string{}
 	var sampled int64
 	cursor := uint64(0)
@@ -258,7 +268,7 @@ func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) ([]p
 		keys = append(keys[:0], entry.Elements...)
 		cursor = entry.Cursor
 
-		r.lookupAndAggregate(ctx, node, keys, agg, runs, &sampled)
+		r.lookupAndAggregate(ctx, node, keys, agg, byFn, runs, &sampled)
 
 		if cursor == 0 {
 			complete = true
@@ -266,17 +276,27 @@ func (r *Reporter) sampleKeyspace(ctx context.Context, node rueidis.Client) ([]p
 		}
 	}
 
-	out := make([]prefixStat, 0, len(agg))
-	for _, s := range agg {
+	return keyspaceSample{
+		stats:      flattenStats(agg),
+		byFunction: flattenStats(byFn),
+		runs:       runs,
+		sampled:    sampled,
+		complete:   complete,
+	}
+}
+
+func flattenStats(m map[string]*prefixStat) []prefixStat {
+	out := make([]prefixStat, 0, len(m))
+	for _, s := range m {
 		out = append(out, *s)
 	}
-	return out, sampled, complete, runs
+	return out
 }
 
 // lookupAndAggregate pipelines MEMORY USAGE + TTL for the given keys and folds
-// the results into agg, bucketed by normalized prefix. It also records run
-// metadata keys (deduped into runs, capped) for keys that belong to a run.
-func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, keys []string, agg map[string]*prefixStat, runs map[ulid.ULID]string, sampled *int64) {
+// the results into agg (by normalized prefix) and byFn (by function UUID). It
+// also records run metadata keys (deduped into runs, capped) for run-state keys.
+func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, keys []string, agg, byFn map[string]*prefixStat, runs map[ulid.ULID]string, sampled *int64) {
 	for start := 0; start < len(keys); start += lookupChunk {
 		end := start + lookupChunk
 		if end > len(keys) {
@@ -322,6 +342,18 @@ func (r *Reporter) lookupAndAggregate(ctx context.Context, node rueidis.Client, 
 			}
 			*sampled++
 
+			// Attribute bytes to the function UUID, when the key carries one
+			// (e.g. run-state actions/events keys: ...:actions:<fnID>:<runID>).
+			if fnID, ok := functionID(k); ok {
+				fs := byFn[fnID]
+				if fs == nil {
+					fs = &prefixStat{prefix: fnID}
+					byFn[fnID] = fs
+				}
+				fs.sampledKeys++
+				fs.sampledBytes += usage
+			}
+
 			// Record run metadata keys for classification (deduped, capped).
 			if len(runs) < maxClassifyRuns {
 				if id, metaKey, ok := runMetadataKey(k); ok {
@@ -344,6 +376,9 @@ type runClassification struct {
 	sumAgeSec        float64
 	maxAgeSec        float64
 	byStatus         map[int]int
+	withSteps        int
+	sumSteps         int
+	maxSteps         int
 }
 
 // classifyAndLog reads the status of each sampled run and decodes its age from
@@ -361,6 +396,10 @@ func (r *Reporter) classifyAndLog(ctx context.Context, log logger.Logger, node r
 	if c.withAge > 0 {
 		avgAge = c.sumAgeSec / float64(c.withAge)
 	}
+	avgSteps := 0.0
+	if c.withSteps > 0 {
+		avgSteps = float64(c.sumSteps) / float64(c.withSteps)
+	}
 
 	log.Info("redis run-state classification",
 		"classified_runs", c.classified,
@@ -376,6 +415,9 @@ func (r *Reporter) classifyAndLog(ctx context.Context, log logger.Logger, node r
 		"avg_age_sec", round2(avgAge),
 		"max_age_sec", round2(c.maxAgeSec),
 		"older_than_1h", c.olderThan1h,
+		// step counts: high avg/max => many steps; low => few fat step outputs.
+		"avg_steps", round2(avgSteps),
+		"max_steps", c.maxSteps,
 	)
 }
 
@@ -399,13 +441,13 @@ func (r *Reporter) classifyRuns(ctx context.Context, node rueidis.Client, runs m
 
 		cmds := make([]rueidis.Completed, 0, end-start)
 		for _, mk := range metaKeys[start:end] {
-			cmds = append(cmds, node.B().Hget().Key(mk).Field("status").Build())
+			cmds = append(cmds, node.B().Hmget().Key(mk).Field("status", "step_count").Build())
 		}
 		results := node.DoMulti(ctx, cmds...)
 
 		for i, res := range results {
 			c.recordAge(now, ids[start+i])
-			c.recordStatus(res)
+			c.recordMeta(res)
 		}
 	}
 	return c
@@ -427,16 +469,23 @@ func (c *runClassification) recordAge(now time.Time, id ulid.ULID) {
 	}
 }
 
-// recordStatus folds a run's metadata "status" HGET result into the classification.
-func (c *runClassification) recordStatus(res rueidis.RedisResult) {
+// recordMeta folds a run's metadata HMGET(status, step_count) result into the
+// classification.
+func (c *runClassification) recordMeta(res rueidis.RedisResult) {
 	c.classified++
-	v, err := res.ToString()
-	if err != nil {
-		// Metadata gone (race) or unreadable; can't classify status.
+	arr, err := res.ToArray()
+	if err != nil || len(arr) < 1 {
+		// Metadata gone (race) or unreadable; can't classify.
 		c.statusUnknown++
 		return
 	}
-	code, err := strconv.Atoi(strings.TrimSuffix(v, ".0"))
+
+	statusStr, err := arr[0].ToString()
+	if err != nil {
+		c.statusUnknown++
+		return
+	}
+	code, err := strconv.Atoi(strings.TrimSuffix(statusStr, ".0"))
 	if err != nil {
 		c.statusUnknown++
 		return
@@ -444,6 +493,18 @@ func (c *runClassification) recordStatus(res rueidis.RedisResult) {
 	c.byStatus[code]++
 	if terminalRunStatus[code] {
 		c.terminalResident++
+	}
+
+	if len(arr) >= 2 {
+		if sc, err := arr[1].ToString(); err == nil {
+			if n, err := strconv.Atoi(strings.TrimSuffix(sc, ".0")); err == nil {
+				c.withSteps++
+				c.sumSteps += n
+				if n > c.maxSteps {
+					c.maxSteps = n
+				}
+			}
+		}
 	}
 }
 
@@ -464,6 +525,51 @@ func runMetadataKey(key string) (ulid.ULID, string, bool) {
 		return ulid.ULID{}, "", false
 	}
 	return id, tag + ":metadata:" + id.String(), true
+}
+
+// functionID returns the function UUID embedded in a run-state key, e.g. the
+// "<fnID>" in "{estate:<runID>}:actions:<fnID>:<runID>". It is the only UUID
+// segment in such keys. Returns ok=false for keys without one (metadata, stack,
+// queue, etc.). The UUID maps to the function in the Inngest dashboard/registry
+// — function names are not stored in Redis.
+func functionID(key string) (string, bool) {
+	for _, seg := range strings.Split(key, ":") {
+		if isUUID(seg) {
+			return seg, true
+		}
+	}
+	return "", false
+}
+
+// logFunctionBreakdown logs the top functions by sampled bytes, with an
+// estimated share of used_memory (same attribution as logPrefixBreakdown).
+func (r *Reporter) logFunctionBreakdown(log logger.Logger, fns []prefixStat, usedMemory int64) {
+	if len(fns) == 0 {
+		return
+	}
+	var total int64
+	for _, f := range fns {
+		total += f.sampledBytes
+	}
+	sort.Slice(fns, func(i, j int) bool { return fns[i].sampledBytes > fns[j].sampledBytes })
+	limit := r.topN
+	if len(fns) < limit {
+		limit = len(fns)
+	}
+	for i := 0; i < limit; i++ {
+		f := fns[i]
+		estMB := 0.0
+		if total > 0 {
+			estMB = bytesToMB(int64(float64(usedMemory) * float64(f.sampledBytes) / float64(total)))
+		}
+		log.Info("redis run-state by function",
+			"function_id", f.prefix, // UUID; maps to the function in the dashboard
+			"sampled_keys", f.sampledKeys,
+			"sampled_bytes", f.sampledBytes,
+			"avg_bytes", safeDiv(f.sampledBytes, f.sampledKeys),
+			"est_used_mb", estMB,
+		)
+	}
 }
 
 func isRunStateKey(key string) bool {

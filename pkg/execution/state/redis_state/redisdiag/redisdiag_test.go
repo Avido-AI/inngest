@@ -228,6 +228,19 @@ func TestRunMetadataKey(t *testing.T) {
 	}
 }
 
+func TestFunctionID(t *testing.T) {
+	got, ok := functionID("{estate:01KTKR11Q3W56KB7E7T86JYKQQ}:actions:9f8a7b6c-1d2e-3f4a-5b6c-7d8e9f0a1b2c:01KTKR11Q3W56KB7E7T86JYKQQ")
+	if !ok || got != "9f8a7b6c-1d2e-3f4a-5b6c-7d8e9f0a1b2c" {
+		t.Errorf("functionID = %q,%v want the fnID UUID", got, ok)
+	}
+	if _, ok := functionID("{estate:01KTKR11Q3W56KB7E7T86JYKQQ}:stack:01KTKR11Q3W56KB7E7T86JYKQQ"); ok {
+		t.Error("functionID should be false for keys without a UUID segment")
+	}
+	if _, ok := functionID("{queue}:queue:item"); ok {
+		t.Error("functionID should be false for non-run keys")
+	}
+}
+
 func TestIsRunStateKey(t *testing.T) {
 	for _, k := range []string{"{estate:x}:actions:y", "{estate:x}:metadata:y", "{estate:x}:stack:y"} {
 		if !isRunStateKey(k) {
