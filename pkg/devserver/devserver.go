@@ -858,7 +858,25 @@ func start(ctx context.Context, opts StartOpts) error {
 		Logger:         l,
 	})
 
-	services = append(services, ds, runner, executorSvc, ds.Apiservice, connGateway)
+	// Invoke recovery reconciler: resumes parent runs stranded on a step.invoke
+	// whose completion was never delivered. Always-on; a Redis leader lease makes
+	// it a singleton across pods. See pkg/execution/executor/invoke_recovery.go.
+	invokeRecovery := executor.NewInvokeRecoveryService(executor.InvokeRecoveryOpts{
+		Log:      l,
+		Executor: exec,
+		Pauses:   pauseMgr,
+		Runs:     smv2,
+		Data:     dbcqrs,
+		Publish: func(ctx context.Context, e event.Event) error {
+			_, herr := ds.HandleEvent(ctx, &e, nil)
+			return herr
+		},
+		Redis:     unshardedRc,
+		AccountID: consts.DevServerAccountID,
+		EnvID:     consts.DevServerEnvID,
+	})
+
+	services = append(services, ds, runner, executorSvc, ds.Apiservice, connGateway, invokeRecovery)
 
 	if os.Getenv("DEBUG") != "" {
 		services = append(services, debugapi.NewDebugAPI(debugapi.Opts{
