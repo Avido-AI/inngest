@@ -218,14 +218,13 @@ func (r *Reporter) logSummary(log logger.Logger, mem memStats, dbsize, sampled i
 	)
 }
 
-// logPrefixBreakdown sorts prefixes by sampled bytes desc and logs the top N
-// with an estimated share of used_memory. The estimate attributes used_memory
-// proportionally to each prefix's share of totalSampledBytes (the whole-sample
-// total) — approximate, but enough to identify the dominant consumer.
-func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, usedMemory, totalSampledBytes int64) {
-	sort.Slice(stats, func(i, j int) bool {
-		return stats[i].sampledBytes > stats[j].sampledBytes
-	})
+// topByBytes sorts stats by sampled bytes desc and invokes emit for the top N,
+// passing each entry and its estimated share of used_memory (attributed
+// proportionally to its share of totalSampledBytes — the whole-sample total).
+// Shared by the prefix and function breakdowns so the sort/top-N/estimation is
+// computed identically; only the emitted fields differ.
+func (r *Reporter) topByBytes(stats []prefixStat, usedMemory, totalSampledBytes int64, emit func(s prefixStat, estMB float64)) {
+	sort.Slice(stats, func(i, j int) bool { return stats[i].sampledBytes > stats[j].sampledBytes })
 	limit := r.topN
 	if len(stats) < limit {
 		limit = len(stats)
@@ -236,6 +235,14 @@ func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, use
 		if totalSampledBytes > 0 {
 			estMB = bytesToMB(int64(float64(usedMemory) * float64(s.sampledBytes) / float64(totalSampledBytes)))
 		}
+		emit(s, estMB)
+	}
+}
+
+// logPrefixBreakdown logs the top prefixes by sampled bytes, each with its
+// estimated share of used_memory and TTL coverage.
+func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, usedMemory, totalSampledBytes int64) {
+	r.topByBytes(stats, usedMemory, totalSampledBytes, func(s prefixStat, estMB float64) {
 		ttlPct := 0.0
 		if s.sampledKeys > 0 {
 			ttlPct = float64(s.keysWithTTL) / float64(s.sampledKeys) * 100
@@ -248,7 +255,7 @@ func (r *Reporter) logPrefixBreakdown(log logger.Logger, stats []prefixStat, use
 			"est_used_mb", estMB,
 			"ttl_pct", round2(ttlPct),
 		)
-	}
+	})
 }
 
 // keyspaceSample holds the aggregated result of one keyspace scan.
@@ -589,27 +596,13 @@ func functionID(key string) (string, bool) {
 	return "", false
 }
 
-// logFunctionBreakdown logs the top functions by sampled bytes, with an
+// logFunctionBreakdown logs the top functions by sampled bytes, with their
 // estimated share of used_memory and, when a resolver is configured, the
-// function name looked up from Postgres. It divides by totalSampledBytes (the
-// whole-sample total, same as logPrefixBreakdown) — NOT the function-only
-// subtotal — so per-function est_used_mb is on the same scale as the prefix
-// breakdown and the two tables are directly comparable.
+// function name looked up from Postgres. It shares topByBytes (and thus the
+// same whole-sample denominator) with logPrefixBreakdown, so per-function
+// est_used_mb is on the same scale and the two tables are directly comparable.
 func (r *Reporter) logFunctionBreakdown(ctx context.Context, log logger.Logger, fns []prefixStat, usedMemory, totalSampledBytes int64) {
-	if len(fns) == 0 {
-		return
-	}
-	sort.Slice(fns, func(i, j int) bool { return fns[i].sampledBytes > fns[j].sampledBytes })
-	limit := r.topN
-	if len(fns) < limit {
-		limit = len(fns)
-	}
-	for i := 0; i < limit; i++ {
-		f := fns[i]
-		estMB := 0.0
-		if totalSampledBytes > 0 {
-			estMB = bytesToMB(int64(float64(usedMemory) * float64(f.sampledBytes) / float64(totalSampledBytes)))
-		}
+	r.topByBytes(fns, usedMemory, totalSampledBytes, func(f prefixStat, estMB float64) {
 		log.Info("redis run-state by function",
 			"function_id", f.prefix, // UUID; maps to the function in the dashboard
 			"function_name", r.functionName(ctx, f.prefix),
@@ -618,7 +611,7 @@ func (r *Reporter) logFunctionBreakdown(ctx context.Context, log logger.Logger, 
 			"avg_bytes", safeDiv(f.sampledBytes, f.sampledKeys),
 			"est_used_mb", estMB,
 		)
-	}
+	})
 }
 
 // functionName resolves a function UUID to its name via the configured Postgres
