@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -127,8 +128,9 @@ type recoveryData interface {
 	GetEventByInternalID(ctx context.Context, internalID ulid.ULID) (*cqrs.Event, error)
 }
 
-// eventPublisher re-ingests an event (used to re-run a child in Tier 2).
-type eventPublisher func(ctx context.Context, e event.Event) error
+// eventPublisher re-ingests an event (used to re-run a child in Tier 2). The
+// seed makes the re-ingested event's internal ID deterministic.
+type eventPublisher func(ctx context.Context, e event.Event, seed *event.SeededID) error
 
 // InvokeRecoveryOpts configures the recovery service.
 type InvokeRecoveryOpts struct {
@@ -351,39 +353,64 @@ func (s *invokeRecoveryService) classify(ctx context.Context, p *state.Pause) (r
 		return recoverySkip, nil
 	}
 
-	envID := s.opts.EnvID
-	runs, rerr := s.opts.Data.GetRunsByEventID(ctx, triggerID, cqrs.GetRunsByEventIDOpts{
-		AccountID:   s.opts.AccountID,
-		WorkspaceID: &envID,
-	})
-	child := childMissing
-	var terminal *cqrs.Run
-	if rerr != nil {
-		child = childUnknown
-	} else if len(runs) > 0 {
-		// The invocation event triggers exactly one child run.
-		r := runs[0]
-		if isTerminalStatus(r.Status) {
-			child = childTerminal
-			terminal = &r
-		} else {
-			child = childRunning
+	child, terminal := s.childStatusFor(ctx, triggerID)
+	if child == childMissing {
+		// No run for the original invoke. A Tier-2 re-run (if any) publishes a
+		// child under a deterministic triggering-event ID derived from the
+		// correlation, so look there too — otherwise the re-run child would be
+		// invisible and we'd re-run again every cooldown, spawning duplicates.
+		if rid, err := reRunSeed(*p.InvokeCorrelationID, p.Identifier.RunID).ToULID(); err == nil {
+			if c, t := s.childStatusFor(ctx, rid); c != childMissing {
+				child, terminal = c, t
+			}
 		}
 	}
-
-	parentExists := s.parentExists(ctx, p)
 
 	in := recoveryInput{
 		now:              time.Now(),
 		pauseExpires:     p.Expires.Time(),
 		parentRunAge:     time.Since(ulid.Time(p.Identifier.RunID.Time())),
-		parentExists:     parentExists,
+		parentExists:     s.parentExists(ctx, p),
 		child:            child,
 		rerunAttempts:    s.rerunAttempts[*p.InvokeCorrelationID],
 		minAge:           s.opts.MinAge,
 		maxRerunAttempts: s.opts.MaxRerunAttempts,
 	}
 	return decideRecovery(in), terminal
+}
+
+// childStatusFor looks up the child run by a triggering-event internal ID and
+// maps it to a childStatus (+ the terminal run for Tier-1 resume).
+func (s *invokeRecoveryService) childStatusFor(ctx context.Context, eventID ulid.ULID) (childStatus, *cqrs.Run) {
+	envID := s.opts.EnvID
+	runs, err := s.opts.Data.GetRunsByEventID(ctx, eventID, cqrs.GetRunsByEventIDOpts{
+		AccountID:   s.opts.AccountID,
+		WorkspaceID: &envID,
+	})
+	if err != nil {
+		return childUnknown, nil
+	}
+	if len(runs) == 0 {
+		return childMissing, nil
+	}
+	// The invocation event triggers exactly one child run.
+	r := runs[0]
+	if isTerminalStatus(r.Status) {
+		return childTerminal, &r
+	}
+	return childRunning, nil
+}
+
+// reRunSeed derives a deterministic event seed for a Tier-2 re-run so the
+// re-published child always lands on the same triggering-event internal ID.
+// That keeps re-ingestion idempotent and lets classify see the re-run child
+// (Running -> skip / Terminal -> resume) instead of spawning a new one each tick.
+func reRunSeed(correlationID string, parentRunID ulid.ULID) *event.SeededID {
+	h := sha256.Sum256([]byte("invoke-recovery-rerun:" + correlationID))
+	return &event.SeededID{
+		Entropy: h[:10],
+		Millis:  int64(parentRunID.Time()),
+	}
 }
 
 func (s *invokeRecoveryService) parentExists(ctx context.Context, p *state.Pause) bool {
@@ -466,10 +493,12 @@ func (s *invokeRecoveryService) rerunChild(ctx context.Context, p *state.Pause) 
 		return fmt.Errorf("original invocation event %s not found", triggerID)
 	}
 	evt := ce.GetEvent()
-	// Re-publishing the same event (same correlation ID + deterministic child
-	// scheduling) is idempotent: a duplicate child schedule dedupes, and once a
-	// child is Running subsequent ticks see "Running -> skip".
-	return s.opts.Publish(ctx, evt)
+	// Publish with a deterministic seed so the re-run child always lands on the
+	// same triggering-event internal ID. classify checks that ID, so once the
+	// re-run child exists it's seen ("Running -> skip" / "Terminal -> resume")
+	// and we never spawn a second one.
+	seed := reRunSeed(*p.InvokeCorrelationID, p.Identifier.RunID)
+	return s.opts.Publish(ctx, evt, seed)
 }
 
 // isTerminalStatus reports whether a child run has ended. It delegates to the

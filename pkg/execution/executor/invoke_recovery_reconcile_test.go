@@ -66,11 +66,17 @@ type fakeRuns struct{ exists bool }
 func (f *fakeRuns) Exists(ctx context.Context, _ statev2.ID) (bool, error) { return f.exists, nil }
 
 type fakeData struct {
-	runs []cqrs.Run
-	evt  *cqrs.Event
+	runs     []cqrs.Run               // default for any event ID
+	runsByID map[ulid.ULID][]cqrs.Run // per-event-ID override
+	evt      *cqrs.Event
 }
 
-func (f *fakeData) GetRunsByEventID(ctx context.Context, _ ulid.ULID, _ cqrs.GetRunsByEventIDOpts) ([]cqrs.Run, error) {
+func (f *fakeData) GetRunsByEventID(ctx context.Context, id ulid.ULID, _ cqrs.GetRunsByEventIDOpts) ([]cqrs.Run, error) {
+	if f.runsByID != nil {
+		if r, ok := f.runsByID[id]; ok {
+			return r, nil
+		}
+	}
 	return f.runs, nil
 }
 func (f *fakeData) GetEventByInternalID(ctx context.Context, _ ulid.ULID) (*cqrs.Event, error) {
@@ -194,6 +200,36 @@ func TestReconcileRerunFailureStillCountsAttempt(t *testing.T) {
 	}
 	if _, ok := s.lastRerun[corr]; !ok {
 		t.Fatalf("failed re-run must stamp the cooldown")
+	}
+}
+
+func TestReconcileSeesRerunChildAndSkips(t *testing.T) {
+	// Original invoke child is missing, but a Tier-2 re-run child is Running
+	// under the deterministic re-run trigger ID. The oracle must see it and
+	// skip — not spawn another duplicate child.
+	p := invokePause(true)
+	origID := ulid.MustParse(*p.TriggeringEventInternalID)
+	rerunID, err := reRunSeed(*p.InvokeCorrelationID, p.Identifier.RunID).ToULID()
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	fd := &fakeData{runsByID: map[ulid.ULID][]cqrs.Run{
+		origID:  {},
+		rerunID: {{ID: ulid.Make(), Status: enums.RunStatusRunning}},
+	}}
+	fp := &fakePauses{iter: &fakePauseIter{pauses: []*state.Pause{p}}}
+	resumer := &fakeResumer{}
+	s := newTestService(fp, &fakeRuns{exists: true}, fd, resumer)
+
+	resumed, rerun, _, _, rerr := s.reconcile(context.Background())
+	if rerr != nil {
+		t.Fatalf("reconcile error: %v", rerr)
+	}
+	if resumed != 0 || rerun != 0 || resumer.calls != 0 {
+		t.Fatalf("re-run child Running must be skipped, got resumed=%d rerun=%d calls=%d", resumed, rerun, resumer.calls)
+	}
+	if n := s.rerunAttempts[*p.InvokeCorrelationID]; n != 0 {
+		t.Fatalf("no new re-run should be attempted when re-run child is Running, got %d", n)
 	}
 }
 

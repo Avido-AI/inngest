@@ -867,8 +867,8 @@ func start(ctx context.Context, opts StartOpts) error {
 		Pauses:   pauseMgr,
 		Runs:     smv2,
 		Data:     dbcqrs,
-		Publish: func(ctx context.Context, e event.Event) error {
-			_, herr := ds.HandleEvent(ctx, &e, nil)
+		Publish: func(ctx context.Context, e event.Event, seed *event.SeededID) error {
+			_, herr := ds.HandleEvent(ctx, &e, seed)
 			return herr
 		},
 		Redis:     unshardedRc,
