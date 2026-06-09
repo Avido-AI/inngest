@@ -472,11 +472,10 @@ func (s *invokeRecoveryService) rerunChild(ctx context.Context, p *state.Pause) 
 	return s.opts.Publish(ctx, evt)
 }
 
+// isTerminalStatus reports whether a child run has ended. It delegates to the
+// canonical enums.RunStatusEnded so the recovery oracle's notion of "terminal"
+// can't drift from the codebase (e.g. it must include Skipped — a skipped child
+// would otherwise look Running forever and strand the parent).
 func isTerminalStatus(s enums.RunStatus) bool {
-	switch s {
-	case enums.RunStatusCompleted, enums.RunStatusFailed, enums.RunStatusCancelled, enums.RunStatusOverflowed:
-		return true
-	default:
-		return false
-	}
+	return enums.RunStatusEnded(s)
 }

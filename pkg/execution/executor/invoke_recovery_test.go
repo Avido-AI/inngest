@@ -130,7 +130,7 @@ func TestDecideRecoveryLongRunningAcrossTicks(t *testing.T) {
 
 func TestIsTerminalStatus(t *testing.T) {
 	for _, s := range []enums.RunStatus{
-		enums.RunStatusCompleted, enums.RunStatusFailed, enums.RunStatusCancelled, enums.RunStatusOverflowed,
+		enums.RunStatusCompleted, enums.RunStatusFailed, enums.RunStatusCancelled, enums.RunStatusOverflowed, enums.RunStatusSkipped,
 	} {
 		if !isTerminalStatus(s) {
 			t.Errorf("status %v should be terminal", s)
