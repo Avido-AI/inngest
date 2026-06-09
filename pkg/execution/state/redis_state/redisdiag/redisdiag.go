@@ -39,6 +39,7 @@ const (
 	lookupChunk        = 50  // keys per pipelined MEMORY USAGE/TTL batch
 	maxPrefixSegments  = 5   // cap normalized prefix depth
 	maxClassifyRuns    = 256 // cap distinct runs classified per node per cycle
+	sampleRunIDs       = 10  // run IDs to surface per category for spot-checking
 )
 
 // Terminal run statuses (enums.RunStatus). A run in any of these has finished;
@@ -404,6 +405,9 @@ type runClassification struct {
 	withSteps        int
 	sumSteps         int
 	maxSteps         int
+
+	oldestID       string   // run ID with the greatest age (a problematic job)
+	terminalSample []string // sample of terminal-but-resident run IDs (leaked jobs)
 }
 
 // classifyAndLog reads the status of each sampled run and decodes its age from
@@ -443,6 +447,10 @@ func (r *Reporter) classifyAndLog(ctx context.Context, log logger.Logger, node r
 		// step counts: high avg/max => many steps; low => few fat step outputs.
 		"avg_steps", round2(avgSteps),
 		"max_steps", c.maxSteps,
+		// Concrete jobs to inspect: oldest resident run, and a sample of
+		// finished-but-resident (leaked) run IDs.
+		"oldest_run_id", c.oldestID,
+		"sample_terminal_run_ids", strings.Join(c.terminalSample, ","),
 	)
 }
 
@@ -471,8 +479,9 @@ func (r *Reporter) classifyRuns(ctx context.Context, node rueidis.Client, runs m
 		results := node.DoMulti(ctx, cmds...)
 
 		for i, res := range results {
-			c.recordAge(now, ids[start+i])
-			c.recordMeta(res)
+			id := ids[start+i]
+			c.recordAge(now, id)
+			c.recordMeta(id, res)
 		}
 	}
 	return c
@@ -488,6 +497,7 @@ func (c *runClassification) recordAge(now time.Time, id ulid.ULID) {
 	c.sumAgeSec += age
 	if age > c.maxAgeSec {
 		c.maxAgeSec = age
+		c.oldestID = id.String()
 	}
 	if age > 3600 {
 		c.olderThan1h++
@@ -495,8 +505,8 @@ func (c *runClassification) recordAge(now time.Time, id ulid.ULID) {
 }
 
 // recordMeta folds a run's metadata HMGET(status, step_count) result into the
-// classification.
-func (c *runClassification) recordMeta(res rueidis.RedisResult) {
+// classification, sampling terminal-but-resident run IDs (leaked jobs).
+func (c *runClassification) recordMeta(id ulid.ULID, res rueidis.RedisResult) {
 	c.classified++
 	arr, err := res.ToArray()
 	if err != nil || len(arr) < 1 {
@@ -518,6 +528,9 @@ func (c *runClassification) recordMeta(res rueidis.RedisResult) {
 	c.byStatus[code]++
 	if terminalRunStatus[code] {
 		c.terminalResident++
+		if len(c.terminalSample) < sampleRunIDs {
+			c.terminalSample = append(c.terminalSample, id.String())
+		}
 	}
 
 	if len(arr) >= 2 {
