@@ -21,7 +21,6 @@ package redisdiag
 import (
 	"context"
 	"math"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,13 +28,6 @@ import (
 
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/redis/rueidis"
-)
-
-// Env vars controlling the opt-in profiler. See StartFromEnv.
-const (
-	envEnabled  = "INNGEST_REDIS_DIAG"
-	envInterval = "INNGEST_REDIS_DIAG_INTERVAL"
-	envSample   = "INNGEST_REDIS_DIAG_SAMPLE"
 )
 
 const (
@@ -109,21 +101,15 @@ func (r *Reporter) ReportOnce(ctx context.Context) {
 	r.reportAll(ctx)
 }
 
-// StartFromEnv starts the profiler iff INNGEST_REDIS_DIAG is truthy, reading
-// tunables (INNGEST_REDIS_DIAG_INTERVAL, INNGEST_REDIS_DIAG_SAMPLE) from the
-// environment. It emits one synchronous snapshot (so the breakdown reaches the
-// logs even if a later startup step crashes under maxmemory) and then samples
-// on an interval in the background until ctx is cancelled. No-op when disabled.
-func StartFromEnv(ctx context.Context, log logger.Logger, clients ...NamedClient) {
-	if enabled, _ := strconv.ParseBool(os.Getenv(envEnabled)); !enabled {
+// Run starts the profiler when enabled. It emits one synchronous snapshot (so
+// the breakdown reaches the logs even if a later startup step crashes under
+// maxmemory) and then samples on an interval in the background until ctx is
+// cancelled. No-op when disabled. The caller supplies the resolved config
+// (typically from a CLI flag / env var); zero values in cfg fall back to the
+// package defaults in New.
+func Run(ctx context.Context, log logger.Logger, enabled bool, cfg Config, clients ...NamedClient) {
+	if !enabled {
 		return
-	}
-	cfg := Config{}
-	if d, err := time.ParseDuration(os.Getenv(envInterval)); err == nil {
-		cfg.Interval = d
-	}
-	if n, err := strconv.Atoi(os.Getenv(envSample)); err == nil {
-		cfg.SampleLimit = n
 	}
 	r := New(log, cfg, clients...)
 	r.ReportOnce(ctx)
