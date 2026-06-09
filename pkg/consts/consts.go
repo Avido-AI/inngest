@@ -119,6 +119,31 @@ const (
 	// CancelTimeout is the maximum time a cancellation can exist
 	CancelTimeout = time.Hour * 24 * 365
 
+	// InvokeRecovery* tune the background reconciler that resumes parent runs
+	// stranded on a step.invoke whose completion was never delivered. See
+	// pkg/execution/executor/invoke_recovery.go.
+	//
+	// InvokeRecoveryInterval is how often the reconciler scans open invoke pauses.
+	InvokeRecoveryInterval = time.Minute
+	// InvokeRecoveryMinAge skips pauses younger than this so we never race the
+	// normal completion fast path. This is a churn filter, not a safety gate —
+	// safety comes from checking the child run's actual status.
+	InvokeRecoveryMinAge = 2 * time.Minute
+	// InvokeRecoveryRerunsPerTick caps Tier-2 child re-runs per tick so draining
+	// a large backlog can't thunder-herd downstream (e.g. LLM calls).
+	InvokeRecoveryRerunsPerTick = 20
+	// InvokeRecoveryMaxRerunAttempts caps how many times the reconciler will
+	// re-run a child for the same pause before giving up (leaving it for ops).
+	InvokeRecoveryMaxRerunAttempts = 3
+	// InvokeRecoveryRerunCooldown spaces out Tier-2 re-runs for the same pause.
+	// A re-published child gets a fresh triggering-event ID, so the oracle won't
+	// see it under the original ID until it finishes; the cooldown gives each
+	// re-run time to complete and resume the parent before another is attempted.
+	InvokeRecoveryRerunCooldown = 10 * time.Minute
+	// InvokeRecoveryLeaseDuration is the singleton-leader lease TTL; only the
+	// holder runs the reconciler so pods don't double-process.
+	InvokeRecoveryLeaseDuration = 90 * time.Second
+
 	RequestVersionUnknown = -1
 
 	// PriorityFactorMin is the minimum priority factor for any function run, in seconds.
