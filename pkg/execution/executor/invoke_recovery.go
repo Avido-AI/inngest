@@ -222,21 +222,24 @@ func (s *invokeRecoveryService) Stop(ctx context.Context) error { return nil }
 // holder reconciles, so pods don't double-process (critical for Tier-2 re-runs).
 func (s *invokeRecoveryService) acquireLease(ctx context.Context) bool {
 	key := "{estate}:invoke-recovery:leader"
-	cmd := s.opts.Redis.B().Set().Key(key).Value(s.holderID).Nx().ExSeconds(int64(s.opts.LeaseDuration.Seconds())).Build()
-	if err := s.opts.Redis.Do(ctx, cmd).Error(); err == nil {
-		return true // acquired
+	leaseSecs := int64(s.opts.LeaseDuration.Seconds())
+
+	// Fresh acquire wins immediately.
+	if err := s.opts.Redis.Do(ctx, s.opts.Redis.B().Set().Key(key).Value(s.holderID).Nx().ExSeconds(leaseSecs).Build()).Error(); err == nil {
+		return true
 	}
-	// Either not acquired, or we already hold it — re-check ownership so the
-	// existing leader keeps the role across ticks.
+
+	// Not acquired: only proceed if we already hold it (refresh across ticks).
 	got, err := s.opts.Redis.Do(ctx, s.opts.Redis.B().Get().Key(key).Build()).ToString()
-	if err != nil {
+	if err != nil || got != s.holderID {
 		return false
 	}
-	if got != s.holderID {
-		return false
+
+	// We own it: refresh the TTL. A failed refresh isn't fatal (we'll re-try to
+	// acquire next tick), but surface it for observability.
+	if rerr := s.opts.Redis.Do(ctx, s.opts.Redis.B().Expire().Key(key).Seconds(leaseSecs).Build()).Error(); rerr != nil {
+		s.opts.Log.Warn("invoke-recovery: failed to refresh leader lease", "error", rerr)
 	}
-	// We own it: refresh the TTL.
-	_ = s.opts.Redis.Do(ctx, s.opts.Redis.B().Expire().Key(key).Seconds(int64(s.opts.LeaseDuration.Seconds())).Build()).Error()
 	return true
 }
 
