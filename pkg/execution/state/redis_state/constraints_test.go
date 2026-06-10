@@ -160,10 +160,11 @@ func TestItemLeaseConstraintCheck(t *testing.T) {
 		sp := osqueue.ItemShadowPartition(ctx, qi)
 		backlog := osqueue.ItemBacklog(ctx, qi)
 
+		// Missing identifiers surface as zero UUIDs on the shadow partition;
+		// skip the Constraint API cleanly so legacy lease checks still apply,
+		// instead of failing acquire validation on every scan.
 		res, err := q.ItemLeaseConstraintCheck(ctx, &sp, &backlog, constraints, &qi, clock.Now())
-		require.Error(t, err)
-		require.ErrorContains(t, err, "missing accountID")
-		require.ErrorContains(t, err, "missing envID")
+		require.NoError(t, err)
 
 		// No lease acquired
 		require.Nil(t, res.CapacityLease)
@@ -253,10 +254,10 @@ func TestItemLeaseConstraintCheck(t *testing.T) {
 		sp := osqueue.ItemShadowPartition(ctx, qi)
 		backlog := osqueue.ItemBacklog(ctx, qi)
 
+		// The test item misses account/env identifiers, so the Constraint API
+		// is skipped cleanly (zero UUIDs are treated like nil pointers).
 		res, err := q.ItemLeaseConstraintCheck(ctx, &sp, &backlog, constraints, &qi, clock.Now())
-		require.Error(t, err)
-		require.ErrorContains(t, err, "missing accountID")
-		require.ErrorContains(t, err, "missing envID")
+		require.NoError(t, err)
 
 		// No lease acquired
 		require.Nil(t, res.CapacityLease)
@@ -785,14 +786,17 @@ func TestBacklogRefillConstraintCheck(t *testing.T) {
 		sp := osqueue.ItemShadowPartition(ctx, qi)
 		backlog := osqueue.ItemBacklog(ctx, qi)
 
+		// Missing identifiers surface as zero UUIDs on the shadow partition;
+		// skip the Constraint API cleanly and refill all items, instead of
+		// failing acquire validation and silently refilling nothing.
 		opIdempotencyKey := "refill1"
 		res, err := q.BacklogRefillConstraintCheck(ctx, &sp, &backlog, constraints, []*osqueue.QueueItem{&qi}, opIdempotencyKey, clock.Now())
-		require.Error(t, err)
-		require.ErrorContains(t, err, "missing accountID")
-		require.ErrorContains(t, err, "missing envID")
+		require.NoError(t, err)
 
-		// No lease acquired
-		require.Nil(t, res)
+		// All items refilled without capacity leases
+		require.NotNil(t, res)
+		require.Equal(t, []string{qi.ID}, res.ItemsToRefill)
+		require.Empty(t, res.ItemCapacityLeases)
 
 		// Do not expect a ConstraintAPI call for missing identifiers
 		require.Equal(t, 0, len(cmLifecycles.AcquireCalls))
