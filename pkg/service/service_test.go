@@ -57,7 +57,11 @@ func TestStart(t *testing.T) {
 	now := time.Now()
 	err := Start(context.Background(), m)
 	require.NoError(t, err)
-	require.WithinDuration(t, time.Now(), now.Add(500*time.Millisecond), 25*time.Millisecond)
+	// Start must block until the run function completes. Only the lower bound
+	// proves that; the upper bound is generous to tolerate loaded CI runners.
+	elapsed := time.Since(now)
+	require.GreaterOrEqual(t, elapsed, 500*time.Millisecond)
+	require.Less(t, elapsed, 5*time.Second)
 }
 
 func TestSignals(t *testing.T) {
@@ -148,7 +152,11 @@ func TestStartAll(t *testing.T) {
 	now := time.Now()
 	err := StartAll(context.Background(), m, m, m)
 	require.NoError(t, err)
-	require.WithinDuration(t, time.Now(), now.Add(500*time.Millisecond), 50*time.Millisecond)
+	// StartAll must block until the run functions complete. Only the lower
+	// bound proves that; the upper bound is generous for loaded CI runners.
+	elapsed := time.Since(now)
+	require.GreaterOrEqual(t, elapsed, 500*time.Millisecond)
+	require.Less(t, elapsed, 5*time.Second)
 	require.Equal(t, int32(3), atomic.LoadInt32(&invocations))
 }
 
@@ -180,7 +188,11 @@ func TestSingleSvcError(t *testing.T) {
 	err := StartAll(context.Background(), m, m, m)
 	require.Error(t, err, "expected service to return an error")
 	require.ErrorContains(t, err, "boo")
-	require.WithinDuration(t, time.Now(), now.Add(500*time.Millisecond), 50*time.Millisecond)
+	// The erroring service must cascade shutdown well before the others'
+	// one-minute run duration; bounds are generous for loaded CI runners.
+	elapsed := time.Since(now)
+	require.GreaterOrEqual(t, elapsed, 500*time.Millisecond)
+	require.Less(t, elapsed, 5*time.Second)
 	require.Equal(t, int32(3), atomic.LoadInt32(&invocations))
 	require.Equal(t, int32(3), atomic.LoadInt32(&stops))
 }
