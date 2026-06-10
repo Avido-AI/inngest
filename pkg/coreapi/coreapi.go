@@ -184,6 +184,7 @@ func (a CoreAPI) GetActions(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(actions)
 }
 
+
 func (a CoreAPI) GetEventBatch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

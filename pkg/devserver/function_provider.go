@@ -3,7 +3,6 @@ package devserver
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/google/uuid"
 	apiv2 "github.com/inngest/inngest/pkg/api/v2"
@@ -46,33 +45,7 @@ func (p *cqrsFunctionProvider) GetFunction(ctx context.Context, identifier strin
 		return inngest.DeployedFunction{}, fmt.Errorf("function not found: %s", identifier)
 	}
 
-	inngestFn, err := fn.InngestFunction()
-	if err != nil {
-		return inngest.DeployedFunction{}, err
-	}
-
-	appName := ""
-	if p.apps != nil {
-		if app, err := p.apps.GetAppByID(ctx, fn.AppID); err == nil {
-			appName = app.Name
-		} else {
-			slog.Warn("failed to look up app name for function",
-				"app_id", fn.AppID,
-				"function_id", fn.ID,
-				"error", err,
-			)
-		}
-	}
-
-	return inngest.DeployedFunction{
-		ID:            fn.ID,
-		Slug:          fn.Slug,
-		AppID:         fn.AppID,
-		AppName:       appName,
-		AccountID:     consts.DevServerAccountID,
-		EnvironmentID: consts.DevServerEnvID,
-		Function:      *inngestFn,
-	}, nil
+	return p.toDeployedFunction(ctx, fn)
 }
 
 func (p *cqrsFunctionProvider) lookupFunction(ctx context.Context, identifier string) (*cqrs.Function, error) {
@@ -90,4 +63,27 @@ func (p *cqrsFunctionProvider) lookupFunction(ctx context.Context, identifier st
 		return nil, fmt.Errorf("function not found by slug: %w", err)
 	}
 	return fn, nil
+}
+
+func (p *cqrsFunctionProvider) toDeployedFunction(ctx context.Context, fn *cqrs.Function) (inngest.DeployedFunction, error) {
+	inngestFn, err := fn.InngestFunction()
+	if err != nil {
+		return inngest.DeployedFunction{}, err
+	}
+	appName := ""
+	if p.apps != nil {
+		if app, err := p.apps.GetAppByID(ctx, fn.AppID); err == nil {
+			appName = app.Name
+		}
+	}
+
+	return inngest.DeployedFunction{
+		ID:            fn.ID,
+		Slug:          fn.Slug,
+		AppID:         fn.AppID,
+		AppName:       appName,
+		AccountID:     consts.DevServerAccountID,
+		EnvironmentID: consts.DevServerEnvID,
+		Function:      *inngestFn,
+	}, nil
 }
