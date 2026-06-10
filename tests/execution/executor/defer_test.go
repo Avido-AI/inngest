@@ -28,6 +28,7 @@ import (
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/tracing"
 	"github.com/oklog/ulid/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1189,6 +1190,37 @@ func toParentRunIDs(got map[ulid.ULID][]cqrs.RunDeferredFrom) map[ulid.ULID][]ul
 	return out
 }
 
+// Defer linkage is derived from spans, and span persistence is batched
+// (flushed every sqlcFlushInterval), so linkage assertions poll until the
+// writes land instead of reading immediately.
+
+func requireDefersEventually(t *testing.T, infra *deferTestInfra, runIDs []ulid.ULID, want map[ulid.ULID][]deferRecord) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		defers, err := infra.dbcqrs.GetRunDefers(infra.ctx, runIDs)
+		if !assert.NoError(c, err) {
+			return
+		}
+		assert.Equal(c, want, toDeferRecords(defers))
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func requireDeferredFromEventually(t *testing.T, infra *deferTestInfra, runIDs []ulid.ULID, want map[ulid.ULID][]ulid.ULID) map[ulid.ULID][]cqrs.RunDeferredFrom {
+	t.Helper()
+	var got map[ulid.ULID][]cqrs.RunDeferredFrom
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		parents, err := infra.dbcqrs.GetRunDeferredFrom(infra.ctx, runIDs)
+		if !assert.NoError(c, err) {
+			return
+		}
+		if !assert.Equal(c, want, toParentRunIDs(parents)) {
+			return
+		}
+		got = parents
+	}, 5*time.Second, 10*time.Millisecond)
+	return got
+}
+
 // Assert that parents and children are properly linked via real exec.Schedule
 // and exec.Execute calls.
 func TestDeferLinkage(t *testing.T) {
@@ -1202,33 +1234,24 @@ func TestDeferLinkage(t *testing.T) {
 		)
 
 		// Parent linked to the child
-		defers, err := infra.dbcqrs.GetRunDefers(infra.ctx,
-			[]ulid.ULID{parentRunID},
-		)
-		r.NoError(err)
-		r.Equal(map[ulid.ULID][]deferRecord{
+		requireDefersEventually(t, infra, []ulid.ULID{parentRunID}, map[ulid.ULID][]deferRecord{
 			parentRunID: {{
 				ChildRunID:    childRunID.String(),
 				FnSlug:        infra.fn.Slug,
 				HashedDeferID: "hash-1",
 				Status:        enums.DeferStatusAfterRun,
 			}},
-		}, toDeferRecords(defers))
+		})
 
 		// Child linked to the parent
-		parents, err := infra.dbcqrs.GetRunDeferredFrom(infra.ctx,
-			[]ulid.ULID{childRunID},
-		)
-		r.NoError(err)
-		r.Equal(map[ulid.ULID][]ulid.ULID{
+		parents := requireDeferredFromEventually(t, infra, []ulid.ULID{childRunID}, map[ulid.ULID][]ulid.ULID{
 			childRunID: {parentRunID},
-		}, toParentRunIDs(parents))
+		})
 		r.Equal(infra.fn.Slug, parents[childRunID][0].FnSlug)
 	})
 
 	// 1 parent run calls defer() twice, triggering 2 child runs.
 	t.Run("1 parent to 2 children", func(t *testing.T) {
-		r := require.New(t)
 		infra := newDeferTestInfra(t)
 
 		parentRunID, evts := infra.runParentDefer(t, "hash-a", "hash-b")
@@ -1240,11 +1263,7 @@ func TestDeferLinkage(t *testing.T) {
 		)
 
 		// Parent linked to the children
-		defers, err := infra.dbcqrs.GetRunDefers(infra.ctx,
-			[]ulid.ULID{parentRunID},
-		)
-		r.NoError(err)
-		r.Equal(map[ulid.ULID][]deferRecord{
+		requireDefersEventually(t, infra, []ulid.ULID{parentRunID}, map[ulid.ULID][]deferRecord{
 			parentRunID: {
 				{
 					ChildRunID:    child1ID.String(),
@@ -1259,22 +1278,17 @@ func TestDeferLinkage(t *testing.T) {
 					Status:        enums.DeferStatusAfterRun,
 				},
 			},
-		}, toDeferRecords(defers))
+		})
 
 		// Children linked to the parent. Each has its own link to the parent
-		parents, err := infra.dbcqrs.GetRunDeferredFrom(infra.ctx,
-			[]ulid.ULID{child1ID, child2ID},
-		)
-		r.NoError(err)
-		r.Equal(map[ulid.ULID][]ulid.ULID{
+		requireDeferredFromEventually(t, infra, []ulid.ULID{child1ID, child2ID}, map[ulid.ULID][]ulid.ULID{
 			child1ID: {parentRunID},
 			child2ID: {parentRunID},
-		}, toParentRunIDs(parents))
+		})
 	})
 
 	// 2 parent runs call defer() and both events batch into 1 child run.
 	t.Run("2 parents to 1 child", func(t *testing.T) {
-		r := require.New(t)
 		infra := newDeferTestInfra(t)
 
 		parent1ID, evts1 := infra.runParentDefer(t, "hash-a")
@@ -1286,11 +1300,7 @@ func TestDeferLinkage(t *testing.T) {
 		)
 
 		// Parents linked to the child. Each has its own link to the child
-		defers, err := infra.dbcqrs.GetRunDefers(infra.ctx,
-			[]ulid.ULID{parent1ID, parent2ID},
-		)
-		r.NoError(err)
-		r.Equal(map[ulid.ULID][]deferRecord{
+		requireDefersEventually(t, infra, []ulid.ULID{parent1ID, parent2ID}, map[ulid.ULID][]deferRecord{
 			parent1ID: {{
 				ChildRunID:    childID.String(),
 				FnSlug:        infra.fn.Slug,
@@ -1303,21 +1313,16 @@ func TestDeferLinkage(t *testing.T) {
 				HashedDeferID: "hash-b",
 				Status:        enums.DeferStatusAfterRun,
 			}},
-		}, toDeferRecords(defers))
+		})
 
 		// Child linked to the parents
-		parents, err := infra.dbcqrs.GetRunDeferredFrom(infra.ctx,
-			[]ulid.ULID{childID},
-		)
-		r.NoError(err)
-		r.Equal(map[ulid.ULID][]ulid.ULID{
+		requireDeferredFromEventually(t, infra, []ulid.ULID{childID}, map[ulid.ULID][]ulid.ULID{
 			childID: {parent1ID, parent2ID},
-		}, toParentRunIDs(parents))
+		})
 	})
 
 	// 1 parent run calls defer() twice and both events batch into 1 child run.
 	t.Run("1 parent batches 2 defers to 1 child", func(t *testing.T) {
-		r := require.New(t)
 		infra := newDeferTestInfra(t)
 
 		parentRunID, evts := infra.runParentDefer(t, "hash-a", "hash-b")
@@ -1328,11 +1333,7 @@ func TestDeferLinkage(t *testing.T) {
 
 		// Parent linked to the child. The 1 parent has 2 links to the child,
 		// since there were 2 defers
-		defers, err := infra.dbcqrs.GetRunDefers(infra.ctx,
-			[]ulid.ULID{parentRunID},
-		)
-		r.NoError(err)
-		r.Equal(map[ulid.ULID][]deferRecord{
+		requireDefersEventually(t, infra, []ulid.ULID{parentRunID}, map[ulid.ULID][]deferRecord{
 			parentRunID: {
 				{
 					ChildRunID:    childID.String(),
@@ -1347,16 +1348,12 @@ func TestDeferLinkage(t *testing.T) {
 					Status:        enums.DeferStatusAfterRun,
 				},
 			},
-		}, toDeferRecords(defers))
+		})
 
 		// Child linked to the parent twice (once per defer event). We may want
 		// to dedupe this, but right now there are dupes in the slice
-		parents, err := infra.dbcqrs.GetRunDeferredFrom(infra.ctx,
-			[]ulid.ULID{childID},
-		)
-		r.NoError(err)
-		r.Equal(map[ulid.ULID][]ulid.ULID{
+		requireDeferredFromEventually(t, infra, []ulid.ULID{childID}, map[ulid.ULID][]ulid.ULID{
 			childID: {parentRunID, parentRunID},
-		}, toParentRunIDs(parents))
+		})
 	})
 }
