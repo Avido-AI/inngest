@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"context"
+	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
@@ -8,6 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/constraintapi"
 	"github.com/inngest/inngest/pkg/enums"
+	"github.com/inngest/inngest/pkg/execution/state"
+	"github.com/inngest/inngest/pkg/util/errs"
+	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -1106,4 +1111,240 @@ func TestEarliestEnqueuedAt(t *testing.T) {
 		})
 		assert.Equal(t, older.UnixMilli(), got.UnixMilli())
 	})
+}
+
+// stubCapacityManager records Acquire calls so tests can assert whether the
+// Constraint API was consulted.
+type stubCapacityManager struct {
+	acquireCalls int
+}
+
+func (s *stubCapacityManager) Check(ctx context.Context, req *constraintapi.CapacityCheckRequest) (*constraintapi.CapacityCheckResponse, errs.UserError, errs.InternalError) {
+	return &constraintapi.CapacityCheckResponse{}, nil, nil
+}
+
+func (s *stubCapacityManager) Acquire(ctx context.Context, req *constraintapi.CapacityAcquireRequest) (*constraintapi.CapacityAcquireResponse, errs.InternalError) {
+	s.acquireCalls++
+
+	// Like the real API, issue one lease per requested lease idempotency key
+	// (queue item ID), falling back to the operation idempotency key.
+	leaseKeys := req.LeaseIdempotencyKeys
+	if len(leaseKeys) == 0 {
+		leaseKeys = []string{req.IdempotencyKey}
+	}
+
+	leases := make([]constraintapi.CapacityLease, len(leaseKeys))
+	for i, key := range leaseKeys {
+		leases[i] = constraintapi.CapacityLease{
+			LeaseID:        ulid.MustNew(ulid.Timestamp(time.Now().Add(QueueLeaseDuration)), rand.Reader),
+			IdempotencyKey: key,
+		}
+	}
+
+	return &constraintapi.CapacityAcquireResponse{Leases: leases}, nil
+}
+
+func (s *stubCapacityManager) ExtendLease(ctx context.Context, req *constraintapi.CapacityExtendLeaseRequest) (*constraintapi.CapacityExtendLeaseResponse, errs.InternalError) {
+	return &constraintapi.CapacityExtendLeaseResponse{}, nil
+}
+
+func (s *stubCapacityManager) Release(ctx context.Context, req *constraintapi.CapacityReleaseRequest) (*constraintapi.CapacityReleaseResponse, errs.InternalError) {
+	return &constraintapi.CapacityReleaseResponse{}, nil
+}
+
+// missingIDConstraintFixture provides a throttled function setup shared by the
+// constraint check tests below, mirroring the dev-server incident where queue
+// items carried a throttle config but a zero env ID.
+type missingIDConstraintFixture struct {
+	accountID   uuid.UUID
+	envID       uuid.UUID
+	fnID        uuid.UUID
+	constraints PartitionConstraintConfig
+	backlog     *QueueBacklog
+	cases       []missingIDShadowPartCase
+}
+
+type missingIDShadowPartCase struct {
+	name          string
+	shadowPart    *QueueShadowPartition
+	expectAcquire bool
+}
+
+func newMissingIDConstraintFixture() missingIDConstraintFixture {
+	accountID := uuid.New()
+	envID := uuid.New()
+	fnID := uuid.New()
+	nilID := uuid.Nil
+
+	return missingIDConstraintFixture{
+		accountID: accountID,
+		envID:     envID,
+		fnID:      fnID,
+		constraints: PartitionConstraintConfig{
+			FunctionVersion: 1,
+			Concurrency: PartitionConcurrency{
+				AccountConcurrency:  NoConcurrencyLimit,
+				FunctionConcurrency: NoConcurrencyLimit,
+			},
+			Throttle: &PartitionThrottle{
+				ThrottleKeyExpressionHash: "expr-hash",
+				Limit:                     1,
+				Burst:                     1,
+				Period:                    60,
+			},
+		},
+		backlog: &QueueBacklog{
+			Throttle: &BacklogThrottle{
+				ThrottleKey:               "evaluated-key",
+				ThrottleKeyExpressionHash: "expr-hash",
+			},
+		},
+		cases: []missingIDShadowPartCase{
+			{
+				name: "valid IDs acquire capacity",
+				shadowPart: &QueueShadowPartition{
+					AccountID:  &accountID,
+					EnvID:      &envID,
+					FunctionID: &fnID,
+				},
+				expectAcquire: true,
+			},
+			{
+				name: "nil env ID pointer skips check",
+				shadowPart: &QueueShadowPartition{
+					AccountID:  &accountID,
+					EnvID:      nil,
+					FunctionID: &fnID,
+				},
+			},
+			{
+				name: "zero env ID skips check",
+				shadowPart: &QueueShadowPartition{
+					AccountID:  &accountID,
+					EnvID:      &nilID,
+					FunctionID: &fnID,
+				},
+			},
+			{
+				name: "nil account ID pointer skips check",
+				shadowPart: &QueueShadowPartition{
+					AccountID:  nil,
+					EnvID:      &envID,
+					FunctionID: &fnID,
+				},
+			},
+			{
+				name: "zero account ID skips check",
+				shadowPart: &QueueShadowPartition{
+					AccountID:  &nilID,
+					EnvID:      &envID,
+					FunctionID: &fnID,
+				},
+			},
+			{
+				name: "nil function ID pointer skips check",
+				shadowPart: &QueueShadowPartition{
+					AccountID:  &accountID,
+					EnvID:      &envID,
+					FunctionID: nil,
+				},
+			},
+			{
+				name: "zero function ID skips check",
+				shadowPart: &QueueShadowPartition{
+					AccountID:  &accountID,
+					EnvID:      &envID,
+					FunctionID: &nilID,
+				},
+			},
+		},
+	}
+}
+
+// TestItemLeaseConstraintCheckSkipsMissingIDs ensures items whose shadow
+// partition carries a nil pointer _or_ a zero UUID for account/env/function IDs
+// bypass the Constraint API instead of failing request validation forever.
+// The dev server uses the nil UUID as env ID, so throttled items previously
+// looped on "missing envID" errors without ever being leased.
+func TestItemLeaseConstraintCheckSkipsMissingIDs(t *testing.T) {
+	ctx := context.Background()
+	fixture := newMissingIDConstraintFixture()
+
+	item := &QueueItem{
+		ID: "item-1",
+		Data: Item{
+			Identifier: state.Identifier{
+				AccountID:   fixture.accountID,
+				WorkspaceID: fixture.envID,
+				WorkflowID:  fixture.fnID,
+			},
+		},
+	}
+
+	for _, tt := range fixture.cases {
+		t.Run(tt.name, func(t *testing.T) {
+			cm := &stubCapacityManager{}
+			qp := &queueProcessor{
+				QueueOptions: NewQueueOptions(WithCapacityManager(cm)),
+			}
+
+			res, err := qp.ItemLeaseConstraintCheck(ctx, tt.shadowPart, fixture.backlog, fixture.constraints, item, time.Now())
+			assert.NoError(t, err)
+
+			if tt.expectAcquire {
+				assert.Equal(t, 1, cm.acquireCalls)
+				assert.NotNil(t, res.CapacityLease)
+			} else {
+				assert.Equal(t, 0, cm.acquireCalls)
+				assert.Equal(t, ItemLeaseConstraintCheckResult{}, res)
+			}
+		})
+	}
+}
+
+// TestBacklogRefillConstraintCheckSkipsMissingIDs mirrors the item lease test
+// for the refill path: backlogs whose shadow partition carries a nil pointer or
+// zero UUID must refill all items without consulting the Constraint API instead
+// of failing acquire validation, which would silently refill nothing.
+func TestBacklogRefillConstraintCheckSkipsMissingIDs(t *testing.T) {
+	ctx := context.Background()
+	fixture := newMissingIDConstraintFixture()
+
+	items := []*QueueItem{
+		{
+			ID: "item-1",
+			Data: Item{
+				Identifier: state.Identifier{
+					AccountID:   fixture.accountID,
+					WorkspaceID: fixture.envID,
+					WorkflowID:  fixture.fnID,
+				},
+			},
+		},
+	}
+
+	for _, tt := range fixture.cases {
+		t.Run(tt.name, func(t *testing.T) {
+			cm := &stubCapacityManager{}
+			qp := &queueProcessor{
+				QueueOptions: NewQueueOptions(
+					WithCapacityManager(cm),
+					WithAcquireCapacityLeaseOnBacklogRefill(true),
+				),
+			}
+
+			res, err := qp.BacklogRefillConstraintCheck(ctx, tt.shadowPart, fixture.backlog, fixture.constraints, items, "op-key", time.Now())
+			assert.NoError(t, err)
+			assert.NotNil(t, res)
+			assert.Equal(t, []string{"item-1"}, res.ItemsToRefill)
+
+			if tt.expectAcquire {
+				assert.Equal(t, 1, cm.acquireCalls)
+				assert.Len(t, res.ItemCapacityLeases, 1)
+			} else {
+				assert.Equal(t, 0, cm.acquireCalls)
+				assert.Empty(t, res.ItemCapacityLeases)
+			}
+		})
+	}
 }
