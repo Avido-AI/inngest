@@ -357,9 +357,13 @@ func (q *queueProcessor) ItemLeaseConstraintCheck(
 		return ItemLeaseConstraintCheckResult{}, nil
 	}
 
-	if shadowPart.AccountID == nil ||
-		shadowPart.EnvID == nil ||
-		shadowPart.FunctionID == nil {
+	// Skip capacity leases for items missing account ID / env ID / function ID:
+	// ItemShadowPartition always sets non-nil pointers, so a missing ID surfaces
+	// as a pointer to uuid.Nil (e.g. the dev server uses the nil UUID as env ID).
+	// The Constraint API rejects zero UUIDs, so treat them the same as nil here.
+	if shadowPart.AccountID == nil || *shadowPart.AccountID == uuid.Nil ||
+		shadowPart.EnvID == nil || *shadowPart.EnvID == uuid.Nil ||
+		shadowPart.FunctionID == nil || *shadowPart.FunctionID == uuid.Nil {
 		metrics.IncrQueueItemConstraintCheckCounter(ctx, enums.QueueItemConstraintReasonIdNil.String(), metrics.CounterOpt{
 			PkgName: pkgName,
 		})

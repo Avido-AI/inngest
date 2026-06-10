@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"context"
+	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
@@ -8,6 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/constraintapi"
 	"github.com/inngest/inngest/pkg/enums"
+	"github.com/inngest/inngest/pkg/execution/state"
+	"github.com/inngest/inngest/pkg/util/errs"
+	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -1106,4 +1111,148 @@ func TestEarliestEnqueuedAt(t *testing.T) {
 		})
 		assert.Equal(t, older.UnixMilli(), got.UnixMilli())
 	})
+}
+
+// stubCapacityManager records Acquire calls so tests can assert whether the
+// Constraint API was consulted.
+type stubCapacityManager struct {
+	acquireCalls int
+}
+
+func (s *stubCapacityManager) Check(ctx context.Context, req *constraintapi.CapacityCheckRequest) (*constraintapi.CapacityCheckResponse, errs.UserError, errs.InternalError) {
+	return &constraintapi.CapacityCheckResponse{}, nil, nil
+}
+
+func (s *stubCapacityManager) Acquire(ctx context.Context, req *constraintapi.CapacityAcquireRequest) (*constraintapi.CapacityAcquireResponse, errs.InternalError) {
+	s.acquireCalls++
+	return &constraintapi.CapacityAcquireResponse{
+		Leases: []constraintapi.CapacityLease{
+			{
+				LeaseID:        ulid.MustNew(ulid.Timestamp(time.Now().Add(QueueLeaseDuration)), rand.Reader),
+				IdempotencyKey: req.IdempotencyKey,
+			},
+		},
+	}, nil
+}
+
+func (s *stubCapacityManager) ExtendLease(ctx context.Context, req *constraintapi.CapacityExtendLeaseRequest) (*constraintapi.CapacityExtendLeaseResponse, errs.InternalError) {
+	return &constraintapi.CapacityExtendLeaseResponse{}, nil
+}
+
+func (s *stubCapacityManager) Release(ctx context.Context, req *constraintapi.CapacityReleaseRequest) (*constraintapi.CapacityReleaseResponse, errs.InternalError) {
+	return &constraintapi.CapacityReleaseResponse{}, nil
+}
+
+// TestItemLeaseConstraintCheckSkipsMissingIDs ensures items whose shadow
+// partition carries a nil pointer _or_ a zero UUID for account/env/function IDs
+// bypass the Constraint API instead of failing request validation forever.
+// The dev server uses the nil UUID as env ID, so throttled items previously
+// looped on "missing envID" errors without ever being leased.
+func TestItemLeaseConstraintCheckSkipsMissingIDs(t *testing.T) {
+	ctx := context.Background()
+
+	accountID := uuid.New()
+	envID := uuid.New()
+	fnID := uuid.New()
+	nilID := uuid.Nil
+
+	constraints := PartitionConstraintConfig{
+		FunctionVersion: 1,
+		Concurrency: PartitionConcurrency{
+			AccountConcurrency:  NoConcurrencyLimit,
+			FunctionConcurrency: NoConcurrencyLimit,
+		},
+		Throttle: &PartitionThrottle{
+			ThrottleKeyExpressionHash: "expr-hash",
+			Limit:                     1,
+			Burst:                     1,
+			Period:                    60,
+		},
+	}
+
+	backlog := &QueueBacklog{
+		Throttle: &BacklogThrottle{
+			ThrottleKey:               "evaluated-key",
+			ThrottleKeyExpressionHash: "expr-hash",
+		},
+	}
+
+	item := &QueueItem{
+		ID: "item-1",
+		Data: Item{
+			Identifier: state.Identifier{
+				AccountID:   accountID,
+				WorkspaceID: envID,
+				WorkflowID:  fnID,
+			},
+		},
+	}
+
+	tests := []struct {
+		name          string
+		shadowPart    *QueueShadowPartition
+		expectAcquire bool
+	}{
+		{
+			name: "valid IDs acquire capacity",
+			shadowPart: &QueueShadowPartition{
+				AccountID:  &accountID,
+				EnvID:      &envID,
+				FunctionID: &fnID,
+			},
+			expectAcquire: true,
+		},
+		{
+			name: "nil env ID pointer skips check",
+			shadowPart: &QueueShadowPartition{
+				AccountID:  &accountID,
+				EnvID:      nil,
+				FunctionID: &fnID,
+			},
+		},
+		{
+			name: "zero env ID skips check",
+			shadowPart: &QueueShadowPartition{
+				AccountID:  &accountID,
+				EnvID:      &nilID,
+				FunctionID: &fnID,
+			},
+		},
+		{
+			name: "zero account ID skips check",
+			shadowPart: &QueueShadowPartition{
+				AccountID:  &nilID,
+				EnvID:      &envID,
+				FunctionID: &fnID,
+			},
+		},
+		{
+			name: "zero function ID skips check",
+			shadowPart: &QueueShadowPartition{
+				AccountID:  &accountID,
+				EnvID:      &envID,
+				FunctionID: &nilID,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cm := &stubCapacityManager{}
+			qp := &queueProcessor{
+				QueueOptions: NewQueueOptions(WithCapacityManager(cm)),
+			}
+
+			res, err := qp.ItemLeaseConstraintCheck(ctx, tt.shadowPart, backlog, constraints, item, time.Now())
+			assert.NoError(t, err)
+
+			if tt.expectAcquire {
+				assert.Equal(t, 1, cm.acquireCalls)
+				assert.NotNil(t, res.CapacityLease)
+			} else {
+				assert.Equal(t, 0, cm.acquireCalls)
+				assert.Equal(t, ItemLeaseConstraintCheckResult{}, res)
+			}
+		})
+	}
 }
