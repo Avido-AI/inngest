@@ -8,7 +8,7 @@ ARG TARGETOS
 RUN --mount=type=cache,target=/root/.cache/go-build \
     GOFLAGS=-mod=vendor GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /go/bin/inngest ./cmd/
 
-FROM alpine:3.24@sha256:8ddefa941e689fc29abcdeb8dae3b3c6d139cc08ce9a52633931160701770685 AS inngest
+FROM alpine:3.24@sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4 AS inngest
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata && update-ca-certificates
 RUN addgroup -g 1000 -S inngest && adduser -u 1000 -S -G inngest -s /sbin/nologin inngest
 COPY --from=build /go/bin/inngest /bin/inngest
