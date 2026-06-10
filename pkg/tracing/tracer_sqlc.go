@@ -27,9 +27,12 @@ const (
 func NewSqlcTracerProvider(q dbpkg.Querier) TracerProvider {
 	// Spans are exported synchronously per span.End(); the batching wrapper
 	// coalesces them so the database sees bulk INSERTs every flush interval
-	// instead of one single-row INSERT (and one commit) per span.
+	// instead of one single-row INSERT (and one commit) per span. The
+	// batchTimeout argument is unused at the OTel layer (getTracer builds a
+	// SimpleSpanProcessor), so pass 0: the interval is owned entirely by the
+	// batching exporter.
 	exp := newBatchingExporter(&dbExporter{q: q}, sqlcFlushInterval, sqlcFlushBatchSize)
-	return NewOtelTracerProvider(exp, sqlcFlushInterval)
+	return NewOtelTracerProvider(exp, 0)
 }
 
 type dbExporter struct {

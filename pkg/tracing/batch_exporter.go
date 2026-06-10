@@ -91,9 +91,15 @@ func (e *batchingExporter) flush(ctx context.Context) error {
 }
 
 // Shutdown stops the flush loop, drains the buffer, and shuts down the
-// wrapped exporter.
+// wrapped exporter. Per the SpanExporter contract it gives up (leaving the
+// flush loop to finish in the background) if ctx expires while an in-flight
+// flush delays the loop's exit.
 func (e *batchingExporter) Shutdown(ctx context.Context) error {
 	e.stopOnce.Do(func() { close(e.done) })
-	<-e.stopped
+	select {
+	case <-e.stopped:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	return errors.Join(e.flush(ctx), e.inner.Shutdown(ctx))
 }

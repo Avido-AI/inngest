@@ -108,3 +108,36 @@ func TestBatchingExporterShutdownDrains(t *testing.T) {
 	// A second Shutdown must not panic or block.
 	require.NoError(t, e.Shutdown(context.Background()))
 }
+
+// blockingExporter parks ExportSpans until released, simulating a slow
+// in-flight DB flush.
+type blockingExporter struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingExporter) ExportSpans(context.Context, []sdktrace.ReadOnlySpan) error {
+	b.entered <- struct{}{}
+	<-b.release
+	return nil
+}
+
+func (b *blockingExporter) Shutdown(context.Context) error { return nil }
+
+func TestBatchingExporterShutdownRespectsContext(t *testing.T) {
+	inner := &blockingExporter{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	e := newBatchingExporter(inner, 5*time.Millisecond, 500)
+
+	require.NoError(t, e.ExportSpans(context.Background(), stubSpans(1)))
+	// Wait until the background loop is parked inside the inner exporter.
+	<-inner.entered
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, e.Shutdown(ctx), context.Canceled,
+		"Shutdown must not outlive its context while a flush is in flight")
+
+	// Unblock the background loop so it can observe done and exit.
+	close(inner.release)
+	require.NoError(t, e.Shutdown(context.Background()))
+}
