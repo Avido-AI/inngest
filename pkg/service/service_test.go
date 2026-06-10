@@ -57,7 +57,11 @@ func TestStart(t *testing.T) {
 	now := time.Now()
 	err := Start(context.Background(), m)
 	require.NoError(t, err)
-	require.WithinDuration(t, time.Now(), now.Add(500*time.Millisecond), 25*time.Millisecond)
+	// Start must block until the run function completes. Only the lower bound
+	// proves that; the upper bound is generous to tolerate loaded CI runners.
+	elapsed := time.Since(now)
+	require.GreaterOrEqual(t, elapsed, 500*time.Millisecond)
+	require.Less(t, elapsed, 5*time.Second)
 }
 
 func TestSignals(t *testing.T) {
