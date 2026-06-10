@@ -104,6 +104,19 @@ jobs:
 
       - name: Start postgres container
         run: |
+          # Docker Hub pulls intermittently time out on hosted runners; retry
+          # the pull instead of letting a single timeout fail the job.
+          for i in $(seq 1 5); do
+            if docker pull postgres:17; then
+              break
+            fi
+            if [ "$i" = "5" ]; then
+              echo "ERROR: failed to pull postgres:17"
+              exit 1
+            fi
+            echo "docker pull failed, retrying in $((i * 10))s"
+            sleep $((i * 10))
+          done
           docker run -d --name inngest-test-postgres \
             -e POSTGRES_USER=postgres \
             -e POSTGRES_PASSWORD=postgres \
@@ -183,6 +196,19 @@ jobs:
 
       - name: Start postgres container
         run: |
+          # Docker Hub pulls intermittently time out on hosted runners; retry
+          # the pull instead of letting a single timeout fail the job.
+          for i in $(seq 1 5); do
+            if docker pull postgres:17; then
+              break
+            fi
+            if [ "$i" = "5" ]; then
+              echo "ERROR: failed to pull postgres:17"
+              exit 1
+            fi
+            echo "docker pull failed, retrying in $((i * 10))s"
+            sleep $((i * 10))
+          done
           docker run -d --name inngest-test-postgres \
             -e POSTGRES_USER=postgres \
             -e POSTGRES_PASSWORD=postgres \
@@ -259,6 +285,19 @@ jobs:
 
       - name: Start postgres container
         run: |
+          # Docker Hub pulls intermittently time out on hosted runners; retry
+          # the pull instead of letting a single timeout fail the job.
+          for i in $(seq 1 5); do
+            if docker pull postgres:17; then
+              break
+            fi
+            if [ "$i" = "5" ]; then
+              echo "ERROR: failed to pull postgres:17"
+              exit 1
+            fi
+            echo "docker pull failed, retrying in $((i * 10))s"
+            sleep $((i * 10))
+          done
           docker run -d --name inngest-test-postgres \
             -e POSTGRES_USER=postgres \
             -e POSTGRES_PASSWORD=postgres \
