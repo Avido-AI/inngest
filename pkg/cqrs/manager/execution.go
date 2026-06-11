@@ -185,7 +185,9 @@ func deepCopyFunctions(src []*cqrs.Function) []*cqrs.Function {
 }
 
 // copyFunction returns a distinct copy of a single *cqrs.Function, so callers
-// cannot mutate cached structs.
+// cannot mutate cached structs. Config is currently the only reference-type
+// field on cqrs.Function; if a slice or map field is ever added, it must be
+// deep-copied here too or it will alias cached state.
 func copyFunction(f *cqrs.Function) *cqrs.Function {
 	cp := *f
 	if f.Config != nil {
