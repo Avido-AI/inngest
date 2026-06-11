@@ -5862,6 +5862,10 @@ func (e *executor) newExpressionEvaluator(ctx context.Context, expr string) (exp
 // compiled program. Use this for one-shot expressions (e.g. per-run invoke
 // correlation IDs), which would otherwise fill the global expression cache
 // with entries that are never read again.
+//
+// evalFactory is always nil in production; that branch exists for tests and
+// extension points that intentionally override evaluator construction,
+// including its validation semantics.
 func (e *executor) validateExpression(ctx context.Context, expr string) error {
 	if e.evalFactory != nil {
 		_, err := e.newExpressionEvaluator(ctx, expr)
