@@ -13,10 +13,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-const (
-	cleanAttrs = false
-)
-
 func NewSqlcTracerProvider(q dbpkg.Querier) TracerProvider {
 	// With sqlc, write every 50ms.
 	return NewOtelTracerProvider(&dbExporter{q: q}, 50*time.Millisecond)
@@ -84,9 +80,8 @@ func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFiel
 		parentID: span.Parent().SpanID().String(),
 		attrs:    make(map[string]any),
 	}
-	isExtensionSpan := span.Name() == meta.SpanNameDynamicExtension
 	for _, attr := range span.Attributes() {
-		if store := assignSpanAttr(ctx, &sf, attr, span.Name(), isExtensionSpan); store {
+		if store := assignSpanAttr(ctx, &sf, attr, span.Name()); store {
 			sf.attrs[string(attr.Key)] = attr.Value.AsInterface()
 		}
 	}
@@ -95,7 +90,16 @@ func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFiel
 
 // assignSpanAttr extracts a known attribute into the spanFields struct and
 // returns whether the attribute should also be stored in the generic attrs map.
-func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue, spanName string, isExtensionSpan bool) bool {
+//
+// Keys that return false are persisted only in their dedicated spans column;
+// nothing reads them back out of the attributes JSON. Keys that return true
+// despite having a dedicated column must stay duplicated for now: the span
+// fragment queries (GetSpansByRunID and friends) only select the attributes
+// JSON, and mapSpanFromRow / ExtractTypedValues reconstruct these values from
+// it on the read side. Rows written before keys stopped being duplicated still
+// carry them in the JSON, which readers tolerate (the column always wins where
+// both exist).
+func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue, spanName string) bool {
 	key := string(attr.Key)
 	switch key {
 	case meta.Attrs.StepOutput.Key():
@@ -113,45 +117,53 @@ func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue
 		} else {
 			sf.eventIdsByt = byt
 		}
-		return !cleanAttrs
+		// Read back from attrs by function_run_reader (ExtractedValues.EventIDs).
+		return true
 	case meta.Attrs.AccountID.Key():
 		sf.accountID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.EnvID.Key():
 		sf.envID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.RunID.Key():
+		// Readers take the run ID from the run_id column on every query.
 		sf.runID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.AppID.Key():
+		// Read back from attrs in mapSpanFromRow (OtelSpan.AppID).
 		sf.appID = attr.Value.AsString()
-		return !cleanAttrs
+		return true
 	case meta.Attrs.FunctionID.Key():
+		// Read back from attrs in mapSpanFromRow (OtelSpan.FunctionID).
 		sf.functionID = attr.Value.AsString()
-		return !cleanAttrs
+		return true
 	case meta.Attrs.DynamicTraceID.Key():
+		// Becomes the trace_id column for this row.
 		sf.traceID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.DynamicSpanID.Key():
+		// Readers key the span tree off the dynamic_span_id column.
 		sf.dynamicSpanID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.DebugSessionID.Key():
+		// Read back from attrs in mapSpanFromRow (OtelSpan.DebugSessionID).
 		sf.debugSessionID = attr.Value.AsString()
-		return !cleanAttrs
+		return true
 	case meta.Attrs.DebugRunID.Key():
+		// Read back from attrs in mapSpanFromRow (OtelSpan.DebugRunID).
 		sf.debugRunID = attr.Value.AsString()
-		return !cleanAttrs
+		return true
 	case meta.Attrs.DynamicStatus.Key():
+		// Read back from attrs in mapSpanFromRow; fragment merge order decides
+		// the final status, which the per-row status column can't express.
 		sf.status = attr.Value.AsString()
-		return !cleanAttrs
-	case meta.Attrs.UserlandSpanID.Key():
-		return !cleanAttrs
+		return true
 	case meta.Attrs.DeferParentRunIDs.Key():
 		sf.isDeferred = true
 		return true
-	case meta.Attrs.DropSpan.Key():
-		return !cleanAttrs || !isExtensionSpan
 	default:
+		// Includes UserlandSpanID and DropSpan, which have no dedicated
+		// column and are only available via the attributes JSON.
 		return true
 	}
 }

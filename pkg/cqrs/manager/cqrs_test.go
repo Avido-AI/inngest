@@ -2210,6 +2210,67 @@ func TestSpanAttributesRoundTrip(t *testing.T) {
 	assert.Equal(t, "0.1.0", result.RawOtelSpan.Attributes["sdk.version"])
 }
 
+// TestSpanReadPathToleratesBothAttributeShapes verifies the span read path
+// against both row shapes: rows written before column-backed attributes
+// (run.id, account.id, env.id, dynamic.span.id, dynamic.trace.id) stopped
+// being duplicated into the attributes JSON, and rows written after. Run ID
+// and span identity must come from the dedicated columns, while values the
+// fragment reader still reconstructs from the attributes JSON (status, app ID,
+// function ID) must survive in both shapes.
+func TestSpanReadPathToleratesBothAttributeShapes(t *testing.T) {
+	cm, cleanup := initCQRS(t)
+	defer cleanup()
+
+	appID := uuid.New()
+	functionID := uuid.New()
+
+	duplicatedAttrs := func(runID string) string {
+		return `{` +
+			`"_inngest.run.id":"` + runID + `",` +
+			`"_inngest.account.id":"55555555-5555-5555-5555-555555555555",` +
+			`"_inngest.env.id":"66666666-6666-6666-6666-666666666666",` +
+			`"_inngest.dynamic.span.id":"dyn-span",` +
+			`"_inngest.dynamic.status":"Completed",` +
+			`"_inngest.app.id":"` + appID.String() + `",` +
+			`"_inngest.function.id":"` + functionID.String() + `",` +
+			`"sdk.language":"go"}`
+	}
+	cleanAttrs := `{` +
+		`"_inngest.dynamic.status":"Completed",` +
+		`"_inngest.app.id":"` + appID.String() + `",` +
+		`"_inngest.function.id":"` + functionID.String() + `",` +
+		`"sdk.language":"go"}`
+
+	for _, tc := range []struct {
+		name  string
+		attrs func(runID string) string
+	}{
+		{name: "old shape with duplicated column attrs", attrs: duplicatedAttrs},
+		{name: "new shape without duplicated column attrs", attrs: func(string) string { return cleanAttrs }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runULID := ulid.MustNew(ulid.Now(), rand.Reader)
+			insertTestSpan(t, cm, testSpanFields{
+				RunID:         runULID.String(),
+				DynamicSpanID: "dyn-span",
+				Name:          "executor.run",
+				Attributes:    []byte(tc.attrs(runULID.String())),
+			})
+
+			result, err := cm.GetSpansByRunID(t.Context(), runULID)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+
+			assert.Equal(t, runULID, result.RunID, "run ID must come from the run_id column")
+			assert.Equal(t, "dyn-span", result.SpanID, "span ID must come from the dynamic_span_id column")
+			assert.Equal(t, enums.StepStatusCompleted, result.Status)
+			assert.Equal(t, appID, result.AppID)
+			assert.Equal(t, functionID, result.FunctionID)
+			assert.Equal(t, "go", result.RawOtelSpan.Attributes["sdk.language"])
+		})
+	}
+}
+
 // TestSpanOutputReadBack verifies that span output stored as []byte can be
 // read back via GetSpanOutput without corruption. This is a regression test
 // for double-encoding where json.Marshal(stringValue) would wrap the JSON
