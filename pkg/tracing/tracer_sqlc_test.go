@@ -36,6 +36,8 @@ func TestExtractSpanFieldsAttrDuplication(t *testing.T) {
 			attribute.String(meta.Attrs.DebugRunID.Key(), "debug-run"),
 			attribute.String(meta.Attrs.DebugSessionID.Key(), "debug-session"),
 			attribute.StringSlice(meta.Attrs.EventIDs.Key(), []string{"evt-1"}),
+			attribute.String(meta.Attrs.UserlandSpanID.Key(), "userland-span-1"),
+			attribute.Bool(meta.Attrs.DropSpan.Key(), true),
 			attribute.String("sdk.language", "go"),
 		},
 	}
@@ -72,8 +74,15 @@ func TestExtractSpanFieldsAttrDuplication(t *testing.T) {
 		assert.NotContains(t, sf.attrs, key)
 	}
 
-	// Keys without a dedicated column are stored in attrs as-is.
-	assert.Contains(t, sf.attrs, "sdk.language")
+	// Keys without a dedicated column must stay in attrs — it is their only
+	// storage.
+	for _, key := range []string{
+		meta.Attrs.UserlandSpanID.Key(),
+		meta.Attrs.DropSpan.Key(),
+		"sdk.language",
+	} {
+		assert.Contains(t, sf.attrs, key)
+	}
 }
 
 func TestAnyToBytes(t *testing.T) {
