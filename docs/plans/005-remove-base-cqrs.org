@@ -562,8 +562,8 @@ Completion checklist:
 - [ ] history interfaces and payload types are owned by =pkg/cqrs=
 - [ ] history implementation lives in =pkg/cqrs/manager=
 - [ ] any temporary compatibility shims are explicitly deprecated
-- [ ] devserver has a single history backend
-- [ ] =pkg/history_drivers= is no longer required by runtime paths
+- [X] devserver has a single history backend
+- [X] =pkg/history_drivers= is no longer required by runtime paths
 - [ ] naming no longer implies SQLite-first conversion
 - [ ] history DAL tests are green across the migrated call paths
 - [ ] executor and API history regressions are covered by green tests
@@ -575,10 +575,10 @@ history driver packages.
 
 Action items:
 
-- [ ] remove =pkg/history_drivers/memory_writer=
-- [ ] remove =pkg/history_drivers/memory_reader=
-- [ ] remove =pkg/history_drivers/memory_store=
-- [ ] remove devserver imports of =pkg/history_drivers/...=
+- [X] remove =pkg/history_drivers/memory_writer=
+- [X] remove =pkg/history_drivers/memory_reader=
+- [X] remove =pkg/history_drivers/memory_store=
+- [X] remove devserver imports of =pkg/history_drivers/...=
 - [ ] remove any generated or hand-written API assumptions that require a
   separate memory-backed history reader
 - [ ] remove temporary =DEPRECATED= shims that are no longer needed
@@ -591,9 +591,9 @@ Action items:
 
 Completion checklist:
 
-- [ ] =pkg/history_drivers= no longer exists
-- [ ] no runtime path depends on a parallel in-memory history store
-- [ ] CQRS-backed history is the only history backend in devserver
+- [X] =pkg/history_drivers= no longer exists
+- [X] no runtime path depends on a parallel in-memory history store
+- [X] CQRS-backed history is the only history backend in devserver
 - [ ] temporary compatibility shims introduced for migration are removed
 - [ ] devserver history behavior is covered without memory-driver-specific tests
 - [ ] devserver history regression tests are green without memory drivers
