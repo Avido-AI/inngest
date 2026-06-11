@@ -14,8 +14,6 @@ import (
 )
 
 const (
-	cleanAttrs = false
-
 	// sqlcFlushInterval bounds how long a finished span can sit in memory
 	// before it is persisted (and thus visible to readers).
 	sqlcFlushInterval = 50 * time.Millisecond
@@ -97,9 +95,8 @@ func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFiel
 		parentID: span.Parent().SpanID().String(),
 		attrs:    make(map[string]any),
 	}
-	isExtensionSpan := span.Name() == meta.SpanNameDynamicExtension
 	for _, attr := range span.Attributes() {
-		if store := assignSpanAttr(ctx, &sf, attr, span.Name(), isExtensionSpan); store {
+		if store := assignSpanAttr(ctx, &sf, attr, span.Name()); store {
 			sf.attrs[string(attr.Key)] = attr.Value.AsInterface()
 		}
 	}
@@ -108,7 +105,14 @@ func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFiel
 
 // assignSpanAttr extracts a known attribute into the spanFields struct and
 // returns whether the attribute should also be stored in the generic attrs map.
-func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue, spanName string, isExtensionSpan bool) bool {
+//
+// Keys that return false are persisted only in their dedicated spans column;
+// the span fragment queries (GetSpansByRunID and friends) select those columns
+// per fragment and overlayFragmentColumnAttrs feeds them back into the typed
+// extraction on the read side. Rows written before keys stopped being
+// duplicated still carry them in the attributes JSON, which readers tolerate
+// (the column overlay wins where both exist, with the identical value).
+func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue, spanName string) bool {
 	key := string(attr.Key)
 	switch key {
 	case meta.Attrs.StepOutput.Key():
@@ -126,45 +130,45 @@ func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue
 		} else {
 			sf.eventIdsByt = byt
 		}
-		return !cleanAttrs
+		return false
 	case meta.Attrs.AccountID.Key():
 		sf.accountID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.EnvID.Key():
 		sf.envID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.RunID.Key():
 		sf.runID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.AppID.Key():
 		sf.appID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.FunctionID.Key():
 		sf.functionID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.DynamicTraceID.Key():
+		// Becomes the trace_id column for this row.
 		sf.traceID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.DynamicSpanID.Key():
+		// Readers key the span tree off the dynamic_span_id column.
 		sf.dynamicSpanID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.DebugSessionID.Key():
 		sf.debugSessionID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.DebugRunID.Key():
 		sf.debugRunID = attr.Value.AsString()
-		return !cleanAttrs
+		return false
 	case meta.Attrs.DynamicStatus.Key():
 		sf.status = attr.Value.AsString()
-		return !cleanAttrs
-	case meta.Attrs.UserlandSpanID.Key():
-		return !cleanAttrs
+		return false
 	case meta.Attrs.DeferParentRunIDs.Key():
 		sf.isDeferred = true
 		return true
-	case meta.Attrs.DropSpan.Key():
-		return !cleanAttrs || !isExtensionSpan
 	default:
+		// Includes UserlandSpanID and DropSpan, which have no dedicated
+		// column and are only available via the attributes JSON.
 		return true
 	}
 }

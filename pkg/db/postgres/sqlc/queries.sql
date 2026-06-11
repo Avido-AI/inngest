@@ -533,6 +533,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
@@ -558,6 +564,12 @@ SELECT
     'name', s.name,
     'attributes', s.attributes,
     'links', s.links,
+    'status', s.status,
+    'app_id', s.app_id,
+    'function_id', s.function_id,
+    'debug_run_id', s.debug_run_id,
+    'debug_session_id', s.debug_session_id,
+    'event_ids', s.event_ids,
     'output_span_id', CASE WHEN s.output IS NOT NULL THEN s.span_id ELSE NULL END,
     'input_span_id', CASE WHEN s.input IS NOT NULL THEN s.span_id ELSE NULL END
   )) AS span_fragments
@@ -582,6 +594,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
@@ -604,6 +622,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
@@ -634,6 +658,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
@@ -657,6 +687,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
@@ -689,6 +725,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
@@ -715,6 +757,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
@@ -743,6 +791,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
@@ -769,6 +823,12 @@ SELECT
     'name', name,
     'attributes', attributes,
     'links', links,
+    'status', status,
+    'app_id', app_id,
+    'function_id', function_id,
+    'debug_run_id', debug_run_id,
+    'debug_session_id', debug_session_id,
+    'event_ids', event_ids,
     'output_span_id', CASE WHEN output IS NOT NULL THEN span_id ELSE NULL END,
     'input_span_id', CASE WHEN input IS NOT NULL THEN span_id ELSE NULL END
   )) AS span_fragments
