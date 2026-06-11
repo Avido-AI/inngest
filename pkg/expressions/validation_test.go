@@ -319,3 +319,25 @@ func Test_Validation(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateDoesNotCache asserts that Validate never inserts compiled
+// programs into the global expression cache. One-shot expressions (e.g.
+// per-run invoke correlation IDs) are validated via this path; caching them
+// would fill the cache with entries that are never read again.
+func TestValidateDoesNotCache(t *testing.T) {
+	ctx := context.Background()
+	expr := `async.data.correlation_id == "01H0000000000000000000000.step-id"`
+
+	if err := Validate(ctx, nil, expr); err != nil {
+		t.Fatalf("expected expression to validate; got: %v", err)
+	}
+	if err := Validate(ctx, DefaultRestrictiveValidationPolicy(), expr); err != nil {
+		t.Fatalf("expected expression to validate with restrictive policy; got: %v", err)
+	}
+
+	for _, key := range []string{"lifted:" + expr, "eval:" + expr, expr} {
+		if cache.Get(key) != nil {
+			t.Errorf("expected cache key %q to be absent after Validate", key)
+		}
+	}
+}

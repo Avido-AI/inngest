@@ -5117,7 +5117,7 @@ func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, in
 
 	correlationID := i.md.ID.RunID.String() + "." + gen.ID
 	strExpr := fmt.Sprintf("async.data.%s == %s", consts.InvokeCorrelationId, strconv.Quote(correlationID))
-	_, err = e.newExpressionEvaluator(ctx, strExpr)
+	err = e.validateExpression(ctx, strExpr)
 	if err != nil {
 		return batchInvokeItem{}, execError{err: fmt.Errorf("failed to create expression to wait for invoked function completion: %w", err)}
 	}
@@ -5482,7 +5482,7 @@ func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx exe
 	eventName := event.FnFinishedName
 	correlationID := runCtx.Metadata().ID.RunID.String() + "." + gen.ID
 	strExpr := fmt.Sprintf("async.data.%s == %s", consts.InvokeCorrelationId, strconv.Quote(correlationID))
-	_, err = e.newExpressionEvaluator(ctx, strExpr)
+	err = e.validateExpression(ctx, strExpr)
 	if err != nil {
 		return execError{err: fmt.Errorf("failed to create expression to wait for invoked function completion: %w", err)}
 	}
@@ -5856,6 +5856,18 @@ func (e *executor) newExpressionEvaluator(ctx context.Context, expr string) (exp
 		return e.evalFactory(ctx, expr)
 	}
 	return expressions.NewExpressionEvaluator(ctx, expr)
+}
+
+// validateExpression checks that an expression compiles without caching the
+// compiled program. Use this for one-shot expressions (e.g. per-run invoke
+// correlation IDs), which would otherwise fill the global expression cache
+// with entries that are never read again.
+func (e *executor) validateExpression(ctx context.Context, expr string) error {
+	if e.evalFactory != nil {
+		_, err := e.newExpressionEvaluator(ctx, expr)
+		return err
+	}
+	return expressions.Validate(ctx, nil, expr)
 }
 
 // AppendAndScheduleBatch appends a new batch item. If a new batch is created, it will be scheduled to run
