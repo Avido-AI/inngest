@@ -400,6 +400,7 @@ fragmentLoop:
 		}
 
 		if fragmentAttr, attrErr := extractFragmentAttrs(fragment); attrErr == nil {
+			overlayFragmentColumnAttrs(fragment, fragmentAttr)
 			maps.Copy(newSpan.RawOtelSpan.Attributes, fragmentAttr)
 
 			if outputRef, ok := fragment["output_span_id"].(string); ok && info != nil {

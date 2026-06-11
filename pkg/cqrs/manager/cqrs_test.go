@@ -2211,51 +2211,78 @@ func TestSpanAttributesRoundTrip(t *testing.T) {
 }
 
 // TestSpanReadPathToleratesBothAttributeShapes verifies the span read path
-// against both row shapes: rows written before column-backed attributes
-// (run.id, account.id, env.id, dynamic.span.id, dynamic.trace.id) stopped
-// being duplicated into the attributes JSON, and rows written after. Run ID
-// and span identity must come from the dedicated columns, while values the
-// fragment reader still reconstructs from the attributes JSON (status, app ID,
-// function ID) must survive in both shapes.
+// against every row generation: rows whose column-backed metadata lives only
+// in the attributes JSON (oldest), rows carrying it in both the JSON and the
+// dedicated columns, and rows where it lives only in the columns (current
+// writer). Identity must come from the run_id/dynamic_span_id columns, and
+// status, app/function IDs, debug IDs, and event IDs must survive every
+// shape — via the per-fragment column overlay when columns are set, and via
+// the attributes JSON fallback when they are not.
 func TestSpanReadPathToleratesBothAttributeShapes(t *testing.T) {
 	cm, cleanup := initCQRS(t)
 	defer cleanup()
 
 	appID := uuid.New()
 	functionID := uuid.New()
+	debugRunID := ulid.MustNew(ulid.Now(), rand.Reader)
+	debugSessionID := ulid.MustNew(ulid.Now(), rand.Reader)
 
-	duplicatedAttrs := func(runID string) string {
-		return `{` +
-			`"_inngest.run.id":"` + runID + `",` +
+	columnAttrsJSON := func(runID string) string {
+		return `"_inngest.run.id":"` + runID + `",` +
 			`"_inngest.account.id":"55555555-5555-5555-5555-555555555555",` +
 			`"_inngest.env.id":"66666666-6666-6666-6666-666666666666",` +
 			`"_inngest.dynamic.span.id":"dyn-span",` +
 			`"_inngest.dynamic.status":"Completed",` +
 			`"_inngest.app.id":"` + appID.String() + `",` +
 			`"_inngest.function.id":"` + functionID.String() + `",` +
-			`"sdk.language":"go"}`
+			`"_inngest.debug.run.id":"` + debugRunID.String() + `",` +
+			`"_inngest.debug.session.id":"` + debugSessionID.String() + `",` +
+			`"_inngest.event.ids":["evt-1"],`
 	}
-	cleanAttrs := `{` +
-		`"_inngest.dynamic.status":"Completed",` +
-		`"_inngest.app.id":"` + appID.String() + `",` +
-		`"_inngest.function.id":"` + functionID.String() + `",` +
-		`"sdk.language":"go"}`
 
 	for _, tc := range []struct {
-		name  string
-		attrs func(runID string) string
+		name    string
+		attrs   func(runID string) string
+		columns bool // populate the dedicated status/debug/event_ids columns
 	}{
-		{name: "old shape with duplicated column attrs", attrs: duplicatedAttrs},
-		{name: "new shape without duplicated column attrs", attrs: func(string) string { return cleanAttrs }},
+		{
+			// Rows where the metadata exists only in the attributes JSON
+			// must fall back to it (no column overlay).
+			name:  "attrs JSON only",
+			attrs: func(runID string) string { return `{` + columnAttrsJSON(runID) + `"sdk.language":"go"}` },
+		},
+		{
+			// Rows written while keys were duplicated: columns and attrs
+			// JSON carry the same values.
+			name:    "duplicated in attrs JSON and columns",
+			attrs:   func(runID string) string { return `{` + columnAttrsJSON(runID) + `"sdk.language":"go"}` },
+			columns: true,
+		},
+		{
+			// Rows from the current writer: columns only.
+			name:    "columns only",
+			attrs:   func(string) string { return `{"sdk.language":"go"}` },
+			columns: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runULID := ulid.MustNew(ulid.Now(), rand.Reader)
-			insertTestSpan(t, cm, testSpanFields{
+			fields := testSpanFields{
 				RunID:         runULID.String(),
 				DynamicSpanID: "dyn-span",
 				Name:          "executor.run",
 				Attributes:    []byte(tc.attrs(runULID.String())),
-			})
+				// app_id/function_id columns are NOT NULL and always written.
+				AppID:      appID.String(),
+				FunctionID: functionID.String(),
+			}
+			if tc.columns {
+				fields.Status = "Completed"
+				fields.DebugRunID = debugRunID.String()
+				fields.DebugSessionID = debugSessionID.String()
+				fields.EventIds = []byte(`["evt-1"]`)
+			}
+			insertTestSpan(t, cm, fields)
 
 			result, err := cm.GetSpansByRunID(t.Context(), runULID)
 			require.NoError(t, err)
@@ -2266,6 +2293,10 @@ func TestSpanReadPathToleratesBothAttributeShapes(t *testing.T) {
 			assert.Equal(t, enums.StepStatusCompleted, result.Status)
 			assert.Equal(t, appID, result.AppID)
 			assert.Equal(t, functionID, result.FunctionID)
+			assert.Equal(t, debugRunID, result.DebugRunID)
+			assert.Equal(t, debugSessionID, result.DebugSessionID)
+			require.NotNil(t, result.Attributes.EventIDs)
+			assert.Equal(t, []string{"evt-1"}, *result.Attributes.EventIDs)
 			assert.Equal(t, "go", result.RawOtelSpan.Attributes["sdk.language"])
 		})
 	}
@@ -2325,6 +2356,7 @@ type testSpanFields struct {
 	EnvID          string    // default: "env"
 	Attributes     []byte    // JSON attributes (optional)
 	Output         []byte    // JSON output (optional)
+	EventIds       []byte    // JSON event ID array (optional)
 }
 
 // There aren't any functions exposed on cqrs.Manager that write to the new spans table
@@ -2376,6 +2408,7 @@ func insertTestSpan(t *testing.T, cm cqrs.Manager, spanFields testSpanFields) {
 		DebugSessionID: sql.NullString{String: spanFields.DebugSessionID, Valid: spanFields.DebugSessionID != ""},
 		Attributes:     spanFields.Attributes,
 		Output:         spanFields.Output,
+		EventIds:       spanFields.EventIds,
 	})
 	require.NoError(t, err)
 }
