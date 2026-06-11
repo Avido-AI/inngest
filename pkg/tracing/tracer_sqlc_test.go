@@ -10,12 +10,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
-// TestExtractSpanFieldsAttrDuplication pins down which known attributes are
-// duplicated into the generic attrs JSON alongside their dedicated columns.
-// Column-only keys must NOT appear in attrs (row size), while keys the span
-// fragment read path (mapSpanFromRow / ExtractTypedValues) reconstructs from
-// the attributes JSON must stay duplicated until those queries select the
-// dedicated columns.
+// TestExtractSpanFieldsAttrDuplication pins down that known column-backed
+// attributes are NOT duplicated into the generic attrs JSON: the span fragment
+// queries select the dedicated columns per fragment and the read side overlays
+// them back into the typed extraction (overlayFragmentColumnAttrs). Keys
+// without a dedicated column must stay in attrs.
 func TestExtractSpanFieldsAttrDuplication(t *testing.T) {
 	accountID := "11111111-1111-1111-1111-111111111111"
 	envID := "22222222-2222-2222-2222-222222222222"
@@ -56,20 +55,13 @@ func TestExtractSpanFieldsAttrDuplication(t *testing.T) {
 	assert.Equal(t, "debug-session", sf.debugSessionID)
 	assert.JSONEq(t, `["evt-1"]`, string(sf.eventIdsByt))
 
-	// Column-only keys are no longer duplicated into the attrs JSON.
+	// Column-backed keys are not duplicated into the attrs JSON.
 	for _, key := range []string{
 		meta.Attrs.AccountID.Key(),
 		meta.Attrs.EnvID.Key(),
 		meta.Attrs.RunID.Key(),
 		meta.Attrs.DynamicTraceID.Key(),
 		meta.Attrs.DynamicSpanID.Key(),
-	} {
-		assert.NotContains(t, sf.attrs, key)
-	}
-
-	// Keys the read path still pulls out of the attributes JSON stay
-	// duplicated.
-	for _, key := range []string{
 		meta.Attrs.AppID.Key(),
 		meta.Attrs.FunctionID.Key(),
 		meta.Attrs.DynamicStatus.Key(),
@@ -77,10 +69,10 @@ func TestExtractSpanFieldsAttrDuplication(t *testing.T) {
 		meta.Attrs.DebugSessionID.Key(),
 		meta.Attrs.EventIDs.Key(),
 	} {
-		assert.Contains(t, sf.attrs, key)
+		assert.NotContains(t, sf.attrs, key)
 	}
 
-	// Unknown attributes are stored as-is.
+	// Keys without a dedicated column are stored in attrs as-is.
 	assert.Contains(t, sf.attrs, "sdk.language")
 }
 

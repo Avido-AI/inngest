@@ -92,13 +92,11 @@ func extractSpanFields(ctx context.Context, span sdktrace.ReadOnlySpan) spanFiel
 // returns whether the attribute should also be stored in the generic attrs map.
 //
 // Keys that return false are persisted only in their dedicated spans column;
-// nothing reads them back out of the attributes JSON. Keys that return true
-// despite having a dedicated column must stay duplicated for now: the span
-// fragment queries (GetSpansByRunID and friends) only select the attributes
-// JSON, and mapSpanFromRow / ExtractTypedValues reconstruct these values from
-// it on the read side. Rows written before keys stopped being duplicated still
-// carry them in the JSON, which readers tolerate (the column always wins where
-// both exist).
+// the span fragment queries (GetSpansByRunID and friends) select those columns
+// per fragment and overlayFragmentColumnAttrs feeds them back into the typed
+// extraction on the read side. Rows written before keys stopped being
+// duplicated still carry them in the attributes JSON, which readers tolerate
+// (the column overlay wins where both exist, with the identical value).
 func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue, spanName string) bool {
 	key := string(attr.Key)
 	switch key {
@@ -117,8 +115,7 @@ func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue
 		} else {
 			sf.eventIdsByt = byt
 		}
-		// Read back from attrs by function_run_reader (ExtractedValues.EventIDs).
-		return true
+		return false
 	case meta.Attrs.AccountID.Key():
 		sf.accountID = attr.Value.AsString()
 		return false
@@ -126,17 +123,14 @@ func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue
 		sf.envID = attr.Value.AsString()
 		return false
 	case meta.Attrs.RunID.Key():
-		// Readers take the run ID from the run_id column on every query.
 		sf.runID = attr.Value.AsString()
 		return false
 	case meta.Attrs.AppID.Key():
-		// Read back from attrs in mapSpanFromRow (OtelSpan.AppID).
 		sf.appID = attr.Value.AsString()
-		return true
+		return false
 	case meta.Attrs.FunctionID.Key():
-		// Read back from attrs in mapSpanFromRow (OtelSpan.FunctionID).
 		sf.functionID = attr.Value.AsString()
-		return true
+		return false
 	case meta.Attrs.DynamicTraceID.Key():
 		// Becomes the trace_id column for this row.
 		sf.traceID = attr.Value.AsString()
@@ -146,18 +140,14 @@ func assignSpanAttr(ctx context.Context, sf *spanFields, attr attribute.KeyValue
 		sf.dynamicSpanID = attr.Value.AsString()
 		return false
 	case meta.Attrs.DebugSessionID.Key():
-		// Read back from attrs in mapSpanFromRow (OtelSpan.DebugSessionID).
 		sf.debugSessionID = attr.Value.AsString()
-		return true
+		return false
 	case meta.Attrs.DebugRunID.Key():
-		// Read back from attrs in mapSpanFromRow (OtelSpan.DebugRunID).
 		sf.debugRunID = attr.Value.AsString()
-		return true
+		return false
 	case meta.Attrs.DynamicStatus.Key():
-		// Read back from attrs in mapSpanFromRow; fragment merge order decides
-		// the final status, which the per-row status column can't express.
 		sf.status = attr.Value.AsString()
-		return true
+		return false
 	case meta.Attrs.DeferParentRunIDs.Key():
 		sf.isDeferred = true
 		return true
