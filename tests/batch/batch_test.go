@@ -3,6 +3,7 @@ package batch
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -313,6 +314,9 @@ func TestBatchInvoke(t *testing.T) {
 		counter       int32
 		totalEvents   int32
 		invokeCounter int32
+
+		batchSizesMu sync.Mutex
+		batchSizes   []int
 	)
 
 	// this will be invoked.  we expect invokes to respect batches.
@@ -331,6 +335,9 @@ func TestBatchInvoke(t *testing.T) {
 			evts := input.Events
 			atomic.AddInt32(&counter, 1)
 			atomic.AddInt32(&totalEvents, int32(len(evts)))
+			batchSizesMu.Lock()
+			batchSizes = append(batchSizes, len(evts))
+			batchSizesMu.Unlock()
 			fmt.Println("hi from invoked func", len(evts))
 			return fmt.Sprintf("batched %d events", len(evts)), nil
 		},
@@ -377,21 +384,23 @@ func TestBatchInvoke(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// First trigger should be because of batch is full (3 events).
-		// Use a generous timeout so slow CI runners have time for all
-		// callers to complete their step.Run + step.Invoke round-trips.
-		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			assert.EqualValues(t, 1, atomic.LoadInt32(&counter))
-			assert.EqualValues(t, 3, atomic.LoadInt32(&totalEvents))
-			assert.EqualValues(t, 3, atomic.LoadInt32(&invokeCounter))
-		}, time.Second*15, time.Millisecond*50)
-
-		// Second trigger should be because of the batch timeout (10s)
+		// One batch should trigger because it is full (3 events), and a
+		// second because of the batch timeout (10s, 2 events). On a
+		// backlogged runner both batches can execute back-to-back, so
+		// there is no guaranteed window to observe the intermediate
+		// counter==1 state; assert only the final state plus the
+		// individual batch sizes.
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
 			assert.EqualValues(t, 2, atomic.LoadInt32(&counter))
 			assert.EqualValues(t, 5, atomic.LoadInt32(&totalEvents))
 			assert.EqualValues(t, 5, atomic.LoadInt32(&invokeCounter))
-		}, time.Second*20, time.Millisecond*50)
+		}, time.Second*30, time.Millisecond*50)
+
+		batchSizesMu.Lock()
+		sizes := append([]int(nil), batchSizes...)
+		batchSizesMu.Unlock()
+		slices.Sort(sizes)
+		require.Equal(t, []int{2, 3}, sizes, "expected one full batch of 3 and one timed-out batch of 2")
 	})
 }
 

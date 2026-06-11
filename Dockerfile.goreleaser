@@ -1,4 +1,4 @@
-FROM --platform=$TARGETPLATFORM debian:stable-slim@sha256:5012d0517aa0075a7150a45aae67586641e898913b7af3b08228108565b5f90c AS inngest
+FROM --platform=$TARGETPLATFORM debian:stable-slim@sha256:da0bfd264c4f5397fc6783112e7d458e6e95686c45cb278d4f682a43e9b7fb53 AS inngest
 RUN apt-get update && apt-get upgrade -y && apt-get install -y ca-certificates tzdata curl && update-ca-certificates
 RUN groupadd -g 1000 inngest && useradd -u 1000 -g inngest -s /usr/sbin/nologin -M inngest
 COPY inngest /bin/inngest

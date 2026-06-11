@@ -82,7 +82,7 @@ require (
 	github.com/twmb/franz-go v1.21.3
 	github.com/urfave/cli/v3 v3.9.1
 	github.com/valyala/fastjson v1.6.10
-	github.com/vektah/gqlparser/v2 v2.5.33
+	github.com/vektah/gqlparser/v2 v2.5.34
 	github.com/xhit/go-str2duration/v2 v2.1.0
 	go.opentelemetry.io/collector/pdata v1.60.0
 	go.opentelemetry.io/otel v1.44.0
@@ -107,8 +107,8 @@ require (
 	golang.org/x/mod v0.37.0
 	golang.org/x/sync v0.21.0
 	gonum.org/v1/gonum v0.17.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20260608224507-4308a22a1bab
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260608224507-4308a22a1bab
+	google.golang.org/genproto/googleapis/api v0.0.0-20260610212136-7ab31c22f7ad
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260610212136-7ab31c22f7ad
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 	lukechampine.com/frand v1.5.1

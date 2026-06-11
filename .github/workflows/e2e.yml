@@ -47,6 +47,10 @@ jobs:
           pnpm dev &
           sleep 5
           cd ../../
+          # The connect gRPC ports (50052/50053) sit inside the kernel's
+          # ephemeral port range; reserve them so outbound connections cannot
+          # claim them before the dev server binds its listeners.
+          sudo sysctl -wq net.ipv4.ip_local_reserved_ports=50052-50053
           echo "Running dev server"
           mkdir $GOCOVERDIR
           nohup ./inngest-bin dev --no-discovery --no-poll 2> /tmp/devserver-logs-ts.txt &
@@ -144,6 +148,10 @@ jobs:
 
       - name: Run E2E tests
         run: |
+          # The connect gRPC ports (50052/50053) sit inside the kernel's
+          # ephemeral port range; reserve them so outbound connections cannot
+          # claim them before the dev server binds its listeners.
+          sudo sysctl -wq net.ipv4.ip_local_reserved_ports=50052-50053
           echo "Running dev server"
           mkdir $GOCOVERDIR
           nohup ./inngest-bin dev --no-discovery --no-poll --postgres-uri "postgres://postgres:postgres@localhost:5432/inngest_test?sslmode=disable" 2> /tmp/dev-output.txt &
@@ -233,6 +241,10 @@ jobs:
 
       - name: Run batch E2E tests
         run: |
+          # The connect gRPC ports (50052/50053) sit inside the kernel's
+          # ephemeral port range; reserve them so outbound connections cannot
+          # claim them before the dev server binds its listeners.
+          sudo sysctl -wq net.ipv4.ip_local_reserved_ports=50052-50053
           echo "Running dev server"
           mkdir $GOCOVERDIR
           nohup ./inngest-bin dev --no-discovery --no-poll --postgres-uri "postgres://postgres:postgres@localhost:5432/inngest_test?sslmode=disable" 2> /tmp/dev-output.txt &
@@ -322,6 +334,10 @@ jobs:
 
       - name: Run API tests
         run: |
+          # The connect gRPC ports (50052/50053) sit inside the kernel's
+          # ephemeral port range; reserve them so outbound connections cannot
+          # claim them before the dev server binds its listeners.
+          sudo sysctl -wq net.ipv4.ip_local_reserved_ports=50052-50053
           echo "Running dev server"
           mkdir $GOCOVERDIR
           nohup ./inngest-bin dev --no-discovery --no-poll --postgres-uri "postgres://postgres:postgres@localhost:5432/inngest_test?sslmode=disable" 2> /tmp/dev-output.txt &
