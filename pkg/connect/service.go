@@ -480,6 +480,26 @@ func (c *connectGatewaySvc) Run(ctx context.Context) error {
 		Handler: c.gatewayRoutes,
 	}
 
+	// Bind both listeners before reporting the gateway as active. A failed
+	// bind (e.g. the fixed grpc port was handed out as an ephemeral port to
+	// an outbound connection) must fail Run immediately: inside the errgroup
+	// the error would sit unobserved until the other serve goroutine exits at
+	// shutdown, leaving an "active" gateway whose executors can never reach
+	// it over grpc.
+	httpListener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("could not listen on gateway api addr %q: %w", addr, err)
+	}
+
+	grpcAddr := fmt.Sprintf(":%d", c.grpcConfig.Gateway.Port)
+	grpcListener, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		if closeErr := httpListener.Close(); closeErr != nil {
+			logger.StdlibLogger(ctx).Warn("failed to close gateway api listener during grpc listen failure cleanup", "error", closeErr)
+		}
+		return fmt.Errorf("could not listen on gateway grpc addr %q: %w", grpcAddr, err)
+	}
+
 	go func() {
 		<-ctx.Done()
 
@@ -504,7 +524,7 @@ func (c *connectGatewaySvc) Run(ctx context.Context) error {
 
 	eg.Go(func() error {
 		c.logger.Info(fmt.Sprintf("starting gateway api at %s", addr))
-		err := server.ListenAndServe()
+		err := server.Serve(httpListener)
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -513,14 +533,8 @@ func (c *connectGatewaySvc) Run(ctx context.Context) error {
 	})
 
 	eg.Go(func() error {
-		addr := fmt.Sprintf(":%d", c.grpcConfig.Gateway.Port)
-
-		l, err := net.Listen("tcp", addr)
-		if err != nil {
-			return fmt.Errorf("could not listen for: %w", err)
-		}
-		logger.StdlibLogger(ctx).Info("starting connect gateway grpc server", "addr", addr)
-		return c.grpcServer.Serve(l)
+		logger.StdlibLogger(ctx).Info("starting connect gateway grpc server", "addr", grpcAddr)
+		return c.grpcServer.Serve(grpcListener)
 	})
 
 	if !c.isDraining.Load() {
