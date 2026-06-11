@@ -58,8 +58,29 @@ func (r *reader) GetRun(
 	if err != nil {
 		return history_reader.Run{}, fmt.Errorf("failed to convert run: %w", err)
 	}
+	if run.EndedAt == nil {
+		run.Status = r.unfinishedRunStatus(ctx, runID)
+	}
 
 	return *run, nil
+}
+
+// unfinishedRunStatus distinguishes queued from running for runs without a
+// finish row. The function_runs table has no started marker, so consult the
+// run's history for a FunctionStarted entry — the same signal the removed
+// in-memory history mirror used to track status at write time.
+func (r *reader) unfinishedRunStatus(ctx context.Context, runID ulid.ULID) enums.RunStatus {
+	items, err := r.q.GetFunctionRunHistory(ctx, runID)
+	if err != nil {
+		// Degrade to the previous default rather than failing the read.
+		return enums.RunStatusRunning
+	}
+	for _, h := range items {
+		if h.Type == enums.HistoryTypeFunctionStarted.String() {
+			return enums.RunStatusRunning
+		}
+	}
+	return enums.RunStatusScheduled
 }
 
 func (r *reader) GetFunctionRun(
@@ -95,6 +116,9 @@ func (r *reader) GetFunctionRunsFromEvents(
 		run, err := sqlToRun(&rawRun.FunctionRun, &rawRun.FunctionFinish)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert run: %w", err)
+		}
+		if run.EndedAt == nil {
+			run.Status = r.unfinishedRunStatus(ctx, run.ID)
 		}
 
 		result = append(result, run.ToCQRS())
@@ -174,12 +198,15 @@ func (r *reader) GetRuns(
 
 	var result []history_reader.Run
 	for _, run := range runs {
-		r, err := sqlToRun(&run.FunctionRun, &run.FunctionFinish)
+		conv, err := sqlToRun(&run.FunctionRun, &run.FunctionFinish)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert run: %w", err)
 		}
+		if conv.EndedAt == nil {
+			conv.Status = r.unfinishedRunStatus(ctx, conv.ID)
+		}
 
-		result = append(result, *r)
+		result = append(result, *conv)
 	}
 
 	return result, nil
@@ -197,12 +224,15 @@ func (r *reader) GetRunsByEventID(
 
 	var result []history_reader.Run
 	for _, run := range runs {
-		r, err := sqlToRun(&run.FunctionRun, &run.FunctionFinish)
+		conv, err := sqlToRun(&run.FunctionRun, &run.FunctionFinish)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert run: %w", err)
 		}
+		if conv.EndedAt == nil {
+			conv.Status = r.unfinishedRunStatus(ctx, conv.ID)
+		}
 
-		result = append(result, *r)
+		result = append(result, *conv)
 	}
 
 	return result, nil

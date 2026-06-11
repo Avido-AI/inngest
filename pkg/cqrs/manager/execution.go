@@ -8,9 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/cqrs"
 	"github.com/inngest/inngest/pkg/event_trigger_patterns"
 	"github.com/inngest/inngest/pkg/inngest"
+	"github.com/inngest/inngest/pkg/logger"
 )
 
 // functionsCache provides a short-TTL in-memory cache for the functions
@@ -19,13 +21,14 @@ import (
 // Functions). This eliminates repeated full table scans on every
 // incoming event, GraphQL query, and dev-server UI poll.
 type functionsCache struct {
-	mu            sync.Mutex
-	rawFunctions  []*cqrs.Function   // cached GetFunctions result
-	rawUpdatedAt  time.Time
-	functions     []inngest.Function // cached Functions (parsed) result
-	updatedAt     time.Time
-	ttl           time.Duration
-	generation    uint64 // incremented on invalidate; prevents stale write-back
+	mu           sync.Mutex
+	rawFunctions []*cqrs.Function             // cached GetFunctions result
+	rawByID      map[uuid.UUID]*cqrs.Function // index into rawFunctions by internal UUID
+	rawUpdatedAt time.Time
+	functions    []inngest.Function // cached Functions (parsed) result
+	updatedAt    time.Time
+	ttl          time.Duration
+	generation   uint64 // incremented on invalidate; prevents stale write-back
 }
 
 func (c *functionsCache) invalidate() {
@@ -34,6 +37,7 @@ func (c *functionsCache) invalidate() {
 	}
 	c.mu.Lock()
 	c.rawFunctions = nil
+	c.rawByID = nil
 	c.rawUpdatedAt = time.Time{}
 	c.functions = nil
 	c.updatedAt = time.Time{}
@@ -124,6 +128,7 @@ func (w wrapper) cachedGetFunctions(ctx context.Context) ([]*cqrs.Function, erro
 		w.fnCache.mu.Lock()
 		if w.fnCache.generation == genAtMiss {
 			w.fnCache.rawFunctions = deepCopyFunctions(result)
+			w.fnCache.rawByID = indexFunctionsByID(w.fnCache.rawFunctions)
 			w.fnCache.rawUpdatedAt = time.Now()
 		}
 		w.fnCache.mu.Unlock()
@@ -132,19 +137,76 @@ func (w wrapper) cachedGetFunctions(ctx context.Context) ([]*cqrs.Function, erro
 	return result, nil
 }
 
+// cachedGetFunctionByID returns a deep copy of a single cached function,
+// avoiding the full-list deep copy in cachedGetFunctions on the queue hot
+// path. ok is false when the function is not cached — either because the
+// cache is unavailable or because the function is absent from the active set
+// (e.g. archived) — in which case the caller should fall back to a direct DB
+// lookup.
+func (w wrapper) cachedGetFunctionByID(ctx context.Context, fnID uuid.UUID) (*cqrs.Function, bool) {
+	if w.fnCache == nil || w.noFnCache {
+		return nil, false
+	}
+
+	w.fnCache.mu.Lock()
+	if !w.fnCache.rawUpdatedAt.IsZero() && time.Since(w.fnCache.rawUpdatedAt) < w.fnCache.ttl {
+		fn, ok := w.fnCache.rawByID[fnID]
+		var cp *cqrs.Function
+		if ok {
+			cp = copyFunction(fn)
+		}
+		w.fnCache.mu.Unlock()
+		return cp, ok
+	}
+	w.fnCache.mu.Unlock()
+
+	// Cache cold or stale: refresh it, then use the now-hot index for an
+	// O(1) lookup. If a concurrent invalidation skipped the cache
+	// write-back, rawByID is nil and we fall back to the DB.
+	if _, err := w.cachedGetFunctions(ctx); err != nil {
+		logger.StdlibLogger(ctx).Debug("functions cache lookup failed, falling back to DB", "error", err, "function_id", fnID)
+		return nil, false
+	}
+	w.fnCache.mu.Lock()
+	defer w.fnCache.mu.Unlock()
+	fn, ok := w.fnCache.rawByID[fnID]
+	if !ok {
+		return nil, false
+	}
+	return copyFunction(fn), true
+}
+
 // deepCopyFunctions returns a new slice where each *cqrs.Function is a
 // distinct copy, so callers cannot mutate cached structs.
 func deepCopyFunctions(src []*cqrs.Function) []*cqrs.Function {
 	dst := make([]*cqrs.Function, len(src))
 	for i, f := range src {
-		cp := *f
-		if f.Config != nil {
-			cp.Config = make(json.RawMessage, len(f.Config))
-			copy(cp.Config, f.Config)
-		}
-		dst[i] = &cp
+		dst[i] = copyFunction(f)
 	}
 	return dst
+}
+
+// copyFunction returns a distinct copy of a single *cqrs.Function, so callers
+// cannot mutate cached structs. Config is currently the only reference-type
+// field on cqrs.Function; if a slice or map field is ever added, it must be
+// deep-copied here too or it will alias cached state.
+func copyFunction(f *cqrs.Function) *cqrs.Function {
+	cp := *f
+	if f.Config != nil {
+		cp.Config = make(json.RawMessage, len(f.Config))
+		copy(cp.Config, f.Config)
+	}
+	return &cp
+}
+
+// indexFunctionsByID builds the internal-UUID index for a cached function
+// slice.
+func indexFunctionsByID(fns []*cqrs.Function) map[uuid.UUID]*cqrs.Function {
+	byID := make(map[uuid.UUID]*cqrs.Function, len(fns))
+	for _, fn := range fns {
+		byID[fn.ID] = fn
+	}
+	return byID
 }
 
 // FunctionsScheduled returns all scheduled functions available.

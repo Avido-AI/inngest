@@ -1193,17 +1193,8 @@ func (w wrapper) GetFunctionByInternalUUID(ctx context.Context, fnID uuid.UUID) 
 	// functions, so a miss falls through to the DB which returns all rows.
 	// Skip the cache when noFnCache is set (transactional wrapper) to avoid
 	// a full table scan when we only need a single-row index lookup.
-	if w.fnCache != nil && !w.noFnCache {
-		cached, cacheErr := w.cachedGetFunctions(ctx)
-		if cacheErr != nil {
-			logger.StdlibLogger(ctx).Debug("functions cache lookup failed, falling back to DB", "error", cacheErr, "function_id", fnID)
-		} else {
-			for _, fn := range cached {
-				if fn.ID == fnID {
-					return fn, nil
-				}
-			}
-		}
+	if fn, ok := w.cachedGetFunctionByID(ctx, fnID); ok {
+		return fn, nil
 	}
 
 	fn, err := w.q.GetFunctionByID(ctx, fnID)

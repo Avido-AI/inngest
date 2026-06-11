@@ -2538,3 +2538,53 @@ func TestExtractFragmentAttrs(t *testing.T) {
 		require.Contains(t, err.Error(), "unexpected")
 	})
 }
+
+// TestCQRSGetFunctionByInternalUUIDCopyIsolation asserts that cached lookups
+// return isolated copies: mutating a returned function must not corrupt the
+// function cache used by subsequent lookups.
+func TestCQRSGetFunctionByInternalUUIDCopyIsolation(t *testing.T) {
+	ctx := context.Background()
+
+	accountID := uuid.New()
+	envID := uuid.New()
+	appID := uuid.New()
+
+	cm, cleanup := initCQRS(t, withInitCQRSOptApp(appID))
+	defer cleanup()
+
+	fnID := uuid.New()
+	configJSON, err := json.Marshal(map[string]any{
+		"triggers": []map[string]any{{"event": "test.event"}},
+	})
+	require.NoError(t, err)
+
+	_, err = cm.UpsertFunction(ctx, cqrs.UpsertFunctionParams{
+		ID:        fnID,
+		AccountID: accountID,
+		EnvID:     envID,
+		AppID:     appID,
+		Name:      "Test Function",
+		Slug:      "test-function",
+		Config:    string(configJSON),
+		CreatedAt: time.Now(),
+	})
+	require.NoError(t, err)
+
+	// First lookup populates the cache; second is served from it. Mutate
+	// both results to verify neither aliases cached state.
+	for i := 0; i < 2; i++ {
+		fn, err := cm.GetFunctionByInternalUUID(ctx, fnID)
+		require.NoError(t, err)
+		fn.Name = "mutated"
+		for j := range fn.Config {
+			fn.Config[j] = 'x'
+		}
+	}
+
+	fn, err := cm.GetFunctionByInternalUUID(ctx, fnID)
+	require.NoError(t, err)
+	assert.Equal(t, "Test Function", fn.Name)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(fn.Config, &cfg))
+	assert.NotEmpty(t, cfg["triggers"])
+}

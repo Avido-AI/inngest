@@ -25,7 +25,6 @@ import (
 	"github.com/inngest/inngest/pkg/event"
 	"github.com/inngest/inngest/pkg/execution"
 	"github.com/inngest/inngest/pkg/execution/cron"
-	"github.com/inngest/inngest/pkg/execution/history"
 	"github.com/inngest/inngest/pkg/execution/queue"
 	"github.com/inngest/inngest/pkg/execution/runner"
 	"github.com/inngest/inngest/pkg/execution/state"
@@ -43,7 +42,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 )
 
-func NewService(opts StartOpts, runner runner.Runner, data cqrs.Manager, pb pubsub.Publisher, stepLimitOverrides map[string]int, stateSizeLimitOverrides map[string]int, rc rueidis.Client, hw history.Driver, snso *SingleNodeServiceOpts) *devserver {
+func NewService(opts StartOpts, runner runner.Runner, data cqrs.Manager, pb pubsub.Publisher, stepLimitOverrides map[string]int, stateSizeLimitOverrides map[string]int, rc rueidis.Client, snso *SingleNodeServiceOpts) *devserver {
 	// If the polling interval is 0, reset it to a sensible value to avoid
 	// hammering the SDKs and burning CPU.
 	if opts.PollInterval == 0 {
@@ -66,7 +65,6 @@ func NewService(opts StartOpts, runner runner.Runner, data cqrs.Manager, pb pubs
 		stepLimitOverrides:      stepLimitOverrides,
 		stateSizeLimitOverrides: stateSizeLimitOverrides,
 		redisClient:             rc,
-		historyWriter:           hw,
 		singleNodeServiceOpts:   snso,
 		log:                     logger.StdlibLogger(context.Background()),
 	}
@@ -97,8 +95,6 @@ type devserver struct {
 	redisClient      rueidis.Client
 
 	Apiservice service.Service
-
-	historyWriter history.Driver
 
 	// handlers are updated by the API (d.apiservice) when registering functions.
 	handlers    []SDKHandler
