@@ -494,7 +494,9 @@ func (c *connectGatewaySvc) Run(ctx context.Context) error {
 	grpcAddr := fmt.Sprintf(":%d", c.grpcConfig.Gateway.Port)
 	grpcListener, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
-		_ = httpListener.Close()
+		if closeErr := httpListener.Close(); closeErr != nil {
+			logger.StdlibLogger(ctx).Warn("failed to close gateway api listener during grpc listen failure cleanup", "error", closeErr)
+		}
 		return fmt.Errorf("could not listen on gateway grpc addr %q: %w", grpcAddr, err)
 	}
 
