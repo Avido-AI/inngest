@@ -12,6 +12,7 @@ import (
 	"github.com/inngest/inngest/pkg/cqrs"
 	"github.com/inngest/inngest/pkg/event_trigger_patterns"
 	"github.com/inngest/inngest/pkg/inngest"
+	"github.com/inngest/inngest/pkg/logger"
 )
 
 // functionsCache provides a short-TTL in-memory cache for the functions
@@ -159,19 +160,20 @@ func (w wrapper) cachedGetFunctionByID(ctx context.Context, fnID uuid.UUID) (*cq
 	}
 	w.fnCache.mu.Unlock()
 
-	// Cache cold or stale: refresh it, then scan the returned slice. The
-	// returned functions are already private copies, so no further copying
-	// is needed.
-	fns, err := w.cachedGetFunctions(ctx)
-	if err != nil {
+	// Cache cold or stale: refresh it, then use the now-hot index for an
+	// O(1) lookup. If a concurrent invalidation skipped the cache
+	// write-back, rawByID is nil and we fall back to the DB.
+	if _, err := w.cachedGetFunctions(ctx); err != nil {
+		logger.StdlibLogger(ctx).Debug("functions cache lookup failed, falling back to DB", "error", err, "function_id", fnID)
 		return nil, false
 	}
-	for _, fn := range fns {
-		if fn.ID == fnID {
-			return fn, true
-		}
+	w.fnCache.mu.Lock()
+	defer w.fnCache.mu.Unlock()
+	fn, ok := w.fnCache.rawByID[fnID]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	return copyFunction(fn), true
 }
 
 // deepCopyFunctions returns a new slice where each *cqrs.Function is a
