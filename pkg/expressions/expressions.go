@@ -31,8 +31,15 @@ var (
 	// cache is a global cache of precompiled expressions.
 	cache *ccache.Cache
 
-	// On average, 20 compiled expressions fit into 1mb of ram.
-	CacheMaxSize int64 = 50_000
+	// On average, 20 compiled expressions fit into 1mb of ram, so this cap
+	// bounds the cache at roughly 250mb. The working set that benefits from
+	// caching — static function-config expressions (triggers, batch/
+	// debounce/concurrency keys, cancel conditions) — numbers in the
+	// hundreds; the rest of the inflow is unique per-run pause expressions
+	// evaluated at match time, which are touched once and pruned from the
+	// cold end of the LRU. Note the TTL does not bound memory: ccache only
+	// evicts under size pressure, so this cap is the ceiling.
+	CacheMaxSize int64 = 5_000
 
 	exprCompiler expr.CELCompiler
 	treeParser   expr.TreeParser
