@@ -20,6 +20,7 @@ func (tr *traceReader) GetDebugRunTrace(ctx context.Context, keys dataloader.Key
 		wg.Add(1)
 		go func(ctx context.Context, res *dataloader.Result, key dataloader.Key) {
 			defer wg.Done()
+			defer recoverLoaderPanic(ctx, res, "debug run trace")
 
 			req, ok := key.Raw().(*DebugRunRequestKey)
 			if !ok {
@@ -72,6 +73,7 @@ func (tr *traceReader) GetDebugSessionTrace(ctx context.Context, keys dataloader
 		wg.Add(1)
 		go func(ctx context.Context, res *dataloader.Result, key dataloader.Key) {
 			defer wg.Done()
+			defer recoverLoaderPanic(ctx, res, "debug session trace")
 
 			req, ok := key.Raw().(*DebugSessionRequestKey)
 			if !ok {

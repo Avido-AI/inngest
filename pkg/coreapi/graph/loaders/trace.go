@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/inngest/inngest/pkg/coreapi/graph/models"
 	"github.com/inngest/inngest/pkg/cqrs"
 	"github.com/inngest/inngest/pkg/enums"
-	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/run"
 	"github.com/inngest/inngest/pkg/tracing/meta"
 	rpbv2 "github.com/inngest/inngest/proto/gen/run/v2"
@@ -87,6 +85,7 @@ func (tr *traceReader) GetRunTrace(ctx context.Context, keys dataloader.Keys) []
 		wg.Add(1)
 		go func(ctx context.Context, res *dataloader.Result, key dataloader.Key) {
 			defer wg.Done()
+			defer recoverLoaderPanic(ctx, res, "run trace")
 
 			req, ok := key.Raw().(*TraceRequestKey)
 			if !ok {
@@ -614,18 +613,7 @@ func (tr *traceReader) GetLegacyRunTrace(ctx context.Context, keys dataloader.Ke
 		wg.Add(1)
 		go func(ctx context.Context, res *dataloader.Result) {
 			defer wg.Done()
-			// An unrecovered panic here would take down the whole process,
-			// not just this request; degrade to a request error instead.
-			defer func() {
-				if r := recover(); r != nil {
-					logger.StdlibLogger(ctx).Error("panic building legacy run trace",
-						"panic", r,
-						"run_id", req.RunID,
-						"stack", string(debug.Stack()),
-					)
-					res.Error = fmt.Errorf("panic building run trace: %v", r)
-				}
-			}()
+			defer recoverLoaderPanic(ctx, res, "legacy run trace")
 
 			spans, err := tr.reader.GetTraceSpansByRun(ctx, *req.TraceRunIdentifier)
 			if err != nil {
@@ -910,6 +898,7 @@ func (tr *traceReader) GetLegacySpanRun(ctx context.Context, keys dataloader.Key
 		wg.Add(1)
 		go func(ctx context.Context, res *dataloader.Result) {
 			defer wg.Done()
+			defer recoverLoaderPanic(ctx, res, "run span")
 
 			// If we're here, we're requested a span ID that wasn't primed by
 			// GetRunTrace. Span IDs can sometimes be virtualized based on the

@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/graph-gophers/dataloader"
 	"github.com/inngest/inngest/pkg/cqrs"
+	"github.com/inngest/inngest/pkg/logger"
 )
 
 type ctxKey string
@@ -14,6 +16,20 @@ type ctxKey string
 const (
 	loadersKey = ctxKey("dataloaders")
 )
+
+// recoverLoaderPanic converts a panic in a dataloader goroutine into a
+// request error; unrecovered, it would crash the whole process. It must be
+// deferred directly (not wrapped in another closure) for recover to work.
+func recoverLoaderPanic(ctx context.Context, res *dataloader.Result, loader string) {
+	if r := recover(); r != nil {
+		logger.StdlibLogger(ctx).Error("panic in dataloader",
+			"loader", loader,
+			"panic", r,
+			"stack", string(debug.Stack()),
+		)
+		res.Error = fmt.Errorf("panic in %s loader: %v", loader, r)
+	}
+}
 
 type LoaderParams struct {
 	DB cqrs.Manager
