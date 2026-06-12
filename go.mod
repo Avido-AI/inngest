@@ -5,7 +5,7 @@ go 1.26.4
 replace github.com/tencentcloud/tencentcloud-sdk-go v3.0.82+incompatible => github.com/tencentcloud/tencentcloud-sdk-go v1.0.191
 
 require (
-	charm.land/lipgloss/v2 v2.0.3
+	charm.land/lipgloss/v2 v2.0.4
 	connectrpc.com/connect v1.20.0
 	cuelang.org/go v0.16.1
 	github.com/99designs/gqlgen v0.17.91
