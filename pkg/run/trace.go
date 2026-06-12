@@ -344,6 +344,18 @@ func (tb *runTree) findGroup(s *cqrs.Span) ([]*cqrs.Span, error) {
 	return group, nil
 }
 
+// collapseRedundantSingleChild discards a group's children when only one
+// remains and it shares the parent's step op: redundant spans have been
+// excluded, so the child is basically the same span as the parent.
+// NOTE: the child's StepOp can still be nil for in-flight runs, since
+// constructSpan leaves it unset until an opcode-specific processor
+// assigns it.
+func collapseRedundantSingleChild(mod *rpbv2.RunSpan) {
+	if len(mod.Children) == 1 && mod.StepOp != nil && mod.Children[0].StepOp != nil && mod.StepOp.String() == mod.Children[0].StepOp.String() {
+		mod.Children = nil
+	}
+}
+
 func (tb *runTree) constructSpan(ctx context.Context, s *cqrs.Span) (*rpbv2.RunSpan, bool) {
 	// already processed skip it
 	if _, ok := tb.processed[s.SpanID]; ok {
@@ -777,15 +789,7 @@ func (tb *runTree) processWaitForEventGroup(ctx context.Context, span *cqrs.Span
 		i++
 	}
 
-	// if the total number of children span end up with just one, it means
-	// redundant spans has been excluded, so it's basically the same span
-	// as the parent. We can discard it in this case
-	// NOTE: the child's StepOp can still be nil for in-flight runs, since
-	// constructSpan leaves it unset until an opcode-specific processor
-	// assigns it.
-	if len(mod.Children) == 1 && mod.StepOp != nil && mod.Children[0].StepOp != nil && mod.StepOp.String() == mod.Children[0].StepOp.String() {
-		mod.Children = nil
-	}
+	collapseRedundantSingleChild(mod)
 
 	return nil
 }
@@ -1170,15 +1174,7 @@ func (tb *runTree) processWaitForSignalGroup(ctx context.Context, span *cqrs.Spa
 		i++
 	}
 
-	// if the total number of children span end up with just one, it means
-	// redundant spans has been excluded, so it's basically the same span
-	// as the parent. We can discard it in this case
-	// NOTE: the child's StepOp can still be nil for in-flight runs, since
-	// constructSpan leaves it unset until an opcode-specific processor
-	// assigns it.
-	if len(mod.Children) == 1 && mod.StepOp != nil && mod.Children[0].StepOp != nil && mod.StepOp.String() == mod.Children[0].StepOp.String() {
-		mod.Children = nil
-	}
+	collapseRedundantSingleChild(mod)
 
 	return nil
 }
