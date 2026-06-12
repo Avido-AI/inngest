@@ -780,7 +780,10 @@ func (tb *runTree) processWaitForEventGroup(ctx context.Context, span *cqrs.Span
 	// if the total number of children span end up with just one, it means
 	// redundant spans has been excluded, so it's basically the same span
 	// as the parent. We can discard it in this case
-	if len(mod.Children) == 1 && mod.StepOp != nil && mod.StepOp.String() == mod.Children[0].StepOp.String() {
+	// NOTE: the child's StepOp can still be nil for in-flight runs, since
+	// constructSpan leaves it unset until an opcode-specific processor
+	// assigns it.
+	if len(mod.Children) == 1 && mod.StepOp != nil && mod.Children[0].StepOp != nil && mod.StepOp.String() == mod.Children[0].StepOp.String() {
 		mod.Children = nil
 	}
 
@@ -1170,7 +1173,10 @@ func (tb *runTree) processWaitForSignalGroup(ctx context.Context, span *cqrs.Spa
 	// if the total number of children span end up with just one, it means
 	// redundant spans has been excluded, so it's basically the same span
 	// as the parent. We can discard it in this case
-	if len(mod.Children) == 1 && mod.StepOp != nil && mod.StepOp.String() == mod.Children[0].StepOp.String() {
+	// NOTE: the child's StepOp can still be nil for in-flight runs, since
+	// constructSpan leaves it unset until an opcode-specific processor
+	// assigns it.
+	if len(mod.Children) == 1 && mod.StepOp != nil && mod.Children[0].StepOp != nil && mod.StepOp.String() == mod.Children[0].StepOp.String() {
 		mod.Children = nil
 	}
 
