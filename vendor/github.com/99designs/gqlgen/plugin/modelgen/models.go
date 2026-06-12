@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/types"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -677,8 +678,8 @@ func removeDuplicateTags(t string) string {
 	returnTags := ""
 
 	// iterate backwards through tags so appended goTag directives are prioritized
-	for i := len(tt) - 1; i >= 0; i-- {
-		ti := tt[i]
+	for _, v := range slices.Backward(tt) {
+		ti := v
 		// check if ti contains ":", and not contains any empty space. if not, tag is in wrong
 		// format
 		// correct example: json:"name"

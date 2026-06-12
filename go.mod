@@ -8,7 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	connectrpc.com/connect v1.20.0
 	cuelang.org/go v0.16.1
-	github.com/99designs/gqlgen v0.17.90
+	github.com/99designs/gqlgen v0.17.91
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/MauriceGit/skiplist v0.0.0-20211105230623-77f5c8d3e145
@@ -29,7 +29,7 @@ require (
 	github.com/eko/gocache/store/rueidis/v4 v4.1.7
 	github.com/elliotchance/orderedmap/v3 v3.1.0
 	github.com/fatih/structs v1.1.0
-	github.com/felixge/httpsnoop v1.0.4
+	github.com/felixge/httpsnoop v1.1.0
 	github.com/getkin/kin-openapi v0.140.0
 	github.com/getsentry/sentry-go v0.45.1
 	github.com/go-chi/chi/v5 v5.3.0
