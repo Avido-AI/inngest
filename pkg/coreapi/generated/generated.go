@@ -28,7 +28,7 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-// region    ************************** generated!.gotpl **************************
+// region    ***************************** api!.gotpl *****************************
 
 // NewExecutableSchema creates an ExecutableSchema from the ResolverRoot interface.
 func NewExecutableSchema(cfg Config) graphql.ExecutableSchema {
@@ -610,6 +610,10 @@ type ComplexityRoot struct {
 	}
 }
 
+// endregion ***************************** api!.gotpl *****************************
+
+// region    ************************** generated!.gotpl **************************
+
 type AppResolver interface {
 	ID(ctx context.Context, obj *cqrs.App) (string, error)
 	ExternalID(ctx context.Context, obj *cqrs.App) (string, error)
@@ -721,6 +725,10 @@ type RunsV2ConnectionResolver interface {
 type StreamItemResolver interface {
 	InBatch(ctx context.Context, obj *models.StreamItem) (bool, error)
 }
+
+// endregion ************************** generated!.gotpl **************************
+
+// region    ************************** internal!.gotpl ***************************
 
 type executableSchema graphql.ExecutableSchemaState[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
@@ -5254,7 +5262,7 @@ func (ec *executionContext) childFields___Type(ctx context.Context, field graphq
 	return nil, fmt.Errorf("no field named %q was found under type __Type", field.Name)
 }
 
-// endregion ************************** generated!.gotpl **************************
+// endregion ************************** internal!.gotpl ***************************
 
 // region    ***************************** args.gotpl *****************************
 
@@ -5863,10 +5871,6 @@ func (ec *executionContext) field___Type_fields_args(ctx context.Context, rawArg
 }
 
 // endregion ***************************** args.gotpl *****************************
-
-// region    ************************** directives.gotpl **************************
-
-// endregion ************************** directives.gotpl **************************
 
 // region    **************************** field.gotpl *****************************
 
@@ -17703,13 +17707,16 @@ func (ec *executionContext) _App(ctx context.Context, sel ast.SelectionSet, obj 
 		case "framework":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._App_framework(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -17735,18 +17742,27 @@ func (ec *executionContext) _App(ctx context.Context, sel ast.SelectionSet, obj 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "url":
 			out.Values[i] = ec._App_url(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "checksum":
 			out.Values[i] = ec._App_checksum(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "error":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._App_error(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -17844,6 +17860,9 @@ func (ec *executionContext) _App(ctx context.Context, sel ast.SelectionSet, obj 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "appVersion":
 			out.Values[i] = ec._App_appVersion(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "connected":
 			field := field
 
@@ -17993,8 +18012,14 @@ func (ec *executionContext) _CancellationConfiguration(ctx context.Context, sel 
 			}
 		case "timeout":
 			out.Values[i] = ec._CancellationConfiguration_timeout(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "condition":
 			out.Values[i] = ec._CancellationConfiguration_condition(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -18041,6 +18066,9 @@ func (ec *executionContext) _ConcurrencyConfiguration(ctx context.Context, sel a
 			}
 		case "key":
 			out.Values[i] = ec._ConcurrencyConfiguration_key(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -18082,6 +18110,9 @@ func (ec *executionContext) _ConcurrencyLimitConfiguration(ctx context.Context, 
 			}
 		case "isPlanLimit":
 			out.Values[i] = ec._ConcurrencyLimitConfiguration_isPlanLimit(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -18143,18 +18174,27 @@ func (ec *executionContext) _ConnectV1WorkerConnection(ctx context.Context, sel 
 			}
 		case "appName":
 			out.Values[i] = ec._ConnectV1WorkerConnection_appName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "appID":
 			out.Values[i] = ec._ConnectV1WorkerConnection_appID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "app":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._ConnectV1WorkerConnection_app(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -18185,10 +18225,19 @@ func (ec *executionContext) _ConnectV1WorkerConnection(ctx context.Context, sel 
 			}
 		case "lastHeartbeatAt":
 			out.Values[i] = ec._ConnectV1WorkerConnection_lastHeartbeatAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "disconnectedAt":
 			out.Values[i] = ec._ConnectV1WorkerConnection_disconnectedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "disconnectReason":
 			out.Values[i] = ec._ConnectV1WorkerConnection_disconnectReason(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "status":
 			out.Values[i] = ec._ConnectV1WorkerConnection_status(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18216,10 +18265,19 @@ func (ec *executionContext) _ConnectV1WorkerConnection(ctx context.Context, sel 
 			}
 		case "syncId":
 			out.Values[i] = ec._ConnectV1WorkerConnection_syncId(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "buildId":
 			out.Values[i] = ec._ConnectV1WorkerConnection_buildId(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "appVersion":
 			out.Values[i] = ec._ConnectV1WorkerConnection_appVersion(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "functionCount":
 			out.Values[i] = ec._ConnectV1WorkerConnection_functionCount(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18449,6 +18507,9 @@ func (ec *executionContext) _DebounceConfiguration(ctx context.Context, sel ast.
 			}
 		case "key":
 			out.Values[i] = ec._DebounceConfiguration_key(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -18485,6 +18546,9 @@ func (ec *executionContext) _DebugRun(ctx context.Context, sel ast.SelectionSet,
 			out.Values[i] = graphql.MarshalString("DebugRun")
 		case "debugTraces":
 			out.Values[i] = ec._DebugRun_debugTraces(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -18521,6 +18585,9 @@ func (ec *executionContext) _DebugSession(ctx context.Context, sel ast.Selection
 			out.Values[i] = graphql.MarshalString("DebugSession")
 		case "debugRuns":
 			out.Values[i] = ec._DebugSession_debugRuns(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -18567,14 +18634,29 @@ func (ec *executionContext) _DebugSessionRun(ctx context.Context, sel ast.Select
 			}
 		case "startedAt":
 			out.Values[i] = ec._DebugSessionRun_startedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "endedAt":
 			out.Values[i] = ec._DebugSessionRun_endedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "debugRunID":
 			out.Values[i] = ec._DebugSessionRun_debugRunID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "tags":
 			out.Values[i] = ec._DebugSessionRun_tags(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "versions":
 			out.Values[i] = ec._DebugSessionRun_versions(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -18616,26 +18698,47 @@ func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, ob
 			}
 		case "externalID":
 			out.Values[i] = ec._Event_externalID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "workspace":
 			out.Values[i] = ec._Event_workspace(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "name":
 			out.Values[i] = ec._Event_name(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "createdAt":
 			out.Values[i] = ec._Event_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "payload":
 			out.Values[i] = ec._Event_payload(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "schema":
 			out.Values[i] = ec._Event_schema(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "status":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Event_status(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -18662,13 +18765,16 @@ func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, ob
 		case "pendingRuns":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Event_pendingRuns(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -18695,13 +18801,16 @@ func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, ob
 		case "totalRuns":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Event_totalRuns(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -18728,13 +18837,16 @@ func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, ob
 		case "raw":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Event_raw(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -18761,13 +18873,16 @@ func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, ob
 		case "functionRuns":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Event_functionRuns(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -18832,6 +18947,9 @@ func (ec *executionContext) _EventSource(ctx context.Context, sel ast.SelectionS
 			}
 		case "name":
 			out.Values[i] = ec._EventSource_name(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "sourceKind":
 			out.Values[i] = ec._EventSource_sourceKind(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18883,6 +19001,9 @@ func (ec *executionContext) _EventV2(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "idempotencyKey":
 			out.Values[i] = ec._EventV2_idempotencyKey(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "name":
 			out.Values[i] = ec._EventV2_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -18972,8 +19093,14 @@ func (ec *executionContext) _EventV2(ctx context.Context, sel ast.SelectionSet, 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "source":
 			out.Values[i] = ec._EventV2_source(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "version":
 			out.Values[i] = ec._EventV2_version(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -19020,6 +19147,9 @@ func (ec *executionContext) _EventsBatchConfiguration(ctx context.Context, sel a
 			}
 		case "key":
 			out.Values[i] = ec._EventsBatchConfiguration_key(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -19196,13 +19326,16 @@ func (ec *executionContext) _Function(ctx context.Context, sel ast.SelectionSet,
 		case "failureHandler":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Function_failureHandler(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -19243,6 +19376,9 @@ func (ec *executionContext) _Function(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "triggers":
 			out.Values[i] = ec._Function_triggers(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "url":
 			out.Values[i] = ec._Function_url(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19335,8 +19471,14 @@ func (ec *executionContext) _FunctionConfiguration(ctx context.Context, sel ast.
 			}
 		case "priority":
 			out.Values[i] = ec._FunctionConfiguration_priority(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "eventsBatch":
 			out.Values[i] = ec._FunctionConfiguration_eventsBatch(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "concurrency":
 			out.Values[i] = ec._FunctionConfiguration_concurrency(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19344,12 +19486,24 @@ func (ec *executionContext) _FunctionConfiguration(ctx context.Context, sel ast.
 			}
 		case "rateLimit":
 			out.Values[i] = ec._FunctionConfiguration_rateLimit(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "debounce":
 			out.Values[i] = ec._FunctionConfiguration_debounce(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "throttle":
 			out.Values[i] = ec._FunctionConfiguration_throttle(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "singleton":
 			out.Values[i] = ec._FunctionConfiguration_singleton(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -19386,14 +19540,29 @@ func (ec *executionContext) _FunctionEvent(ctx context.Context, sel ast.Selectio
 			out.Values[i] = graphql.MarshalString("FunctionEvent")
 		case "workspace":
 			out.Values[i] = ec._FunctionEvent_workspace(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "functionRun":
 			out.Values[i] = ec._FunctionEvent_functionRun(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "type":
 			out.Values[i] = ec._FunctionEvent_type(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "output":
 			out.Values[i] = ec._FunctionEvent_output(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "createdAt":
 			out.Values[i] = ec._FunctionEvent_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -19441,13 +19610,16 @@ func (ec *executionContext) _FunctionRun(ctx context.Context, sel ast.SelectionS
 		case "function":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._FunctionRun_function(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -19473,16 +19645,22 @@ func (ec *executionContext) _FunctionRun(ctx context.Context, sel ast.SelectionS
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "workspace":
 			out.Values[i] = ec._FunctionRun_workspace(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "event":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._FunctionRun_event(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -19544,16 +19722,22 @@ func (ec *executionContext) _FunctionRun(ctx context.Context, sel ast.SelectionS
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "batchID":
 			out.Values[i] = ec._FunctionRun_batchID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "batchCreatedAt":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._FunctionRun_batchCreatedAt(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -19579,16 +19763,22 @@ func (ec *executionContext) _FunctionRun(ctx context.Context, sel ast.SelectionS
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "status":
 			out.Values[i] = ec._FunctionRun_status(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "waitingFor":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._FunctionRun_waitingFor(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -19615,13 +19805,16 @@ func (ec *executionContext) _FunctionRun(ctx context.Context, sel ast.SelectionS
 		case "pendingSteps":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._FunctionRun_pendingSteps(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -19647,10 +19840,19 @@ func (ec *executionContext) _FunctionRun(ctx context.Context, sel ast.SelectionS
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "startedAt":
 			out.Values[i] = ec._FunctionRun_startedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "finishedAt":
 			out.Values[i] = ec._FunctionRun_finishedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "output":
 			out.Values[i] = ec._FunctionRun_output(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "history":
 			field := field
 
@@ -19690,13 +19892,16 @@ func (ec *executionContext) _FunctionRun(ctx context.Context, sel ast.SelectionS
 		case "historyItemOutput":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._FunctionRun_historyItemOutput(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -19727,6 +19932,9 @@ func (ec *executionContext) _FunctionRun(ctx context.Context, sel ast.SelectionS
 			}
 		case "cron":
 			out.Values[i] = ec._FunctionRun_cron(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -19860,8 +20068,14 @@ func (ec *executionContext) _FunctionRunV2(ctx context.Context, sel ast.Selectio
 			}
 		case "startedAt":
 			out.Values[i] = ec._FunctionRunV2_startedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "endedAt":
 			out.Values[i] = ec._FunctionRunV2_endedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "status":
 			out.Values[i] = ec._FunctionRunV2_status(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19869,6 +20083,9 @@ func (ec *executionContext) _FunctionRunV2(ctx context.Context, sel ast.Selectio
 			}
 		case "sourceID":
 			out.Values[i] = ec._FunctionRunV2_sourceID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "triggerIDs":
 			out.Values[i] = ec._FunctionRunV2_triggerIDs(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19876,6 +20093,9 @@ func (ec *executionContext) _FunctionRunV2(ctx context.Context, sel ast.Selectio
 			}
 		case "eventName":
 			out.Values[i] = ec._FunctionRunV2_eventName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "isBatch":
 			out.Values[i] = ec._FunctionRunV2_isBatch(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -19883,20 +20103,32 @@ func (ec *executionContext) _FunctionRunV2(ctx context.Context, sel ast.Selectio
 			}
 		case "batchCreatedAt":
 			out.Values[i] = ec._FunctionRunV2_batchCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "cronSchedule":
 			out.Values[i] = ec._FunctionRunV2_cronSchedule(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "output":
 			out.Values[i] = ec._FunctionRunV2_output(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "trace":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._FunctionRunV2_trace(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20128,6 +20360,9 @@ func (ec *executionContext) _FunctionTrigger(ctx context.Context, sel ast.Select
 			}
 		case "condition":
 			out.Values[i] = ec._FunctionTrigger_condition(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -20179,8 +20414,14 @@ func (ec *executionContext) _FunctionVersion(ctx context.Context, sel ast.Select
 			}
 		case "validFrom":
 			out.Values[i] = ec._FunctionVersion_validFrom(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "validTo":
 			out.Values[i] = ec._FunctionVersion_validTo(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "createdAt":
 			out.Values[i] = ec._FunctionVersion_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -20242,10 +20483,19 @@ func (ec *executionContext) _InvokeStepInfo(ctx context.Context, sel ast.Selecti
 			}
 		case "returnEventID":
 			out.Values[i] = ec._InvokeStepInfo_returnEventID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "runID":
 			out.Values[i] = ec._InvokeStepInfo_runID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "timedOut":
 			out.Values[i] = ec._InvokeStepInfo_timedOut(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -20320,6 +20570,9 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_invokeFunction(ctx, field)
 			})
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "cancelRun":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_cancelRun(ctx, field)
@@ -20387,8 +20640,14 @@ func (ec *executionContext) _PageInfo(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "startCursor":
 			out.Values[i] = ec._PageInfo_startCursor(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "endCursor":
 			out.Values[i] = ec._PageInfo_endCursor(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -20456,13 +20715,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "app":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_app(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20497,13 +20759,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "event":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_event(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20516,13 +20781,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "events":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_events(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20579,13 +20847,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "functionBySlug":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_functionBySlug(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20598,13 +20869,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "functions":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_functions(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20617,13 +20891,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "functionRun":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_functionRun(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20658,13 +20935,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "run":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_run(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20743,13 +21023,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "debugRun":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_debugRun(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20762,13 +21045,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "debugSession":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_debugSession(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20803,13 +21089,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		case "workerConnection":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Query_workerConnection(ctx, field)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20823,10 +21112,16 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
 			})
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "__schema":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___schema(ctx, field)
 			})
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -20873,6 +21168,9 @@ func (ec *executionContext) _RateLimitConfiguration(ctx context.Context, sel ast
 			}
 		case "key":
 			out.Values[i] = ec._RateLimitConfiguration_key(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -20914,6 +21212,9 @@ func (ec *executionContext) _RetryConfiguration(ctx context.Context, sel ast.Sel
 			}
 		case "isDefault":
 			out.Values[i] = ec._RetryConfiguration_isDefault(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -20971,13 +21272,16 @@ func (ec *executionContext) _RunDefer(ctx context.Context, sel ast.SelectionSet,
 		case "function":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._RunDefer_function(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -21003,16 +21307,22 @@ func (ec *executionContext) _RunDefer(ctx context.Context, sel ast.SelectionSet,
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "runID":
 			out.Values[i] = ec._RunDefer_runID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "run":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._RunDefer_run(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -21114,13 +21424,16 @@ func (ec *executionContext) _RunDeferredFrom(ctx context.Context, sel ast.Select
 		case "run":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._RunDeferredFrom_run(ctx, field, obj)
+				if res == graphql.RequiredNull {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -21180,10 +21493,19 @@ func (ec *executionContext) _RunHistoryCancel(ctx context.Context, sel ast.Selec
 			out.Values[i] = graphql.MarshalString("RunHistoryCancel")
 		case "eventID":
 			out.Values[i] = ec._RunHistoryCancel_eventID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "expression":
 			out.Values[i] = ec._RunHistoryCancel_expression(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "userID":
 			out.Values[i] = ec._RunHistoryCancel_userID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -21274,6 +21596,9 @@ func (ec *executionContext) _RunHistoryInvokeFunctionResult(ctx context.Context,
 			out.Values[i] = graphql.MarshalString("RunHistoryInvokeFunctionResult")
 		case "eventID":
 			out.Values[i] = ec._RunHistoryInvokeFunctionResult_eventID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "timeout":
 			out.Values[i] = ec._RunHistoryInvokeFunctionResult_timeout(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21281,6 +21606,9 @@ func (ec *executionContext) _RunHistoryInvokeFunctionResult(ctx context.Context,
 			}
 		case "runID":
 			out.Values[i] = ec._RunHistoryInvokeFunctionResult_runID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -21322,6 +21650,9 @@ func (ec *executionContext) _RunHistoryItem(ctx context.Context, sel ast.Selecti
 			}
 		case "cancel":
 			out.Values[i] = ec._RunHistoryItem_cancel(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "createdAt":
 			out.Values[i] = ec._RunHistoryItem_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21334,6 +21665,9 @@ func (ec *executionContext) _RunHistoryItem(ctx context.Context, sel ast.Selecti
 			}
 		case "groupID":
 			out.Values[i] = ec._RunHistoryItem_groupID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "id":
 			out.Values[i] = ec._RunHistoryItem_id(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21341,12 +21675,24 @@ func (ec *executionContext) _RunHistoryItem(ctx context.Context, sel ast.Selecti
 			}
 		case "result":
 			out.Values[i] = ec._RunHistoryItem_result(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "sleep":
 			out.Values[i] = ec._RunHistoryItem_sleep(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "stepName":
 			out.Values[i] = ec._RunHistoryItem_stepName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "stepType":
 			out.Values[i] = ec._RunHistoryItem_stepType(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "type":
 			out.Values[i] = ec._RunHistoryItem_type(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21354,14 +21700,29 @@ func (ec *executionContext) _RunHistoryItem(ctx context.Context, sel ast.Selecti
 			}
 		case "url":
 			out.Values[i] = ec._RunHistoryItem_url(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "waitForEvent":
 			out.Values[i] = ec._RunHistoryItem_waitForEvent(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "waitResult":
 			out.Values[i] = ec._RunHistoryItem_waitResult(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "invokeFunction":
 			out.Values[i] = ec._RunHistoryItem_invokeFunction(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "invokeFunctionResult":
 			out.Values[i] = ec._RunHistoryItem_invokeFunctionResult(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -21403,10 +21764,19 @@ func (ec *executionContext) _RunHistoryResult(ctx context.Context, sel ast.Selec
 			}
 		case "errorCode":
 			out.Values[i] = ec._RunHistoryResult_errorCode(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "framework":
 			out.Values[i] = ec._RunHistoryResult_framework(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "platform":
 			out.Values[i] = ec._RunHistoryResult_platform(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "sdkLanguage":
 			out.Values[i] = ec._RunHistoryResult_sdkLanguage(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21502,6 +21872,9 @@ func (ec *executionContext) _RunHistoryWaitForEvent(ctx context.Context, sel ast
 			}
 		case "expression":
 			out.Values[i] = ec._RunHistoryWaitForEvent_expression(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "timeout":
 			out.Values[i] = ec._RunHistoryWaitForEvent_timeout(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21543,6 +21916,9 @@ func (ec *executionContext) _RunHistoryWaitResult(ctx context.Context, sel ast.S
 			out.Values[i] = graphql.MarshalString("RunHistoryWaitResult")
 		case "eventID":
 			out.Values[i] = ec._RunHistoryWaitResult_eventID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "timeout":
 			out.Values[i] = ec._RunHistoryWaitResult_timeout(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21594,6 +21970,9 @@ func (ec *executionContext) _RunStep(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "stepOp":
 			out.Values[i] = ec._RunStep_stepOp(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -21630,6 +22009,9 @@ func (ec *executionContext) _RunStepInfo(ctx context.Context, sel ast.SelectionS
 			out.Values[i] = graphql.MarshalString("RunStepInfo")
 		case "type":
 			out.Values[i] = ec._RunStepInfo_type(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -21696,6 +22078,9 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			}
 		case "groupID":
 			out.Values[i] = ec._RunTraceSpan_groupID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "name":
 			out.Values[i] = ec._RunTraceSpan_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21708,10 +22093,19 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			}
 		case "attempts":
 			out.Values[i] = ec._RunTraceSpan_attempts(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "duration":
 			out.Values[i] = ec._RunTraceSpan_duration(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "outputID":
 			out.Values[i] = ec._RunTraceSpan_outputID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "queuedAt":
 			out.Values[i] = ec._RunTraceSpan_queuedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21719,10 +22113,19 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			}
 		case "scheduledAt":
 			out.Values[i] = ec._RunTraceSpan_scheduledAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "startedAt":
 			out.Values[i] = ec._RunTraceSpan_startedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "endedAt":
 			out.Values[i] = ec._RunTraceSpan_endedAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "childrenSpans":
 			out.Values[i] = ec._RunTraceSpan_childrenSpans(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21730,10 +22133,19 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			}
 		case "stepOp":
 			out.Values[i] = ec._RunTraceSpan_stepOp(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "stepID":
 			out.Values[i] = ec._RunTraceSpan_stepID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "stepInfo":
 			out.Values[i] = ec._RunTraceSpan_stepInfo(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "stepType":
 			out.Values[i] = ec._RunTraceSpan_stepType(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21746,8 +22158,14 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			}
 		case "parentSpanID":
 			out.Values[i] = ec._RunTraceSpan_parentSpanID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "parentSpan":
 			out.Values[i] = ec._RunTraceSpan_parentSpan(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "isUserland":
 			out.Values[i] = ec._RunTraceSpan_isUserland(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21755,10 +22173,19 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			}
 		case "userlandSpan":
 			out.Values[i] = ec._RunTraceSpan_userlandSpan(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "debugRunID":
 			out.Values[i] = ec._RunTraceSpan_debugRunID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "debugSessionID":
 			out.Values[i] = ec._RunTraceSpan_debugSessionID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "debugPaused":
 			out.Values[i] = ec._RunTraceSpan_debugPaused(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21766,8 +22193,14 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			}
 		case "skipReason":
 			out.Values[i] = ec._RunTraceSpan_skipReason(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "skipExistingRunID":
 			out.Values[i] = ec._RunTraceSpan_skipExistingRunID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "metadata":
 			out.Values[i] = ec._RunTraceSpan_metadata(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21775,6 +22208,9 @@ func (ec *executionContext) _RunTraceSpan(ctx context.Context, sel ast.Selection
 			}
 		case "response":
 			out.Values[i] = ec._RunTraceSpan_response(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -21811,10 +22247,19 @@ func (ec *executionContext) _RunTraceSpanOutput(ctx context.Context, sel ast.Sel
 			out.Values[i] = graphql.MarshalString("RunTraceSpanOutput")
 		case "input":
 			out.Values[i] = ec._RunTraceSpanOutput_input(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "data":
 			out.Values[i] = ec._RunTraceSpanOutput_data(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "error":
 			out.Values[i] = ec._RunTraceSpanOutput_error(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -21895,6 +22340,9 @@ func (ec *executionContext) _RunTraceTrigger(ctx context.Context, sel ast.Select
 			out.Values[i] = graphql.MarshalString("RunTraceTrigger")
 		case "eventName":
 			out.Values[i] = ec._RunTraceTrigger_eventName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "IDs":
 			out.Values[i] = ec._RunTraceTrigger_IDs(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -21917,8 +22365,14 @@ func (ec *executionContext) _RunTraceTrigger(ctx context.Context, sel ast.Select
 			}
 		case "batchID":
 			out.Values[i] = ec._RunTraceTrigger_batchID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "cron":
 			out.Values[i] = ec._RunTraceTrigger_cron(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22040,6 +22494,9 @@ func (ec *executionContext) _SingletonConfiguration(ctx context.Context, sel ast
 			}
 		case "key":
 			out.Values[i] = ec._SingletonConfiguration_key(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22174,10 +22631,19 @@ func (ec *executionContext) _StepError(ctx context.Context, sel ast.SelectionSet
 			}
 		case "name":
 			out.Values[i] = ec._StepError_name(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "stack":
 			out.Values[i] = ec._StepError_stack(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "cause":
 			out.Values[i] = ec._StepError_cause(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22214,20 +22680,44 @@ func (ec *executionContext) _StepEvent(ctx context.Context, sel ast.SelectionSet
 			out.Values[i] = graphql.MarshalString("StepEvent")
 		case "workspace":
 			out.Values[i] = ec._StepEvent_workspace(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "functionRun":
 			out.Values[i] = ec._StepEvent_functionRun(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "stepID":
 			out.Values[i] = ec._StepEvent_stepID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "name":
 			out.Values[i] = ec._StepEvent_name(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "type":
 			out.Values[i] = ec._StepEvent_type(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "output":
 			out.Values[i] = ec._StepEvent_output(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "createdAt":
 			out.Values[i] = ec._StepEvent_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "waitingFor":
 			out.Values[i] = ec._StepEvent_waitingFor(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22264,8 +22754,14 @@ func (ec *executionContext) _StepEventWait(ctx context.Context, sel ast.Selectio
 			out.Values[i] = graphql.MarshalString("StepEventWait")
 		case "eventName":
 			out.Values[i] = ec._StepEventWait_eventName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "expression":
 			out.Values[i] = ec._StepEventWait_expression(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "expiryTime":
 			out.Values[i] = ec._StepEventWait_expiryTime(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22327,6 +22823,9 @@ func (ec *executionContext) _StreamItem(ctx context.Context, sel ast.SelectionSe
 			}
 		case "runs":
 			out.Values[i] = ec._StreamItem_runs(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "inBatch":
 			field := field
 
@@ -22404,6 +22903,9 @@ func (ec *executionContext) _ThrottleConfiguration(ctx context.Context, sel ast.
 			}
 		case "key":
 			out.Values[i] = ec._ThrottleConfiguration_key(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "limit":
 			out.Values[i] = ec._ThrottleConfiguration_limit(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22450,18 +22952,39 @@ func (ec *executionContext) _UserlandSpan(ctx context.Context, sel ast.Selection
 			out.Values[i] = graphql.MarshalString("UserlandSpan")
 		case "spanName":
 			out.Values[i] = ec._UserlandSpan_spanName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "spanKind":
 			out.Values[i] = ec._UserlandSpan_spanKind(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "serviceName":
 			out.Values[i] = ec._UserlandSpan_serviceName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "resourceAttrs":
 			out.Values[i] = ec._UserlandSpan_resourceAttrs(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "scopeName":
 			out.Values[i] = ec._UserlandSpan_scopeName(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "scopeVersion":
 			out.Values[i] = ec._UserlandSpan_scopeVersion(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "spanAttrs":
 			out.Values[i] = ec._UserlandSpan_spanAttrs(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22503,6 +23026,9 @@ func (ec *executionContext) _WaitForEventStepInfo(ctx context.Context, sel ast.S
 			}
 		case "expression":
 			out.Values[i] = ec._WaitForEventStepInfo_expression(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "timeout":
 			out.Values[i] = ec._WaitForEventStepInfo_timeout(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22510,8 +23036,14 @@ func (ec *executionContext) _WaitForEventStepInfo(ctx context.Context, sel ast.S
 			}
 		case "foundEventID":
 			out.Values[i] = ec._WaitForEventStepInfo_foundEventID(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "timedOut":
 			out.Values[i] = ec._WaitForEventStepInfo_timedOut(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22558,6 +23090,9 @@ func (ec *executionContext) _WaitForSignalStepInfo(ctx context.Context, sel ast.
 			}
 		case "timedOut":
 			out.Values[i] = ec._WaitForSignalStepInfo_timedOut(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22638,6 +23173,9 @@ func (ec *executionContext) ___Directive(ctx context.Context, sel ast.SelectionS
 			}
 		case "description":
 			out.Values[i] = ec.___Directive_description(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "isRepeatable":
 			out.Values[i] = ec.___Directive_isRepeatable(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22694,6 +23232,9 @@ func (ec *executionContext) ___EnumValue(ctx context.Context, sel ast.SelectionS
 			}
 		case "description":
 			out.Values[i] = ec.___EnumValue_description(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "isDeprecated":
 			out.Values[i] = ec.___EnumValue_isDeprecated(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22701,6 +23242,9 @@ func (ec *executionContext) ___EnumValue(ctx context.Context, sel ast.SelectionS
 			}
 		case "deprecationReason":
 			out.Values[i] = ec.___EnumValue_deprecationReason(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22742,6 +23286,9 @@ func (ec *executionContext) ___Field(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "description":
 			out.Values[i] = ec.___Field_description(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "args":
 			out.Values[i] = ec.___Field_args(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22759,6 +23306,9 @@ func (ec *executionContext) ___Field(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "deprecationReason":
 			out.Values[i] = ec.___Field_deprecationReason(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22800,6 +23350,9 @@ func (ec *executionContext) ___InputValue(ctx context.Context, sel ast.Selection
 			}
 		case "description":
 			out.Values[i] = ec.___InputValue_description(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "type":
 			out.Values[i] = ec.___InputValue_type(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22807,6 +23360,9 @@ func (ec *executionContext) ___InputValue(ctx context.Context, sel ast.Selection
 			}
 		case "defaultValue":
 			out.Values[i] = ec.___InputValue_defaultValue(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "isDeprecated":
 			out.Values[i] = ec.___InputValue_isDeprecated(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22814,6 +23370,9 @@ func (ec *executionContext) ___InputValue(ctx context.Context, sel ast.Selection
 			}
 		case "deprecationReason":
 			out.Values[i] = ec.___InputValue_deprecationReason(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22850,6 +23409,9 @@ func (ec *executionContext) ___Schema(ctx context.Context, sel ast.SelectionSet,
 			out.Values[i] = graphql.MarshalString("__Schema")
 		case "description":
 			out.Values[i] = ec.___Schema_description(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "types":
 			out.Values[i] = ec.___Schema_types(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22862,8 +23424,14 @@ func (ec *executionContext) ___Schema(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "mutationType":
 			out.Values[i] = ec.___Schema_mutationType(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "subscriptionType":
 			out.Values[i] = ec.___Schema_subscriptionType(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "directives":
 			out.Values[i] = ec.___Schema_directives(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -22910,24 +23478,54 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 			}
 		case "name":
 			out.Values[i] = ec.___Type_name(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "description":
 			out.Values[i] = ec.___Type_description(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "specifiedByURL":
 			out.Values[i] = ec.___Type_specifiedByURL(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "fields":
 			out.Values[i] = ec.___Type_fields(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "interfaces":
 			out.Values[i] = ec.___Type_interfaces(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "possibleTypes":
 			out.Values[i] = ec.___Type_possibleTypes(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "enumValues":
 			out.Values[i] = ec.___Type_enumValues(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "inputFields":
 			out.Values[i] = ec.___Type_inputFields(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "ofType":
 			out.Values[i] = ec.___Type_ofType(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "isOneOf":
 			out.Values[i] = ec.___Type_isOneOf(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

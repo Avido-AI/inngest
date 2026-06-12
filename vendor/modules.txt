@@ -171,7 +171,7 @@ cuelang.org/go/tools/flow
 # dario.cat/mergo v1.0.2
 ## explicit; go 1.13
 dario.cat/mergo
-# github.com/99designs/gqlgen v0.17.90
+# github.com/99designs/gqlgen v0.17.91
 ## explicit; go 1.25.0
 github.com/99designs/gqlgen
 github.com/99designs/gqlgen/api
@@ -672,8 +672,8 @@ github.com/emicklei/proto
 # github.com/fatih/structs v1.1.0
 ## explicit
 github.com/fatih/structs
-# github.com/felixge/httpsnoop v1.0.4
-## explicit; go 1.13
+# github.com/felixge/httpsnoop v1.1.0
+## explicit; go 1.25
 github.com/felixge/httpsnoop
 # github.com/fsnotify/fsnotify v1.9.0
 ## explicit; go 1.17
