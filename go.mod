@@ -18,7 +18,7 @@ require (
 	github.com/aws/aws-lambda-go v1.54.0
 	github.com/aws/smithy-go v1.27.2
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/coder/websocket v1.8.14
+	github.com/coder/websocket v1.8.15
 	github.com/coocood/freecache v1.2.7
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/dmarkham/enumer v1.6.3
@@ -80,7 +80,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/twmb/franz-go v1.21.3
-	github.com/urfave/cli/v3 v3.9.1
+	github.com/urfave/cli/v3 v3.10.0
 	github.com/valyala/fastjson v1.6.10
 	github.com/vektah/gqlparser/v2 v2.5.34
 	github.com/xhit/go-str2duration/v2 v2.1.0
