@@ -9,10 +9,21 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+var _ AppProvider = (*mockAppProvider)(nil)
 var _ FunctionProvider = (*mockFunctionProvider)(nil)
 var _ FunctionRunReader = (*mockFunctionRunReader)(nil)
 var _ RunsReader = (*mockRunsReader)(nil)
 var _ FunctionTraceReader = (*mockFunctionTraceReader)(nil)
+
+type mockAppProvider struct {
+	mock.Mock
+}
+
+func (m *mockAppProvider) GetApp(ctx context.Context, identifier string) (App, error) {
+	args := m.Called(ctx, identifier)
+	app, _ := args.Get(0).(App)
+	return app, args.Error(1)
+}
 
 type mockFunctionProvider struct {
 	mock.Mock
@@ -22,6 +33,18 @@ func (m *mockFunctionProvider) GetFunction(ctx context.Context, identifier strin
 	args := m.Called(ctx, identifier)
 	fn, _ := args.Get(0).(inngest.DeployedFunction)
 	return fn, args.Error(1)
+}
+
+func (m *mockFunctionProvider) GetFunctionByApp(ctx context.Context, appID string, functionID string) (inngest.DeployedFunction, error) {
+	args := m.Called(ctx, appID, functionID)
+	fn, _ := args.Get(0).(inngest.DeployedFunction)
+	return fn, args.Error(1)
+}
+
+func (m *mockFunctionProvider) GetFunctions(ctx context.Context, appID string, opts GetFunctionsOpts) (*GetFunctionsResult, error) {
+	args := m.Called(ctx, appID, opts)
+	result, _ := args.Get(0).(*GetFunctionsResult)
+	return result, args.Error(1)
 }
 
 type mockFunctionRunReader struct {

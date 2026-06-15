@@ -256,7 +256,7 @@ func (c checkpointer) CheckpointSyncSteps(ctx context.Context, input SyncCheckpo
 				meta.SpanNameStep,
 				&tracing.CreateSpanOptions{
 					Debug:      &tracing.SpanDebugData{Location: "checkpoint.SyncStep"},
-					Seed:       stepDynamicSeed(op, runCtx.AttemptCount()),
+					Seed:       tracing.FinalizedStepDynamicSeed(op.ID),
 					Parent:     tracing.RunSpanRefFromMetadata(input.Metadata),
 					StartTime:  op.Timing.Start(),
 					EndTime:    op.Timing.End(),
@@ -294,7 +294,7 @@ func (c checkpointer) CheckpointSyncSteps(ctx context.Context, input SyncCheckpo
 				meta.SpanNameStep,
 				&tracing.CreateSpanOptions{
 					Debug:      &tracing.SpanDebugData{Location: "checkpoint.SyncErr"},
-					Seed:       stepDynamicSeed(op, runCtx.AttemptCount()),
+					Seed:       tracing.RetryStepDynamicSeed(op.ID, runCtx.AttemptCount()),
 					Parent:     tracing.RunSpanRefFromMetadata(input.Metadata),
 					StartTime:  op.Timing.Start(),
 					EndTime:    op.Timing.End(),
@@ -548,7 +548,7 @@ func (c checkpointer) checkpointAsyncSteps(ctx context.Context, input AsyncCheck
 				meta.SpanNameStep,
 				&tracing.CreateSpanOptions{
 					Debug:      &tracing.SpanDebugData{Location: "checkpoint.AsyncStep"},
-					Seed:       stepDynamicSeed(op, 0),
+					Seed:       tracing.FinalizedStepDynamicSeed(op.ID),
 					Parent:     tracing.RunSpanRefFromMetadata(&md),
 					StartTime:  op.Timing.Start(),
 					EndTime:    op.Timing.End(),
@@ -577,7 +577,7 @@ func (c checkpointer) checkpointAsyncSteps(ctx context.Context, input AsyncCheck
 					// Set the same dynamic span ID as the eventual completion arm.
 					// We use DynamicSpanIDOverride instead of Seed to avoid setting the same
 					// span ID.
-					DynamicSpanIDOverride: tracing.DeterministicSpanConfig(stepDynamicSeed(op, 0)).SpanID.String(),
+					DynamicSpanIDOverride: tracing.DeterministicSpanConfig(tracing.FinalizedStepDynamicSeed(op.ID)).SpanID.String(),
 					Parent:                tracing.RunSpanRefFromMetadata(&md),
 					StartTime:             op.Timing.Start(),
 					Attributes:            stepPlannedAttrs(attrs, op, input.RunID),
@@ -749,6 +749,9 @@ func (c checkpointer) runContext(md state.Metadata, fn *inngest.Function) execut
 		// endpoint is only for sync functions that have not yet re-entered,
 		// ie. first attempts at teps.
 		attemptCount: 0,
+
+		// This is only used if the checkpointed opcode is missing its timing field.
+		fallbackTime: time.Now(),
 
 		maxAttempts:     fn.MaxAttempts(),
 		priorityFactor:  nil,                         // Use default priority

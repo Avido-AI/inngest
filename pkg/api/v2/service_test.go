@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,6 +22,8 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -253,6 +256,467 @@ func boolPtr(value bool) *bool {
 
 func strPtr(value string) *string {
 	return &value
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func int32Ptr(value int32) *int32 {
+	return &value
+}
+
+func TestService_GetApp(t *testing.T) {
+	appID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	createdAt := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	syncedAt := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	archivedAt := time.Now().Add(-time.Hour)
+
+	app := App{
+		ID:            "my-app",
+		InternalID:    appID,
+		Name:          "my-app",
+		Method:        enums.AppMethodConnect,
+		AppVersion:    "1.2.3",
+		CreatedAt:     createdAt,
+		FunctionCount: 4,
+		LatestSync: &AppSync{
+			Status:      "failed",
+			SyncedAt:    syncedAt,
+			SdkLanguage: "typescript",
+			SdkVersion:  "3.22.0",
+			Framework:   "nextjs",
+			URL:         "https://example.com/api/inngest",
+			Error:       "could not reach app",
+			AppVersion:  "1.2.3",
+		},
+	}
+
+	t.Run("returns mapped app data", func(t *testing.T) {
+		apps := &mockAppProvider{}
+		apps.On("GetApp", mock.Anything, "my-app").Return(app, nil).Once()
+		t.Cleanup(func() {
+			apps.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Apps: apps})
+		resp, err := service.GetApp(context.Background(), &apiv2.GetAppRequest{AppId: "my-app"})
+
+		require.NoError(t, err)
+		require.Equal(t, "my-app", resp.Data.Id)
+		require.Equal(t, "my-app", resp.Data.Name)
+		require.Equal(t, apiv2.AppMethod_APP_METHOD_CONNECT, resp.Data.Method)
+		require.Equal(t, "1.2.3", resp.Data.GetAppVersion())
+		require.Equal(t, createdAt, resp.Data.CreatedAt.AsTime())
+		require.False(t, resp.Data.IsArchived)
+		require.Nil(t, resp.Data.ArchivedAt)
+		require.Equal(t, int32(4), resp.Data.FunctionCount)
+		require.NotNil(t, resp.Data.LatestSync)
+		require.Equal(t, "failed", resp.Data.LatestSync.GetStatus())
+		require.Equal(t, syncedAt, resp.Data.LatestSync.GetSyncedAt().AsTime())
+		require.Equal(t, "typescript", resp.Data.LatestSync.GetSdkLanguage())
+		require.Equal(t, "3.22.0", resp.Data.LatestSync.GetSdkVersion())
+		require.Equal(t, "nextjs", resp.Data.LatestSync.GetFramework())
+		require.Equal(t, "https://example.com/api/inngest", resp.Data.LatestSync.GetUrl())
+		require.Equal(t, "could not reach app", resp.Data.LatestSync.GetError())
+		require.Equal(t, "1.2.3", resp.Data.LatestSync.GetAppVersion())
+		require.NotNil(t, resp.Metadata.FetchedAt)
+	})
+
+	t.Run("omits empty optional fields", func(t *testing.T) {
+		apps := &mockAppProvider{}
+		apps.On("GetApp", mock.Anything, "my-app").Return(App{InternalID: appID, Name: "my-app"}, nil).Once()
+		t.Cleanup(func() {
+			apps.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Apps: apps})
+		resp, err := service.GetApp(context.Background(), &apiv2.GetAppRequest{AppId: "my-app"})
+
+		require.NoError(t, err)
+		require.Equal(t, "my-app", resp.Data.Id)
+		require.Nil(t, resp.Data.AppVersion)
+		require.Nil(t, resp.Data.LatestSync)
+		require.Nil(t, resp.Data.CreatedAt)
+	})
+
+	t.Run("returns archived app data", func(t *testing.T) {
+		archived := app
+		archived.ArchivedAt = archivedAt
+		apps := &mockAppProvider{}
+		apps.On("GetApp", mock.Anything, "my-app").Return(archived, nil).Once()
+		t.Cleanup(func() {
+			apps.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Apps: apps})
+		resp, err := service.GetApp(context.Background(), &apiv2.GetAppRequest{AppId: "my-app"})
+
+		require.NoError(t, err)
+		require.True(t, resp.Data.IsArchived)
+		require.Equal(t, archivedAt.UTC().Truncate(time.Microsecond), resp.Data.ArchivedAt.AsTime().Truncate(time.Microsecond))
+	})
+
+	t.Run("falls back to internal uuid when external id is missing", func(t *testing.T) {
+		apps := &mockAppProvider{}
+		apps.On("GetApp", mock.Anything, appID.String()).Return(App{InternalID: appID}, nil).Once()
+		t.Cleanup(func() {
+			apps.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Apps: apps})
+		resp, err := service.GetApp(context.Background(), &apiv2.GetAppRequest{AppId: appID.String()})
+
+		require.NoError(t, err)
+		require.Equal(t, appID.String(), resp.Data.Id)
+	})
+
+	t.Run("requires app id", func(t *testing.T) {
+		service := NewService(ServiceOptions{Apps: &mockAppProvider{}})
+		resp, err := service.GetApp(context.Background(), &apiv2.GetAppRequest{})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "App ID is required")
+	})
+
+	t.Run("returns not implemented without app provider", func(t *testing.T) {
+		service := NewService(ServiceOptions{})
+		resp, err := service.GetApp(context.Background(), &apiv2.GetAppRequest{AppId: "my-app"})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "Get app is not yet implemented")
+	})
+
+	t.Run("returns not found when app is missing", func(t *testing.T) {
+		apps := &mockAppProvider{}
+		apps.On("GetApp", mock.Anything, "missing-app").Return(App{}, fmt.Errorf("%w: missing-app", ErrAppNotFound)).Once()
+		t.Cleanup(func() {
+			apps.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Apps: apps})
+		resp, err := service.GetApp(context.Background(), &apiv2.GetAppRequest{AppId: "missing-app"})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "App not found")
+		require.Equal(t, codes.NotFound, status.Code(err))
+	})
+
+	t.Run("returns internal error when app lookup fails", func(t *testing.T) {
+		apps := &mockAppProvider{}
+		apps.On("GetApp", mock.Anything, "my-app").Return(App{}, errors.New("database unavailable")).Once()
+		t.Cleanup(func() {
+			apps.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Apps: apps})
+		resp, err := service.GetApp(context.Background(), &apiv2.GetAppRequest{AppId: "my-app"})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "Unable to fetch app")
+		require.Equal(t, codes.Internal, status.Code(err))
+	})
+}
+
+func TestService_GetFunction(t *testing.T) {
+	functionID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	appID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	pausedAt := time.Now().Add(-time.Minute)
+	archivedAt := time.Now().Add(-time.Hour)
+	condition := "event.data.user_id != nil"
+	timeout := "10m"
+	key := "event.data.user_id"
+	priority := "event.data.priority"
+	retries := 2
+	singletonKey := "event.data.account_id"
+
+	fn := inngest.DeployedFunction{
+		ID:         functionID,
+		Slug:       "my-app-test-fn",
+		AppID:      appID,
+		AppName:    "my-app",
+		PausedAt:   pausedAt,
+		ArchivedAt: archivedAt,
+		Function: inngest.Function{
+			Name: "Test function",
+			Slug: "my-app-test-fn",
+			Steps: []inngest.Step{{
+				ID:      "step",
+				Retries: intPtr(retries),
+			}},
+			Triggers: inngest.MultipleTriggers{
+				{EventTrigger: &inngest.EventTrigger{Event: "user.created", Expression: &condition}},
+				{CronTrigger: &inngest.CronTrigger{Cron: "0 * * * *"}},
+			},
+			Cancel: []inngest.Cancel{{
+				Event:   "user.deleted",
+				Timeout: &timeout,
+				If:      &condition,
+			}},
+			Priority: &inngest.Priority{Run: &priority},
+			EventBatch: &inngest.EventBatchConfig{
+				MaxSize: 25,
+				Timeout: "60s",
+				Key:     &key,
+			},
+			Concurrency: &inngest.ConcurrencyLimits{
+				Limits: []inngest.StepConcurrency{{
+					Limit: 3,
+					Scope: enums.ConcurrencyScopeFn,
+					Key:   &key,
+				}},
+			},
+			RateLimit: &inngest.RateLimit{
+				Limit:  10,
+				Period: "1m",
+				Key:    &key,
+			},
+			Debounce: &inngest.Debounce{
+				Period: "30s",
+				Key:    &key,
+			},
+			Throttle: &inngest.Throttle{
+				Limit:  5,
+				Burst:  2,
+				Period: time.Minute,
+				Key:    &key,
+			},
+			Singleton: &inngest.Singleton{
+				Key:  &singletonKey,
+				Mode: enums.SingletonModeCancel,
+			},
+		},
+	}
+
+	t.Run("returns mapped function data", func(t *testing.T) {
+		functions := &mockFunctionProvider{}
+		functions.On("GetFunctionByApp", mock.Anything, "my-app", "test-fn").Return(fn, nil).Once()
+		t.Cleanup(func() {
+			functions.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Functions: functions})
+		resp, err := service.GetFunction(context.Background(), &apiv2.GetFunctionRequest{AppId: "my-app", FunctionId: "test-fn"})
+
+		require.NoError(t, err)
+		require.Equal(t, "test-fn", resp.Data.Id)
+		require.Equal(t, "Test function", resp.Data.Name)
+		require.Equal(t, "test-fn", resp.Data.Slug)
+		require.True(t, resp.Data.IsPaused)
+		require.True(t, resp.Data.IsArchived)
+		require.Equal(t, "my-app", resp.Data.App.Id)
+		require.Len(t, resp.Data.Triggers, 2)
+		require.Equal(t, apiv2.FunctionTriggerType_FUNCTION_TRIGGER_TYPE_EVENT, resp.Data.Triggers[0].Type)
+		require.Equal(t, "user.created", resp.Data.Triggers[0].Value)
+		require.Equal(t, condition, resp.Data.Triggers[0].GetIf())
+		require.Equal(t, apiv2.FunctionTriggerType_FUNCTION_TRIGGER_TYPE_CRON, resp.Data.Triggers[1].Type)
+		require.Equal(t, "0 * * * *", resp.Data.Triggers[1].Value)
+
+		config := resp.Data.Configuration
+		require.NotNil(t, config)
+		require.Equal(t, int32(retries), config.Retries.Value)
+		require.False(t, config.Retries.GetIsDefault())
+		require.Equal(t, priority, config.GetPriority())
+		require.Equal(t, int32(25), config.EventsBatch.MaxSize)
+		require.Equal(t, key, config.EventsBatch.GetKey())
+		require.Equal(t, apiv2.FunctionConcurrencyScope_FUNCTION_CONCURRENCY_SCOPE_FUNCTION, config.Concurrency[0].Scope)
+		require.Equal(t, int32(3), config.Concurrency[0].Limit.Value)
+		require.Equal(t, int32(10), config.RateLimit.Limit)
+		require.Equal(t, "30s", config.Debounce.Period)
+		require.Equal(t, int32(2), config.Throttle.Burst)
+		require.Equal(t, apiv2.FunctionSingletonMode_FUNCTION_SINGLETON_MODE_CANCEL, config.Singleton.Mode)
+		require.Equal(t, singletonKey, config.Singleton.GetKey())
+	})
+
+	t.Run("returns bare function id for combined function id lookup", func(t *testing.T) {
+		functions := &mockFunctionProvider{}
+		functions.On("GetFunctionByApp", mock.Anything, "my-app", "my-app-test-fn").Return(fn, nil).Once()
+		t.Cleanup(func() {
+			functions.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Functions: functions})
+		resp, err := service.GetFunction(context.Background(), &apiv2.GetFunctionRequest{AppId: "my-app", FunctionId: "my-app-test-fn"})
+
+		require.NoError(t, err)
+		require.Equal(t, "test-fn", resp.Data.Id)
+		require.Equal(t, "test-fn", resp.Data.Slug)
+		require.Equal(t, "my-app", resp.Data.App.Id)
+	})
+
+	t.Run("requires app id and function id", func(t *testing.T) {
+		service := NewService(ServiceOptions{Functions: &mockFunctionProvider{}})
+		resp, err := service.GetFunction(context.Background(), &apiv2.GetFunctionRequest{})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "App ID and function ID are required")
+	})
+
+	t.Run("requires app id and function id for scoped lookup", func(t *testing.T) {
+		service := NewService(ServiceOptions{Functions: &mockFunctionProvider{}})
+		resp, err := service.GetFunction(context.Background(), &apiv2.GetFunctionRequest{AppId: "my-app"})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "App ID and function ID are required")
+	})
+
+	t.Run("returns not implemented without function provider", func(t *testing.T) {
+		service := NewService(ServiceOptions{})
+		resp, err := service.GetFunction(context.Background(), &apiv2.GetFunctionRequest{AppId: "my-app", FunctionId: "test-fn"})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "Get function is not yet implemented")
+	})
+
+	t.Run("returns not found when function is missing", func(t *testing.T) {
+		functions := &mockFunctionProvider{}
+		functions.On("GetFunctionByApp", mock.Anything, "my-app", "missing-fn").Return(inngest.DeployedFunction{}, fmt.Errorf("%w: my-app/missing-fn", ErrFunctionNotFound)).Once()
+		t.Cleanup(func() {
+			functions.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Functions: functions})
+		resp, err := service.GetFunction(context.Background(), &apiv2.GetFunctionRequest{AppId: "my-app", FunctionId: "missing-fn"})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "Function not found")
+		require.Equal(t, codes.NotFound, status.Code(err))
+	})
+
+	t.Run("returns internal error when function lookup fails", func(t *testing.T) {
+		functions := &mockFunctionProvider{}
+		functions.On("GetFunctionByApp", mock.Anything, "my-app", "test-fn").Return(inngest.DeployedFunction{}, errors.New("database unavailable")).Once()
+		t.Cleanup(func() {
+			functions.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Functions: functions})
+		resp, err := service.GetFunction(context.Background(), &apiv2.GetFunctionRequest{AppId: "my-app", FunctionId: "test-fn"})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "Unable to fetch function")
+		require.Equal(t, codes.Internal, status.Code(err))
+	})
+}
+
+func TestService_GetFunctions(t *testing.T) {
+	firstID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	secondID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	appID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	first := inngest.DeployedFunction{
+		ID:      firstID,
+		Slug:    "my-app-first-fn",
+		AppID:   appID,
+		AppName: "my-app",
+		Function: inngest.Function{
+			Name: "First function",
+			Slug: "first-fn",
+			Steps: []inngest.Step{{
+				ID: "step",
+			}},
+		},
+	}
+	second := inngest.DeployedFunction{
+		ID:      secondID,
+		Slug:    "my-app-second-fn",
+		AppID:   appID,
+		AppName: "my-app",
+		Function: inngest.Function{
+			Name: "Second function",
+			Slug: "second-fn",
+			Steps: []inngest.Step{{
+				ID: "step",
+			}},
+		},
+	}
+
+	t.Run("returns mapped function data and page", func(t *testing.T) {
+		functions := &mockFunctionProvider{}
+		functions.On("GetFunctions", mock.Anything, "my-app", GetFunctionsOpts{
+			Limit: defaultFunctionsLimit,
+		}).Return(&GetFunctionsResult{
+			Functions: []inngest.DeployedFunction{first, second},
+		}, nil).Once()
+		t.Cleanup(func() {
+			functions.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Functions: functions})
+		resp, err := service.GetFunctions(context.Background(), &apiv2.GetFunctionsRequest{AppId: "my-app"})
+
+		require.NoError(t, err)
+		require.Len(t, resp.Data, 2)
+		require.Equal(t, "first-fn", resp.Data[0].Id)
+		require.Equal(t, "First function", resp.Data[0].Name)
+		require.Equal(t, "my-app", resp.Data[0].App.Id)
+		require.False(t, resp.Page.HasMore)
+		require.Equal(t, int32(defaultFunctionsLimit), resp.Page.Limit)
+		require.Nil(t, resp.Page.Cursor)
+	})
+
+	t.Run("uses cursor and limit", func(t *testing.T) {
+		functions := &mockFunctionProvider{}
+		functions.On("GetFunctions", mock.Anything, "my-app", GetFunctionsOpts{
+			Cursor: firstID,
+			Limit:  1,
+		}).Return(&GetFunctionsResult{
+			Functions: []inngest.DeployedFunction{second},
+			HasMore:   true,
+		}, nil).Once()
+		t.Cleanup(func() {
+			functions.AssertExpectations(t)
+		})
+
+		service := NewService(ServiceOptions{Functions: functions})
+		resp, err := service.GetFunctions(context.Background(), &apiv2.GetFunctionsRequest{
+			AppId:  "my-app",
+			Cursor: strPtr(firstID.String()),
+			Limit:  int32Ptr(1),
+		})
+
+		require.NoError(t, err)
+		require.Len(t, resp.Data, 1)
+		require.True(t, resp.Page.HasMore)
+		require.Equal(t, secondID.String(), resp.Page.GetCursor())
+	})
+
+	t.Run("requires valid cursor", func(t *testing.T) {
+		service := NewService(ServiceOptions{Functions: &mockFunctionProvider{}})
+		resp, err := service.GetFunctions(context.Background(), &apiv2.GetFunctionsRequest{
+			AppId:  "my-app",
+			Cursor: strPtr("not-a-uuid"),
+		})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "Cursor is invalid")
+	})
+
+	t.Run("validates limit", func(t *testing.T) {
+		service := NewService(ServiceOptions{Functions: &mockFunctionProvider{}})
+		resp, err := service.GetFunctions(context.Background(), &apiv2.GetFunctionsRequest{
+			AppId: "my-app",
+			Limit: int32Ptr(maxFunctionsLimit + 1),
+		})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "Limit cannot exceed")
+	})
+
+	t.Run("returns not implemented without function provider", func(t *testing.T) {
+		service := NewService(ServiceOptions{})
+		resp, err := service.GetFunctions(context.Background(), &apiv2.GetFunctionsRequest{AppId: "my-app"})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "Get functions is not yet implemented")
+	})
+
+	t.Run("requires app id", func(t *testing.T) {
+		service := NewService(ServiceOptions{Functions: &mockFunctionProvider{}})
+		resp, err := service.GetFunctions(context.Background(), &apiv2.GetFunctionsRequest{})
+
+		require.Nil(t, resp)
+		require.ErrorContains(t, err, "App ID is required")
+	})
 }
 
 func TestService_GetFunctionRun(t *testing.T) {

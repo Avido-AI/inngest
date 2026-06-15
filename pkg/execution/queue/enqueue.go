@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -124,7 +125,7 @@ func (q *queueProcessor) maybeEnqueuePromotionJob(ctx context.Context, l logger.
 			ScheduledAt:  qi.AtMS,
 		},
 	}, promoteAt, EnqueueOpts{})
-	if err != nil && err != ErrQueueItemExists {
+	if err != nil && !errors.Is(err, ErrQueueItemExists) {
 		l.ReportError(err, "error scheduling promotion job")
 	}
 }
