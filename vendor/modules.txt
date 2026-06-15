@@ -584,7 +584,7 @@ github.com/cockroachdb/swiss
 # github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06
 ## explicit; go 1.19
 github.com/cockroachdb/tokenbucket
-# github.com/coder/websocket v1.8.14
+# github.com/coder/websocket v1.8.15
 ## explicit; go 1.23
 github.com/coder/websocket
 github.com/coder/websocket/internal/bpool
@@ -1379,7 +1379,7 @@ github.com/twmb/franz-go/pkg/sasl/scram
 ## explicit; go 1.24.0
 github.com/twmb/franz-go/pkg/kmsg
 github.com/twmb/franz-go/pkg/kmsg/internal/kbin
-# github.com/urfave/cli/v3 v3.9.1
+# github.com/urfave/cli/v3 v3.10.0
 ## explicit; go 1.22
 github.com/urfave/cli/v3
 # github.com/valyala/fastjson v1.6.10
