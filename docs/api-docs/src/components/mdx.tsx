@@ -1,11 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { createClientAPIPage, type ClientApiPagePayload } from 'fumadocs-openapi/ui/create-client';
+import { createOpenAPIPage, type OpenAPIPageProps_Spec } from 'fumadocs-openapi/ui';
 import { Callout, type CalloutType } from 'fumadocs-ui/components/callout';
 import * as TabsComponents from 'fumadocs-ui/components/tabs';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import type { MDXComponents } from 'mdx/types';
 
-const ClientAPIPage = createClientAPIPage();
+const ClientAPIPage = createOpenAPIPage();
+
+// The `payload` shape ClientAPIPage expects: { bundled, proxyUrl? }.
+type ApiPagePayload = OpenAPIPageProps_Spec['payload'];
 
 // Soft-tag extensions (set by scripts/generate-docs.ts) rendered as Callouts at
 // the top of an operation page. Add new entries to introduce additional badges.
@@ -22,7 +25,7 @@ function OperationCallouts({
   bundled,
   operations,
 }: {
-  bundled: ClientApiPagePayload['bundled'];
+  bundled: ApiPagePayload['bundled'];
   operations?: { path: string; method: string }[];
 }) {
   if (!operations?.length) return null;
@@ -46,14 +49,14 @@ function OperationCallouts({
 }
 
 // Simple cache so we don't refetch the same spec on every render
-const specCache = new Map<string, ClientApiPagePayload['bundled']>();
+const specCache = new Map<string, ApiPagePayload['bundled']>();
 
-async function fetchSpec(url: string): Promise<ClientApiPagePayload['bundled']> {
+async function fetchSpec(url: string): Promise<ApiPagePayload['bundled']> {
   const cached = specCache.get(url);
   if (cached) return cached;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as ClientApiPagePayload['bundled'];
+  const data = (await res.json()) as ApiPagePayload['bundled'];
   specCache.set(url, data);
   return data;
 }
@@ -70,7 +73,7 @@ type APIPageProps = {
 // Bridges the MDX-generated `document` URL prop to the `payload.bundled` object
 // that ClientAPIPage expects. Fetches the spec at runtime from the public URL.
 function APIPage({ document: documentUrl, ...rest }: APIPageProps) {
-  const [payload, setPayload] = useState<ClientApiPagePayload | null>(null);
+  const [payload, setPayload] = useState<ApiPagePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
