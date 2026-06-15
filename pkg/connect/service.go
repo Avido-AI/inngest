@@ -80,6 +80,11 @@ type connectGatewaySvc struct {
 	gatewayPublicPort int
 	grpcConfig        connectConfig.ConnectGRPCConfig
 
+	// Pre-bound listeners for tests. When set, Run() uses these instead of
+	// binding new listeners, eliminating the TOCTOU port race.
+	gatewayListener net.Listener
+	grpcListener    net.Listener
+
 	gatewayRoutes  chi.Router
 	maintenanceApi chi.Router
 
@@ -180,6 +185,22 @@ func WithStartAsDraining(isDraining bool) gatewayOpt {
 func WithGatewayPublicPort(port int) gatewayOpt {
 	return func(svc *connectGatewaySvc) {
 		svc.gatewayPublicPort = port
+	}
+}
+
+// WithGatewayListener passes a pre-bound listener for the HTTP gateway.
+// Avoids the TOCTOU port race in tests.
+func WithGatewayListener(l net.Listener) gatewayOpt {
+	return func(svc *connectGatewaySvc) {
+		svc.gatewayListener = l
+		svc.gatewayPublicPort = l.Addr().(*net.TCPAddr).Port
+	}
+}
+
+// WithGRPCListener passes a pre-bound listener for the gRPC server.
+func WithGRPCListener(l net.Listener) gatewayOpt {
+	return func(svc *connectGatewaySvc) {
+		svc.grpcListener = l
 	}
 }
 
@@ -486,18 +507,26 @@ func (c *connectGatewaySvc) Run(ctx context.Context) error {
 	// the error would sit unobserved until the other serve goroutine exits at
 	// shutdown, leaving an "active" gateway whose executors can never reach
 	// it over grpc.
-	httpListener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("could not listen on gateway api addr %q: %w", addr, err)
+	httpListener := c.gatewayListener
+	if httpListener == nil {
+		var listenErr error
+		httpListener, listenErr = net.Listen("tcp", addr)
+		if listenErr != nil {
+			return fmt.Errorf("could not listen on gateway api addr %q: %w", addr, listenErr)
+		}
 	}
 
 	grpcAddr := fmt.Sprintf(":%d", c.grpcConfig.Gateway.Port)
-	grpcListener, err := net.Listen("tcp", grpcAddr)
-	if err != nil {
-		if closeErr := httpListener.Close(); closeErr != nil {
-			logger.StdlibLogger(ctx).Warn("failed to close gateway api listener during grpc listen failure cleanup", "error", closeErr)
+	grpcListener := c.grpcListener
+	if grpcListener == nil {
+		var listenErr error
+		grpcListener, listenErr = net.Listen("tcp", grpcAddr)
+		if listenErr != nil {
+			if closeErr := httpListener.Close(); closeErr != nil {
+				logger.StdlibLogger(ctx).Warn("failed to close gateway api listener during grpc listen failure cleanup", "error", closeErr)
+			}
+			return fmt.Errorf("could not listen on gateway grpc addr %q: %w", grpcAddr, listenErr)
 		}
-		return fmt.Errorf("could not listen on gateway grpc addr %q: %w", grpcAddr, err)
 	}
 
 	go func() {

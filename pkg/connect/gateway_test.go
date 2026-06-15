@@ -960,7 +960,15 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 		})
 	}
 
-	gwPort := freePort()
+	// Pre-bind listeners to eliminate the TOCTOU port race where another
+	// process grabs the port between freePort() and the gateway's bind call.
+	gwListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	gwPort := gwListener.Addr().(*net.TCPAddr).Port
+
+	grpcGwListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	grpcGatewayPort := grpcGwListener.Addr().(*net.TCPAddr).Port
 
 	websocketUrl := fmt.Sprintf("ws://127.0.0.1:%d/v0/connect", gwPort)
 
@@ -976,12 +984,12 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 		},
 	}
 
-	grpcGatewayPort := freePort()
-	grpcExecutorPort := freePort()
-	grpcConfig := connectconfig.NewGRPCConfig(ctx, "127.0.0.1", grpcGatewayPort, "127.0.0.1", grpcExecutorPort)
+	grpcConfig := connectconfig.NewGRPCConfig(ctx, "127.0.0.1", grpcGatewayPort, "127.0.0.1", 0)
 
 	opts := []gatewayOpt{
 		WithGRPCConfig(grpcConfig),
+		WithGatewayListener(gwListener),
+		WithGRPCListener(grpcGwListener),
 		WithGatewayAuthHandler(func(ctx context.Context, data *connect.WorkerConnectRequestData) (*auth.Response, error) {
 			l.Info("got auth request", "data", data)
 
@@ -995,7 +1003,6 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 		WithGroupName("gw-1"),
 		WithLifeCycles([]ConnectGatewayLifecycleListener{lifecycles}),
 		WithApiBaseUrl(fakeApiBaseUrl),
-		WithGatewayPublicPort(gwPort),
 	}
 
 	if len(params) > 0 {
@@ -1333,15 +1340,6 @@ func sendWorkerExtendLeaseMessage(t *testing.T, res testingResources, payload *c
 		Payload: marshaled,
 	})
 	require.NoError(t, err)
-}
-
-func freePort() int {
-	l, err := net.Listen("tcp", ":0")
-	if err != nil {
-		panic(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
 }
 
 // TestHandleSdkReply tests the handleSdkReply function which currently has 0% coverage
