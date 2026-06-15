@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
-import { generateFiles } from 'fumadocs-openapi';
+import { generateFiles, type OpenAPIV3_2 } from 'fumadocs-openapi';
 import { createOpenAPI } from 'fumadocs-openapi/server';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
@@ -197,12 +197,15 @@ async function main() {
 
   // Separate instances so generation stays isolated per version.
   // URL keys ensure generated MDX references /api-specs/... not absolute FS paths.
+  // fumadocs-openapi 11 dropped the whole-map `input` factory in favour of a
+  // schema record (key -> file path, URL, or in-memory document). Our locally
+  // filtered docs are passed as in-memory documents under their public-URL key.
   const openapiV1 = createOpenAPI({
-    input: async () => ({ '/api-specs/v1.json': v1Doc }),
+    input: { '/api-specs/v1.json': v1Doc as unknown as OpenAPIV3_2.Document },
   });
 
   const openapiV2 = createOpenAPI({
-    input: async () => ({ '/api-specs/v2.json': v2Doc }),
+    input: { '/api-specs/v2.json': v2Doc as unknown as OpenAPIV3_2.Document },
   });
 
   // Clean generated v1 content, preserving hand-written files.
@@ -219,7 +222,7 @@ async function main() {
     output: v1Dir,
     per: 'operation',
     groupBy: 'tag',
-    meta: { groupStyle: 'separator' },
+    meta: { folderStyle: 'separator' },
     beforeWrite(files) {
       const topMeta = files.find((f) => f.path === 'meta.json');
       if (topMeta) {
@@ -241,7 +244,7 @@ async function main() {
     output: join(appRoot, 'content/docs/v2'),
     per: 'operation',
     groupBy: 'tag',
-    meta: { groupStyle: 'separator' },
+    meta: { folderStyle: 'separator' },
     beforeWrite(files) {
       // Strip the "V2_" prefix from generated file paths and their meta.json references.
       for (const file of files) {

@@ -21,7 +21,9 @@ const SPEC_PATHS: Record<string, string> = {
 };
 
 const server = createOpenAPI({
-  input: async () => SPEC_PATHS,
+  // fumadocs-openapi 11 takes a schema record (key -> file path) directly rather
+  // than a whole-map factory.
+  input: SPEC_PATHS,
 });
 
 /**
