@@ -91,3 +91,5 @@ release:
   github:
     owner: Avido-AI
     name: inngest
+  prerelease: auto
+  make_latest: "{{ not .Prerelease }}"
