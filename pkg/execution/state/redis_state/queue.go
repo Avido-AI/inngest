@@ -201,12 +201,13 @@ func (q *queue) handleEnqueueStatus(ctx context.Context, l logger.Logger, i osqu
 	case 0:
 		return i, nil
 	case 1:
+		// Best-effort RunID enrichment: a failed lookup (e.g. transient Redis
+		// error) must not mask the idempotency signal, since all callers rely on
+		// errors.Is(err, ErrQueueItemExists) to skip duplicates.
 		var runID *ulid.ULID
 		if existing, loadErr := q.LoadQueueItem(ctx, i.ID); loadErr == nil {
 			id := existing.Data.Identifier.RunID
 			runID = &id
-		} else if loadErr != osqueue.ErrQueueItemNotFound {
-			return i, loadErr
 		}
 		return i, osqueue.QueueItemExists(i.ID, runID)
 	case 2:
