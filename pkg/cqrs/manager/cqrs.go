@@ -287,29 +287,6 @@ type spanRollupInfo struct {
 	otelToDynamic map[string]string
 }
 
-// fragmentAttributesJSON returns the attributes field of a span fragment as
-// JSON bytes. The aggregation queries differ between backends: sqlite's
-// json_object embeds JSON columns as quoted strings while postgres'
-// json_build_object embeds jsonb as nested objects, so the decoded fragment
-// can land here as either a string or a map[string]any.
-func fragmentAttributesJSON(raw any) ([]byte, bool) {
-	switch v := raw.(type) {
-	case string:
-		if v == "" {
-			return nil, false
-		}
-		return []byte(v), true
-	case map[string]any:
-		byt, err := json.Marshal(v)
-		if err != nil {
-			return nil, false
-		}
-		return byt, true
-	default:
-		return nil, false
-	}
-}
-
 func sortSpanFragments(fragments []map[string]any) {
 	slices.SortStableFunc(fragments, func(a, b map[string]any) int {
 		return cmp.Or(
