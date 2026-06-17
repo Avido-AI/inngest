@@ -975,6 +975,24 @@ service V2 {
     };
   }
 
+  rpc GetApp(GetAppRequest) returns (GetAppResponse) {
+    option (google.api.http) = {
+      get: "/apps/{app_id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get app"
+      tags: "Apps"
+      tags: "Beta"
+      description: "Fetches details for a single app, including sync metadata and function count"
+      security: {
+        security_requirement: {
+          key: "BearerAuth"
+          value: {}
+        }
+      }
+    };
+  }
+
   rpc SyncApp(SyncAppRequest) returns (SyncAppResponse) {
     option (google.api.http) = {
       post: "/apps/{app_id}/syncs",
@@ -1080,6 +1098,42 @@ service V2 {
       tags: "Runs"
       tags: "Beta"
       description: "Fetches the trace tree for a single function run"
+      security: {
+        security_requirement: {
+          key: "BearerAuth"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc GetFunction(GetFunctionRequest) returns (GetFunctionResponse) {
+    option (google.api.http) = {
+      get: "/apps/{app_id}/functions/{function_id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get function"
+      description: "Fetches function configuration and status details for a function within an app"
+      tags: "Functions"
+      tags: "Beta"
+      security: {
+        security_requirement: {
+          key: "BearerAuth"
+          value: {}
+        }
+      }
+    };
+  }
+
+  rpc GetFunctions(GetFunctionsRequest) returns (GetFunctionsResponse) {
+    option (google.api.http) = {
+      get: "/apps/{app_id}/functions"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get functions"
+      description: "Lists function configuration and status details for an app"
+      tags: "Functions"
+      tags: "Beta"
       security: {
         security_requirement: {
           key: "BearerAuth"
@@ -1619,6 +1673,117 @@ message AppRef {
   string id = 1;
 }
 
+enum FunctionTriggerType {
+  FUNCTION_TRIGGER_TYPE_UNSPECIFIED = 0;
+  FUNCTION_TRIGGER_TYPE_EVENT = 1;
+  FUNCTION_TRIGGER_TYPE_CRON = 2;
+}
+
+enum FunctionConcurrencyScope {
+  FUNCTION_CONCURRENCY_SCOPE_UNSPECIFIED = 0;
+  FUNCTION_CONCURRENCY_SCOPE_ACCOUNT = 1;
+  FUNCTION_CONCURRENCY_SCOPE_ENVIRONMENT = 2;
+  FUNCTION_CONCURRENCY_SCOPE_FUNCTION = 3;
+}
+
+enum FunctionSingletonMode {
+  FUNCTION_SINGLETON_MODE_UNSPECIFIED = 0;
+  FUNCTION_SINGLETON_MODE_SKIP = 1;
+  FUNCTION_SINGLETON_MODE_CANCEL = 2;
+}
+
+message FunctionApp {
+  string id = 1;
+  reserved 2, 3, 4;
+  reserved "external_id", "name", "latest_sync";
+}
+
+message FunctionTrigger {
+  FunctionTriggerType type = 1;
+  string value = 2;
+  optional string if = 3;
+}
+
+message FunctionFailureHandler {
+  string slug = 1;
+  string name = 2;
+}
+
+message FunctionCancellationConfiguration {
+  string event = 1;
+  optional string timeout = 2;
+  optional string condition = 3;
+}
+
+message FunctionRetryConfiguration {
+  int32 value = 1;
+  optional bool is_default = 2;
+}
+
+message FunctionEventsBatchConfiguration {
+  int32 max_size = 1;
+  string timeout = 2;
+  optional string key = 3;
+}
+
+message FunctionConcurrencyLimitConfiguration {
+  int32 value = 1;
+  optional bool is_plan_limit = 2;
+}
+
+message FunctionConcurrencyConfiguration {
+  FunctionConcurrencyScope scope = 1;
+  FunctionConcurrencyLimitConfiguration limit = 2;
+  optional string key = 3;
+}
+
+message FunctionRateLimitConfiguration {
+  int32 limit = 1;
+  string period = 2;
+  optional string key = 3;
+}
+
+message FunctionDebounceConfiguration {
+  string period = 1;
+  optional string key = 2;
+}
+
+message FunctionThrottleConfiguration {
+  int32 burst = 1;
+  optional string key = 2;
+  int32 limit = 3;
+  string period = 4;
+}
+
+message FunctionSingletonConfiguration {
+  FunctionSingletonMode mode = 1;
+  optional string key = 2;
+}
+
+message FunctionConfiguration {
+  repeated FunctionCancellationConfiguration cancellations = 1;
+  FunctionRetryConfiguration retries = 2;
+  optional string priority = 3;
+  optional FunctionEventsBatchConfiguration events_batch = 4;
+  repeated FunctionConcurrencyConfiguration concurrency = 5;
+  optional FunctionRateLimitConfiguration rate_limit = 6;
+  optional FunctionDebounceConfiguration debounce = 7;
+  optional FunctionThrottleConfiguration throttle = 8;
+  optional FunctionSingletonConfiguration singleton = 9;
+}
+
+message Function {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  bool is_paused = 4;
+  bool is_archived = 5;
+  FunctionApp app = 6;
+  repeated FunctionTrigger triggers = 7;
+  optional FunctionFailureHandler failure_handler = 8;
+  FunctionConfiguration configuration = 9;
+}
+
 message RunTrigger {
   repeated string event_ids = 1;
   optional string event_name = 2;
@@ -1708,6 +1873,161 @@ message GetFunctionTraceRequest {
 message GetFunctionTraceResponse {
   FunctionTrace data = 1;
   ResponseMetadata metadata = 2;
+}
+
+message GetFunctionRequest {
+  string app_id = 1;
+  string function_id = 2;
+}
+
+message GetFunctionResponse {
+  Function data = 1;
+  ResponseMetadata metadata = 2;
+}
+
+enum AppMethod {
+  APP_METHOD_UNSPECIFIED = 0;
+  APP_METHOD_SERVE = 1;
+  APP_METHOD_CONNECT = 2;
+  APP_METHOD_API = 3;
+}
+
+message App {
+  reserved 5, 6, 7, 8, 13;
+  reserved "sdk_language", "sdk_version", "framework", "url", "error";
+
+  string id = 1 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "The user-defined app ID"
+      example: "\"my-app\""
+    }
+  ];
+  string name = 2 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "App name"
+      example: "\"my-app\""
+    }
+  ];
+  AppMethod method = 3 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "How the app communicates with Inngest"
+    }
+  ];
+  optional string app_version = 4 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "User-defined app version, if set"
+    }
+  ];
+  google.protobuf.Timestamp created_at = 9 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Timestamp when the app was first synced"
+    }
+  ];
+  bool is_archived = 10 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Whether the app is archived"
+    }
+  ];
+  optional google.protobuf.Timestamp archived_at = 11 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Timestamp when the app was archived (if archived)"
+    }
+  ];
+  int32 function_count = 12 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Number of functions in the app"
+    }
+  ];
+  optional AppSync latest_sync = 14 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Latest sync metadata for the app, if available"
+    }
+  ];
+}
+
+message AppSync {
+  reserved 2, 3, 10;
+  reserved "started_at", "completed_at", "function_count";
+
+  optional string status = 1 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Status of the latest sync"
+    }
+  ];
+  optional google.protobuf.Timestamp synced_at = 11 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Timestamp for the latest sync, if available"
+    }
+  ];
+  optional string sdk_language = 4 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Language of the SDK that synced the app"
+      example: "\"typescript\""
+    }
+  ];
+  optional string sdk_version = 5 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Version of the SDK that synced the app"
+      example: "\"3.22.0\""
+    }
+  ];
+  optional string framework = 6 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Framework used by the app, if reported by the SDK"
+      example: "\"nextjs\""
+    }
+  ];
+  optional string url = 7 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "URL of the Inngest endpoint in the app, if synced via URL"
+      example: "\"https://example.com/api/inngest\""
+    }
+  ];
+  optional string error = 8 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Most recent sync or connectivity error for the app, if any"
+    }
+  ];
+  optional string app_version = 9 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "App version reported by the latest sync, if set"
+    }
+  ];
+}
+
+message GetAppRequest {
+  string app_id = 1 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "The user-defined app ID"
+      example: "\"my-app\""
+    }
+  ];
+}
+
+message GetAppResponse {
+  App data = 1;
+  ResponseMetadata metadata = 2;
+}
+
+message GetFunctionsRequest {
+  string app_id = 1;
+  optional string cursor = 2 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Pagination cursor from previous response"
+    }
+  ];
+  optional int32 limit = 3 [
+    (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_field) = {
+      description: "Number of functions to return per page (min: 1, max: 100)"
+      default: "20"
+    }
+  ];
+}
+
+message GetFunctionsResponse {
+  repeated Function data = 1;
+  ResponseMetadata metadata = 2;
+  Page page = 3;
 }
 
 message CreateAccountRequest {
