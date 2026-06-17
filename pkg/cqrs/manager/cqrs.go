@@ -2492,7 +2492,10 @@ func newRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runsQuer
 func (w wrapper) GetTraceRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt) (int, error) {
 	opt.Cursor = ""
 	opt.Items = 0
-	if opt.Preview && !canReadEndedAtFromTraceRuns(opt) {
+	// The fork's runs view is span-based (see GetSpanRuns / #707): the dev server
+	// does not maintain trace_runs as a read source for preview, so all preview
+	// reads must go through the spans path, including ended_at-ordered queries.
+	if opt.Preview {
 		return w.getSpanRunsCount(ctx, opt)
 	}
 	if opt.Filter.CEL == "" {
@@ -2508,7 +2511,10 @@ func (w wrapper) GetTraceRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt)
 }
 
 func (w wrapper) GetTraceRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
-	if opt.Preview && !canReadEndedAtFromTraceRuns(opt) {
+	// The fork's runs view is span-based (see GetSpanRuns / #707): the dev server
+	// does not maintain trace_runs as a read source for preview, so all preview
+	// reads must go through the spans path, including ended_at-ordered queries.
+	if opt.Preview {
 		return w.GetSpanRuns(ctx, opt)
 	}
 
