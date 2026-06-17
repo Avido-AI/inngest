@@ -3153,7 +3153,10 @@ func newSpanRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runs
 	// debug runs are a special kind of run that should not be included in the main runs list
 	filter = append(filter, sq.C("debug_run_id").IsNull())
 	if opt.Filter.AccountID != uuid.Nil {
-		filter = append(filter, sq.C("account_id").Eq(opt.Filter.AccountID))
+		// Qualify with the spans table: the CEL event-filter path inner-joins the
+		// events table, which also has an account_id column, so an unqualified
+		// reference is ambiguous on Postgres.
+		filter = append(filter, sq.I("spans.account_id").Eq(opt.Filter.AccountID))
 	}
 	if opt.Filter.WorkspaceID != uuid.Nil {
 		filter = append(filter, sq.C("env_id").Eq(opt.Filter.WorkspaceID))
