@@ -72,12 +72,12 @@ func New(adapter dbpkg.Adapter) cqrs.Manager {
 }
 
 type wrapper struct {
-	adapter     adapterWithHelpers
-	q           dbpkg.Querier
-	tx          *sql.Tx
-	fnCache     *functionsCache
-	noFnCache   bool  // true for tx wrappers: disables cache read/write in Functions() but allows invalidation
-	fnMutated   *bool // non-nil for tx wrappers: set to true when function mutations occur
+	adapter   adapterWithHelpers
+	q         dbpkg.Querier
+	tx        *sql.Tx
+	fnCache   *functionsCache
+	noFnCache bool  // true for tx wrappers: disables cache read/write in Functions() but allows invalidation
+	fnMutated *bool // non-nil for tx wrappers: set to true when function mutations occur
 }
 
 var (
@@ -136,11 +136,7 @@ func (w wrapper) GetSpansByRunIDsAndName(
 	if err != nil {
 		// A canceled context (e.g. the caller/request went away or the pod is
 		// shutting down) is expected rather than a failure of this query.
-		logFn := logger.StdlibLogger(ctx).Error
-		if errors.Is(err, context.Canceled) {
-			logFn = logger.StdlibLogger(ctx).Warn
-		}
-		logFn("error getting spans by run IDs and name", "error", err)
+		logger.ErrorOrWarn(logger.StdlibLogger(ctx), err)("error getting spans by run IDs and name", "error", err)
 		return nil, err
 	}
 

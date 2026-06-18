@@ -428,11 +428,7 @@ func (s *svc) handleInvokeComplete(ctx context.Context, item queue.Item) error {
 	// A canceled context means the pod is shutting down mid-dequeue; the item
 	// stays on the queue and another pod resumes the parent, so this is expected
 	// rather than a failure.
-	logFn := s.log.Error
-	if errors.Is(err, context.Canceled) {
-		logFn = s.log.Warn
-	}
-	logFn("invoke complete: durable path failed",
+	logger.ErrorOrWarn(s.log, err)("invoke complete: durable path failed",
 		"correlation_id", corrID,
 		"event_id", evtID,
 		"error", err,
