@@ -21,8 +21,8 @@ import (
 	"github.com/inngest/inngest/pkg/api/v2/apiv2base"
 	"github.com/inngest/inngest/pkg/authn"
 	"github.com/inngest/inngest/pkg/azure"
-	"github.com/inngest/inngest/pkg/cleanup"
 	"github.com/inngest/inngest/pkg/backoff"
+	"github.com/inngest/inngest/pkg/cleanup"
 	"github.com/inngest/inngest/pkg/config"
 	connectConfig "github.com/inngest/inngest/pkg/config/connect"
 	_ "github.com/inngest/inngest/pkg/config/defaults"
@@ -929,7 +929,9 @@ func start(ctx context.Context, opts StartOpts) error {
 	}()
 
 	if err := service.StartAll(ctx, services...); err != nil {
-		l.Error("all services stopped", "error", err)
+		// A canceled context means a normal shutdown (signal/parent cancel)
+		// rather than a service failure, so log it at warning level.
+		logger.ErrorOrWarn(l, err)("all services stopped", "error", err)
 		return err
 	}
 	return nil

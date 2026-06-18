@@ -103,7 +103,7 @@ func StartAll(ctx context.Context, all ...Service) (err error) {
 			triggerOnce.Do(func() {
 				isTrigger = true
 				// First service to exit — this is the cascade trigger.
-				if err != nil && err != context.Canceled {
+				if err != nil && !errors.Is(err, context.Canceled) {
 					l.Error("service exited with error, canceling all services", "service", svc.Name(), "error", err)
 				} else {
 					l.Info("service exited, canceling all services", "service", svc.Name())
@@ -113,7 +113,7 @@ func StartAll(ctx context.Context, all ...Service) (err error) {
 			if !isTrigger {
 				l.Info("service exited after cascade cancellation", "service", svc.Name())
 			}
-			if err != nil && err != context.Canceled {
+			if err != nil && !errors.Is(err, context.Canceled) {
 				return fmt.Errorf("service %s errored: %w", svc.Name(), err)
 			}
 			return nil
@@ -146,7 +146,7 @@ func Start(ctx context.Context, s Service) (err error) {
 		return preErr
 	}
 
-	if runErr := run(ctx, cleanup, s); runErr != nil && runErr != context.Canceled {
+	if runErr := run(ctx, cleanup, s); runErr != nil && !errors.Is(runErr, context.Canceled) {
 		l.Error("service run errored", "error", runErr)
 		err = errors.Join(err, runErr)
 	}
@@ -208,7 +208,7 @@ func run(ctx context.Context, stop func(), s Service) error {
 		// jobs) before proceeding to Stop. This ensures graceful
 		// shutdown completes before the stop timeout begins.
 		l.Info("waiting for service run to finish")
-		if err := <-runErr; err != nil && err != context.Canceled {
+		if err := <-runErr; err != nil && !errors.Is(err, context.Canceled) {
 			return err
 		}
 		l.Info("service run finished")
@@ -238,7 +238,7 @@ func stop(ctx context.Context, s Service) error {
 		}()
 
 		l.Info("service cleaning up")
-		if err := s.Stop(stopCtx); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
+		if err := s.Stop(stopCtx); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			stopCh <- err
 			return
 		}

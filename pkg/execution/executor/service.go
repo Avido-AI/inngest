@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +23,7 @@ import (
 	"github.com/inngest/inngest/pkg/execution/batch"
 	"github.com/inngest/inngest/pkg/execution/cron"
 	"github.com/inngest/inngest/pkg/execution/debounce"
+	"github.com/inngest/inngest/pkg/execution/exechttp"
 	"github.com/inngest/inngest/pkg/execution/queue"
 	"github.com/inngest/inngest/pkg/execution/state"
 	sv2 "github.com/inngest/inngest/pkg/execution/state/v2"
@@ -229,6 +232,30 @@ func (s *svc) getFinishHandler(ctx context.Context) (func(context.Context, sv2.I
 	}, nil
 }
 
+// isExpectedTransientRunError reports whether err is an expected, transient
+// failure that warrants a warning rather than an error log. These happen
+// routinely when an SDK app is briefly unreachable — most commonly while a new
+// deployment is rolling out — and are retried by the queue, so they are not
+// individually actionable.
+func isExpectedTransientRunError(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch {
+	case errors.Is(err, exechttp.ErrUnableToReach):
+		return true
+	case errors.Is(err, syscall.ECONNREFUSED),
+		errors.Is(err, syscall.ECONNRESET),
+		errors.Is(err, io.ErrUnexpectedEOF):
+		// Connection refused/reset and a truncated response are the
+		// network-level signatures of an SDK going away mid-rollout. A bare
+		// io.EOF is intentionally excluded: it surfaces from many benign
+		// end-of-stream paths and would mask genuinely unexpected errors.
+		return true
+	}
+	return false
+}
+
 // Decide if the given `err` is an unexpected run error or part of the usual
 // flow. The return value of handling queue items can sometimes return errors in
 // order to trigger retries, but it's not actually an error of the system that
@@ -301,7 +328,14 @@ func (s *svc) Run(ctx context.Context) error {
 		}
 
 		if s.isUnexpectedRunError(err) {
-			s.log.Error("error handling queue item", "error", err, "item_kind", item.Kind)
+			// SDK-unreachable / connection-reset failures are expected transient
+			// noise (most often during an app deployment rollout) and are retried
+			// by the queue, so log them at warning rather than error.
+			if isExpectedTransientRunError(err) {
+				s.log.Warn("error handling queue item", "error", err, "item_kind", item.Kind)
+			} else {
+				s.log.Error("error handling queue item", "error", err, "item_kind", item.Kind)
+			}
 		}
 
 		return queue.RunResult{
@@ -395,7 +429,10 @@ func (s *svc) handleInvokeComplete(ctx context.Context, item queue.Item) error {
 		)
 		return nil
 	}
-	s.log.Error("invoke complete: durable path failed",
+	// A canceled context means the pod is shutting down mid-dequeue; the item
+	// stays on the queue and another pod resumes the parent, so this is expected
+	// rather than a failure.
+	logger.ErrorOrWarn(s.log, err)("invoke complete: durable path failed",
 		"correlation_id", corrID,
 		"event_id", evtID,
 		"error", err,

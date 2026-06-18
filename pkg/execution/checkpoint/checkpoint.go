@@ -641,6 +641,14 @@ func (c checkpointer) checkpointAsyncSteps(ctx context.Context, input AsyncCheck
 		EnvID:      md.ID.Tenant.EnvID,
 		FunctionID: md.ID.FunctionID,
 	}, ref.JobID()); err != nil {
+		// Resetting attempts is best-effort: by the time the async checkpoint
+		// completes the in-flight queue item may already have been dequeued or
+		// completed, so a missing item is an expected race rather than a
+		// failure. Don't propagate it (the checkpoint itself already succeeded).
+		if errors.Is(err, queue.ErrQueueItemNotFound) {
+			l.Warn("queue item already gone when resetting attempts", "error", err)
+			return nil
+		}
 		l.Error("error resetting queue item attempts", "error", err)
 		return err
 	}

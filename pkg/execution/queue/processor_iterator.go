@@ -281,7 +281,13 @@ func (p *ProcessorIterator) Process(ctx context.Context, item *QueueItem) error 
 	)
 	if err != nil {
 		span.RecordError(err)
-		l.ReportError(err, "could not check constraints to lease item")
+		// A canceled context is expected shutdown noise (the pod is draining),
+		// so don't report it as an error.
+		if errors.Is(err, context.Canceled) {
+			l.Warn("could not check constraints to lease item", "error", err)
+		} else {
+			l.ReportError(err, "could not check constraints to lease item")
+		}
 		// Stop iterator but don't quit the queue
 		return ErrProcessStopIterator
 	}

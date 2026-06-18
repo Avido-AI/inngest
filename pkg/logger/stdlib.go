@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -89,6 +90,18 @@ type Logger interface {
 
 	// ReportError is a wrapper over Error, and will also submit a report to the error report tool
 	ReportError(err error, msg string, opts ...ReportErrorOpt)
+}
+
+// ErrorOrWarn returns l.Warn when err is a context cancellation and l.Error
+// otherwise. A canceled context is expected when a pod is shutting down or a
+// caller goes away, so logging it at warning level keeps shutdown noise out of
+// error dashboards while still surfacing genuine failures. Callers invoke the
+// returned function with the usual (msg, args...) signature.
+func ErrorOrWarn(l Logger, err error) func(msg string, args ...any) {
+	if errors.Is(err, context.Canceled) {
+		return l.Warn
+	}
+	return l.Error
 }
 
 type LoggerOpt func(o *loggerOpts)
