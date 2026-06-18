@@ -1439,10 +1439,14 @@ func TestCompactionFailsBoundaryCheck(t *testing.T) {
 		Leaser:                 leaser,
 		BlockSize:              4,
 		CompactionGarbageRatio: 0.5,
-		CompactionSample:       1.0,
-		CompactionLeaser:       leaser,
-		DeleteAfterFlush:       func(ctx context.Context, workspaceID uuid.UUID) bool { return true },
-		EnableBlockCompaction:  func(ctx context.Context, workspaceID uuid.UUID) bool { return true },
+		// Disable automatic compaction on deletes to prevent background goroutines
+		// from racing with the test's manual compact() calls. A sample of -1
+		// bypasses the constructor's `== 0 -> default 0.1` reset, so compaction
+		// never runs (rand.Float64() is always >= -1).
+		CompactionSample:      -1,
+		CompactionLeaser:      leaser,
+		DeleteAfterFlush:      func(ctx context.Context, workspaceID uuid.UUID) bool { return true },
+		EnableBlockCompaction: func(ctx context.Context, workspaceID uuid.UUID) bool { return true },
 	})
 	require.NoError(t, err)
 
