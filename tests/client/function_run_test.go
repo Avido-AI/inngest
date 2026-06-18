@@ -99,15 +99,15 @@ func TestWaitForRunStatus_PermanentError(t *testing.T) {
 	assert.GreaterOrEqual(t, int(callCount.Load()), 2, "expected multiple retry attempts before failing")
 }
 
-// TestRunOrError_EmptyRunID verifies that RunOrError returns an error for empty runIDs.
-func TestRunOrError_EmptyRunID(t *testing.T) {
+// TestTryRun_EmptyRunID verifies that TryRun returns an error for empty runIDs.
+func TestTryRun_EmptyRunID(t *testing.T) {
 	c := &Client{
 		Client:  &http.Client{},
 		T:       t,
 		APIHost: "http://localhost:0", // won't be contacted
 	}
 
-	_, err := c.RunOrError(context.Background(), "")
+	_, err := c.TryRun(context.Background(), "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "runID cannot be empty")
 }
