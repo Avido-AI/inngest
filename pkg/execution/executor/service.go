@@ -232,10 +232,6 @@ func (s *svc) getFinishHandler(ctx context.Context) (func(context.Context, sv2.I
 	}, nil
 }
 
-// Decide if the given `err` is an unexpected run error or part of the usual
-// flow. The return value of handling queue items can sometimes return errors in
-// order to trigger retries, but it's not actually an error of the system that
-// should be logged or cause issue.
 // isExpectedTransientRunError reports whether err is an expected, transient
 // failure that warrants a warning rather than an error log. These happen
 // routinely when an SDK app is briefly unreachable — most commonly while a new
@@ -250,12 +246,20 @@ func isExpectedTransientRunError(err error) bool {
 		return true
 	case errors.Is(err, syscall.ECONNREFUSED),
 		errors.Is(err, syscall.ECONNRESET),
-		errors.Is(err, io.EOF):
+		errors.Is(err, io.ErrUnexpectedEOF):
+		// Connection refused/reset and a truncated response are the
+		// network-level signatures of an SDK going away mid-rollout. A bare
+		// io.EOF is intentionally excluded: it surfaces from many benign
+		// end-of-stream paths and would mask genuinely unexpected errors.
 		return true
 	}
 	return false
 }
 
+// Decide if the given `err` is an unexpected run error or part of the usual
+// flow. The return value of handling queue items can sometimes return errors in
+// order to trigger retries, but it's not actually an error of the system that
+// should be logged or cause issue.
 func (s *svc) isUnexpectedRunError(err error) bool {
 	if err == nil {
 		return false
