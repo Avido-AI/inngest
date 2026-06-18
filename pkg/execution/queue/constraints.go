@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -299,7 +300,12 @@ func (q *queueProcessor) BacklogRefillConstraintCheck(
 		},
 	})
 	if err != nil {
-		logger.StdlibLogger(ctx).Error("acquiring capacity lease failed", "err", err, "method", "backlogRefillConstraintCheck", "functionID", *shadowPart.FunctionID)
+		// A canceled context is expected when the pod is shutting down.
+		logFn := logger.StdlibLogger(ctx).Error
+		if errors.Is(err, context.Canceled) {
+			logFn = logger.StdlibLogger(ctx).Warn
+		}
+		logFn("acquiring capacity lease failed", "err", err, "method", "backlogRefillConstraintCheck", "functionID", *shadowPart.FunctionID)
 		metrics.IncrBacklogRefillConstraintCheckCounter(ctx, enums.BacklogRefillConstraintCheckReasonConstraintAPIError.String(), metrics.CounterOpt{
 			PkgName: pkgName,
 		})
@@ -499,7 +505,12 @@ func (q *queueProcessor) ItemLeaseConstraintCheck(
 	})
 	if err != nil {
 		span.RecordError(err)
-		l.Error("acquiring capacity lease failed", "err", err, "method", "itemLeaseConstraintCheck", "constraints", constraints, "item", item, "function_id", *shadowPart.FunctionID)
+		// A canceled context is expected when the pod is shutting down.
+		logFn := l.Error
+		if errors.Is(err, context.Canceled) {
+			logFn = l.Warn
+		}
+		logFn("acquiring capacity lease failed", "err", err, "method", "itemLeaseConstraintCheck", "constraints", constraints, "item", item, "function_id", *shadowPart.FunctionID)
 		metrics.IncrQueueItemConstraintCheckCounter(ctx, enums.QueueItemConstraintReasonConstraintAPIError.String(), metrics.CounterOpt{
 			PkgName: pkgName,
 		})

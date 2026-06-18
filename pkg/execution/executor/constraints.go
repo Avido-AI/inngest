@@ -429,7 +429,12 @@ func CheckConstraints(
 		BlockingThreshold: 0, // Disable this for now
 	})
 	if err != nil {
-		l.Error("acquiring capacity lease failed", "err", err, "method", "CheckConstraints", "req", req)
+		// A canceled context is expected when the pod is shutting down.
+		logFn := l.Error
+		if errors.Is(err, context.Canceled) {
+			logFn = l.Warn
+		}
+		logFn("acquiring capacity lease failed", "err", err, "method", "CheckConstraints", "req", req)
 		span.RecordError(err)
 		return checkResult{}, fmt.Errorf("could not enforce constraints: %w", err)
 	}

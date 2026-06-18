@@ -3423,7 +3423,7 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 			var itemAlreadyExists bool
 			_, enqueueErr := util.WithRetry(ctx, "enqueue-after-pause", func(ctx context.Context) (struct{}, error) {
 				err := e.queue.Enqueue(ctx, nextItem, e.now(), queue.EnqueueOpts{})
-				if err == queue.ErrQueueItemExists {
+				if errors.Is(err, queue.ErrQueueItemExists) {
 					itemAlreadyExists = true
 					return struct{}{}, nil
 				}
@@ -5393,7 +5393,7 @@ func (e *executor) enqueueBatchViaAPI(ctx context.Context, be queue.BatchEnqueue
 		if err == nil {
 			continue
 		}
-		if err == queue.ErrQueueItemExists {
+		if errors.Is(err, queue.ErrQueueItemExists) {
 			if items[idx].span != nil {
 				items[idx].span.Drop()
 				items[idx].span = nil
@@ -5417,7 +5417,7 @@ func (e *executor) enqueueBatchViaAPI(ctx context.Context, be queue.BatchEnqueue
 func (e *executor) enqueueBatchPerItem(ctx context.Context, items []batchInvokeItem, skipItem []bool) ([]bool, error) {
 	for idx := range items {
 		err := e.queue.Enqueue(ctx, items[idx].item, items[idx].expires, queue.EnqueueOpts{})
-		if err == queue.ErrQueueItemExists {
+		if errors.Is(err, queue.ErrQueueItemExists) {
 			if items[idx].span != nil {
 				items[idx].span.Drop()
 				items[idx].span = nil

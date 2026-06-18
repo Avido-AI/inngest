@@ -3,6 +3,7 @@ package devserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -930,7 +931,13 @@ func start(ctx context.Context, opts StartOpts) error {
 	}()
 
 	if err := service.StartAll(ctx, services...); err != nil {
-		l.Error("all services stopped", "error", err)
+		// A canceled context means a normal shutdown (signal/parent cancel)
+		// rather than a service failure, so log it at warning level.
+		if errors.Is(err, context.Canceled) {
+			l.Warn("all services stopped", "error", err)
+		} else {
+			l.Error("all services stopped", "error", err)
+		}
 		return err
 	}
 	return nil

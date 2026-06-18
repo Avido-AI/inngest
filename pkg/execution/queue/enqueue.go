@@ -221,7 +221,7 @@ func (q *queueProcessor) emitBatchMetrics(ctx context.Context, items []Item, err
 	for idx := range items {
 		status := "enqueued"
 		if errs[idx] != nil {
-			if errs[idx] == ErrQueueItemExists {
+			if errors.Is(errs[idx], ErrQueueItemExists) {
 				status = "exists"
 			} else {
 				status = "error"

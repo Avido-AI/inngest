@@ -134,7 +134,13 @@ func (w wrapper) GetSpansByRunIDsAndName(
 
 	rows, err := w.q.GetSpansByRunIDsAndName(ctx, strIDs, name)
 	if err != nil {
-		logger.StdlibLogger(ctx).Error("error getting spans by run IDs and name", "error", err)
+		// A canceled context (e.g. the caller/request went away or the pod is
+		// shutting down) is expected rather than a failure of this query.
+		logFn := logger.StdlibLogger(ctx).Error
+		if errors.Is(err, context.Canceled) {
+			logFn = logger.StdlibLogger(ctx).Warn
+		}
+		logFn("error getting spans by run IDs and name", "error", err)
 		return nil, err
 	}
 
