@@ -107,7 +107,7 @@ require (
 	golang.org/x/mod v0.37.0
 	golang.org/x/sync v0.21.0
 	gonum.org/v1/gonum v0.17.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20260615183401-62b3387ff324
+	google.golang.org/genproto/googleapis/api v0.0.0-20260618152121-87f3d3e198d3
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260618152121-87f3d3e198d3
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
