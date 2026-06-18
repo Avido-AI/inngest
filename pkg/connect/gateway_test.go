@@ -18,8 +18,9 @@ import (
 	"github.com/aws/smithy-go/ptr"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
-	connectconfig "github.com/inngest/inngest/pkg/config/connect"
+	connectConfig "github.com/inngest/inngest/pkg/config/connect"
 	"github.com/inngest/inngest/pkg/connect/auth"
+	connectGRPC "github.com/inngest/inngest/pkg/connect/grpc"
 	"github.com/inngest/inngest/pkg/connect/state"
 	"github.com/inngest/inngest/pkg/connect/types"
 	"github.com/inngest/inngest/pkg/connect/wsproto"
@@ -438,6 +439,41 @@ func TestCloseConnectionOnConsecutiveHeartbeatFail(t *testing.T) {
 	require.Equal(t, connect.WorkerDisconnectReason_CONSECUTIVE_HEARTBEATS_MISSED.String(), res.lifecycles.onDisconnected[0].closeReason)
 }
 
+func TestDisconnectLifecycleCompletesBeforeConnectionDeletion(t *testing.T) {
+	blocker := newBlockingDisconnectLifecycle()
+	t.Cleanup(blocker.Release)
+
+	res := createTestingGateway(t, testingParameters{
+		extraLifecycles: []ConnectGatewayLifecycleListener{blocker},
+	})
+	handshake(t, res)
+
+	closeErr := make(chan error, 1)
+	go func() {
+		closeErr <- res.ws.Close(websocket.StatusNormalClosure, "")
+	}()
+
+	select {
+	case <-blocker.entered:
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "timed out waiting for disconnect lifecycle")
+	}
+
+	conn, err := res.stateManager.GetConnection(context.Background(), res.envID, res.connID)
+	require.NoError(t, err)
+	require.NotNil(t, conn, "connection state should remain until disconnect lifecycles finish")
+
+	blocker.Release()
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		conn, err := res.stateManager.GetConnection(context.Background(), res.envID, res.connID)
+		assert.NoError(t, err)
+		assert.Nil(t, conn)
+	}, 2*time.Second, 100*time.Millisecond)
+
+	require.NoError(t, <-closeErr)
+}
+
 func TestCloseConnectionOnWorkerMessageTooLarge(t *testing.T) {
 	params := testingParameters{
 		consecutiveMissesBeforeClose: 10,
@@ -578,7 +614,7 @@ func TestDraining(t *testing.T) {
 		conn, err = res.stateManager.GetConnection(context.Background(), res.envID, res.connID)
 		assert.NoError(t, err)
 		assert.Nil(t, conn)
-	}, 10*time.Second, 100*time.Millisecond)
+	}, 2*time.Second, 100*time.Millisecond)
 
 	res.lifecycles.Assert(t, testRecorderAssertion{
 		onConnectedCount:          1,
@@ -633,7 +669,7 @@ func TestDrainingWithForceDisconnect(t *testing.T) {
 		conn, err = res.stateManager.GetConnection(context.Background(), res.envID, res.connID)
 		assert.NoError(t, err)
 		assert.Nil(t, conn)
-	}, 10*time.Second, 100*time.Millisecond)
+	}, 2*time.Second, 100*time.Millisecond)
 
 	res.lifecycles.Assert(t, testRecorderAssertion{
 		onConnectedCount:          1,
@@ -826,6 +862,41 @@ func (r *testRecorderLifecycles) reset() {
 	r.onConnected = make([]*state.Connection, 0)
 }
 
+type blockingDisconnectLifecycle struct {
+	entered     chan struct{}
+	release     chan struct{}
+	enterOnce   gosync.Once
+	releaseOnce gosync.Once
+}
+
+func newBlockingDisconnectLifecycle() *blockingDisconnectLifecycle {
+	return &blockingDisconnectLifecycle{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (b *blockingDisconnectLifecycle) Release() {
+	b.releaseOnce.Do(func() {
+		close(b.release)
+	})
+}
+
+func (b *blockingDisconnectLifecycle) OnConnected(ctx context.Context, conn *state.Connection)     {}
+func (b *blockingDisconnectLifecycle) OnReady(ctx context.Context, conn *state.Connection)         {}
+func (b *blockingDisconnectLifecycle) OnHeartbeat(ctx context.Context, conn *state.Connection)     {}
+func (b *blockingDisconnectLifecycle) OnStartDraining(ctx context.Context, conn *state.Connection) {}
+func (b *blockingDisconnectLifecycle) OnStartDisconnecting(ctx context.Context, conn *state.Connection) {
+}
+func (b *blockingDisconnectLifecycle) OnSynced(ctx context.Context, conn *state.Connection) {}
+
+func (b *blockingDisconnectLifecycle) OnDisconnected(ctx context.Context, conn *state.Connection, closeReason string) {
+	b.enterOnce.Do(func() {
+		close(b.entered)
+	})
+	<-b.release
+}
+
 type testingResources struct {
 	redis        *miniredis.Miniredis
 	rc           rueidis.Client
@@ -864,6 +935,7 @@ type testingParameters struct {
 	shouldFailSync               bool
 	disallowConnection           bool
 	shouldUseGRPC                bool
+	extraLifecycles              []ConnectGatewayLifecycleListener
 
 	noConnect bool
 	silent    bool
@@ -906,11 +978,7 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 
 	var fakeApiBaseUrl string
 	{
-		// Bind the listener directly to avoid the TOCTOU race in freePort()
-		// where another process can grab the port between finding and using it.
-		fakeApiListener, listenErr := net.Listen("tcp", "127.0.0.1:0")
-		require.NoError(t, listenErr)
-		fakeApiPort := fakeApiListener.Addr().(*net.TCPAddr).Port
+		fakeApiPort := freePort()
 
 		fakeApiBaseUrl = fmt.Sprintf("http://127.0.0.1:%d", fakeApiPort)
 
@@ -918,10 +986,11 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 
 		srv := http.Server{
 			Handler: mux,
+			Addr:    fmt.Sprintf("127.0.0.1:%d", fakeApiPort),
 		}
 
 		go func() {
-			_ = srv.Serve(fakeApiListener)
+			_ = srv.ListenAndServe()
 		}()
 		t.Cleanup(func() {
 			_ = srv.Shutdown(ctx)
@@ -961,6 +1030,8 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 	}
 
 	gwPort := freePort()
+	grpcGwPort := freePort()
+	grpcExecPort := freePort()
 
 	websocketUrl := fmt.Sprintf("ws://127.0.0.1:%d/v0/connect", gwPort)
 
@@ -976,12 +1047,12 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 		},
 	}
 
-	grpcGatewayPort := freePort()
-	grpcExecutorPort := freePort()
-	grpcConfig := connectconfig.NewGRPCConfig(ctx, "127.0.0.1", grpcGatewayPort, "127.0.0.1", grpcExecutorPort)
+	lifecycleListeners := []ConnectGatewayLifecycleListener{lifecycles}
+	if len(params) > 0 && len(params[0].extraLifecycles) > 0 {
+		lifecycleListeners = append(lifecycleListeners, params[0].extraLifecycles...)
+	}
 
 	opts := []gatewayOpt{
-		WithGRPCConfig(grpcConfig),
 		WithGatewayAuthHandler(func(ctx context.Context, data *connect.WorkerConnectRequestData) (*auth.Response, error) {
 			l.Info("got auth request", "data", data)
 
@@ -993,9 +1064,14 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 		}),
 		WithConnectionStateManager(connManager),
 		WithGroupName("gw-1"),
-		WithLifeCycles([]ConnectGatewayLifecycleListener{lifecycles}),
+		WithLifeCycles(lifecycleListeners),
 		WithApiBaseUrl(fakeApiBaseUrl),
 		WithGatewayPublicPort(gwPort),
+		WithGRPCConfig(connectConfig.NewGRPCConfig(
+			ctx,
+			connectGRPC.DefaultConnectGRPCIP, grpcGwPort,
+			connectGRPC.DefaultConnectGRPCIP, grpcExecPort,
+		)),
 	}
 
 	if len(params) > 0 {
@@ -1030,29 +1106,42 @@ func createTestingGateway(t *testing.T, params ...testingParameters) testingReso
 	svc.logger = l
 
 	go func() {
-		// NOTE: Do not call require/assert on t from this goroutine.
-		// The test may have already finished by the time svc.Run returns,
-		// and calling t.FailNow / require from a non-test goroutine after
-		// the test completes causes a panic.
-		if err := svc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			t.Logf("svc.Run exited with unexpected error: %v", err)
+		err := svc.Run(ctx)
+		if err != nil {
+			require.ErrorIs(t, err, context.Canceled)
 		}
 	}()
 	t.Cleanup(func() {
 		_ = svc.Stop(context.Background())
 	})
 
-	// Wait until fake API is up.
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(fakeApiBaseUrl + "/ready")
-		return err == nil && resp.StatusCode == http.StatusOK
-	}, 30*time.Second, 100*time.Millisecond, "failed to connect to fake api")
+	// Wait until fake API is up
+	maxAttempts := 10
+	for i := 0; i <= maxAttempts; i++ {
+		if i == maxAttempts {
+			require.Fail(t, "failed to connect to fake api")
+		}
 
-	// Wait until gateway is up.
-	require.Eventually(t, func() bool {
+		resp, err := http.Get(fakeApiBaseUrl + "/ready")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Wait until gateway is up
+	maxAttempts = 10
+	for i := 0; i <= maxAttempts; i++ {
+		if i == maxAttempts {
+			require.Fail(t, "failed to connect to gateway")
+		}
+
 		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/ready", gwPort))
-		return err == nil && resp.StatusCode == http.StatusOK
-	}, 30*time.Second, 100*time.Millisecond, "failed to connect to gateway")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	var ws *websocket.Conn
 	if len(params) == 0 || !params[0].noConnect {
