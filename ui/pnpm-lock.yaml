@@ -116,13 +116,13 @@ importers:
         version: 0.2.2(tailwindcss@3.4.19(yaml@2.9.0))
       '@inngest/agent-kit':
         specifier: ^0.13.2
-        version: 0.13.2(inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3))(supports-color@5.5.0)(zod@4.4.3)
+        version: 0.13.2(inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3))(zod@4.4.3)
       '@inngest/realtime':
         specifier: 0.4.7
-        version: 0.4.7(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
+        version: 0.4.7(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
       '@inngest/use-agent':
         specifier: ^0.4.0
-        version: 0.4.0(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(uuid@14.0.0)(zod@4.4.3)
+        version: 0.4.0(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(uuid@14.0.0)(zod@4.4.3)
       '@launchdarkly/node-server-sdk':
         specifier: ^9.0.3
         version: 9.11.2
@@ -155,7 +155,7 @@ importers:
         version: 0.4.0(@typescript-eslint/utils@8.61.0(eslint@10.5.0(jiti@1.21.7))(typescript@5.9.3))(eslint@10.5.0(jiti@1.21.7))(supports-color@5.5.0)(typescript@5.9.3)
       '@tanstack/nitro-v2-vite-plugin':
         specifier: ^1.154.7
-        version: 1.155.0(oxc-parser@0.127.0)(rolldown@1.1.1)(supports-color@5.5.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))
+        version: 1.155.0(oxc-parser@0.127.0)(rolldown@1.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))
       '@tanstack/react-query':
         specifier: ^5.66.5
         version: 5.101.0(react@19.2.7)
@@ -212,7 +212,7 @@ importers:
         version: 7.4.0(graphql@16.14.2)
       inngest:
         specifier: 4.4.1-pr-1521.15
-        version: 4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
+        version: 4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
       ky:
         specifier: ^2.0.0
         version: 2.0.2
@@ -341,8 +341,8 @@ importers:
         specifier: 6.1.1
         version: 6.1.1(supports-color@5.5.0)(typescript@5.9.3)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))
       vitest:
-        specifier: 4.1.8
-        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))
 
   apps/dev-server-ui:
     dependencies:
@@ -477,8 +477,8 @@ importers:
         specifier: 6.1.1
         version: 6.1.1(typescript@5.9.3)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
       vitest:
-        specifier: 4.1.8
-        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
 
   apps/support:
     dependencies:
@@ -818,8 +818,8 @@ importers:
         specifier: 8.0.16
         version: 8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0)
       vitest:
-        specifier: 4.1.8
-        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
 
   packages/tsconfig: {}
 
@@ -5612,11 +5612,11 @@ packages:
   '@vitest/expect@3.2.4':
     resolution: {integrity: sha512-Io0yyORnB6sikFlt8QW5K7slY4OjqNX9jmJQ02QDda8lyM6B5oNgVWoSoKPac8/kgnCUzuHQKrSLtu/uOqqrig==}
 
-  '@vitest/expect@4.1.8':
-    resolution: {integrity: sha512-h3nDO677RDLEGlBxyQ5CW8RlMThSKSRLUePLOx09gNIWRL40edgA1GCZSZgf1W55MFAG6/Sw14KeaAnqv0NKdQ==}
+  '@vitest/expect@4.1.9':
+    resolution: {integrity: sha512-vl/rYsUKcBr3SnQn166+XR5ZQcgMx3DQhFWdfli/cWpLnLUmbxZvyrJZotLFUryib+LtArYMSTJ5RbQ57ZqrlA==}
 
-  '@vitest/mocker@4.1.8':
-    resolution: {integrity: sha512-LEiN/xe4OSIbKe9HQIp5OC24agGD9J5CnmMgsLohVVoOPWL9a2sBoR6VBx43jQZb7Kr1l4RCuyCJzcAa0+dojw==}
+  '@vitest/mocker@4.1.9':
+    resolution: {integrity: sha512-EVkXzBjrPGM+cK8/ANWgBrkUCfJfb38/EfTSO8h7pWvKkyPkpWxvR7BkD2MyItMF62C97zAEoqdpUixwR/e+Rw==}
     peerDependencies:
       msw: ^2.4.9
       vite: '>=6.2.7'
@@ -5629,26 +5629,26 @@ packages:
   '@vitest/pretty-format@3.2.4':
     resolution: {integrity: sha512-IVNZik8IVRJRTr9fxlitMKeJeXFFFN0JaB9PHPGQ8NKQbGpfjlTx9zO4RefN8gp7eqjNy8nyK3NZmBzOPeIxtA==}
 
-  '@vitest/pretty-format@4.1.8':
-    resolution: {integrity: sha512-9GasEBxpZ1VYIpqHf/0+YGg121uSNwCKOJqIrTwWP/TB7DmFCiaBpNl3aPZzoLWfWkuqhbH8vJIVobZkvdo2cA==}
+  '@vitest/pretty-format@4.1.9':
+    resolution: {integrity: sha512-s0iufns3iIFitdgm+YR7g1whCAaGtXz459VS9/PqyKDEEFgYIhsHOQmXgIgDuYCt7DeQmiZT0Qe2OA2p4ZPu5A==}
 
-  '@vitest/runner@4.1.8':
-    resolution: {integrity: sha512-EmVxeBAfMJvycdjd6Hm+RbFBbA9fKvo0Kx37hNpBYoYeavH3RNsBXWDooR1mgD52dCrxIIuP7UotpfiwOikvcg==}
+  '@vitest/runner@4.1.9':
+    resolution: {integrity: sha512-KXLMDtc7oe70+3mJfGrPUWPesswH+3sTxAMAMl8DG7I8IUQT4XW718dY5ID3vPUcmlu27CcKfY4P3h3I29SLJg==}
 
-  '@vitest/snapshot@4.1.8':
-    resolution: {integrity: sha512-acfZboRmAIf05DEKcBQy33VXojFJjtUdLyo7oOmV9kebb2xdU01UknNiPuPZoJZQyO7DF0gZdTGTpeAzET9QPQ==}
+  '@vitest/snapshot@4.1.9':
+    resolution: {integrity: sha512-Jc7RKGNBo8Z28WYIm0Niej4xdSPByRf6mU58VpHQkd6Zh05rlnA+twjbK5HyeIGHxrzsc3mJgS43uM0CZKzaIA==}
 
   '@vitest/spy@3.2.4':
     resolution: {integrity: sha512-vAfasCOe6AIK70iP5UD11Ac4siNUNJ9i/9PZ3NKx07sG6sUxeag1LWdNrMWeKKYBLlzuK+Gn65Yd5nyL6ds+nw==}
 
-  '@vitest/spy@4.1.8':
-    resolution: {integrity: sha512-6EevtBp6OZOPF7bmz36HrGMeP3txgVSrgebWxHOafDXGkhIzfXK14f8KF6MuFfgXXUeHxmpD3BQxkV00/3s5mA==}
+  '@vitest/spy@4.1.9':
+    resolution: {integrity: sha512-fHpsS6mIi+PiEW+vcRVOMkX1oSaPKne3VOclSFICPcGOmfKgXPU5iAah+wcNcj2xPrCCmfq99IDGf+EojhhvhA==}
 
   '@vitest/utils@3.2.4':
     resolution: {integrity: sha512-fB2V0JFrQSMsCo9HiSq3Ezpdv4iYaXRG1Sx8edX3MwxfyNn83mKiGzOcH+Fkxt4MHxr3y42fQi1oeAInqgX2QA==}
 
-  '@vitest/utils@4.1.8':
-    resolution: {integrity: sha512-uOJamYALNhfJ6iolExyQM40yIQwDqYnkKtQ5VCiSe17E33H0aQ/u+1GlRuz4LZBk6Mm3sg90G9hEbmEt37C1Zg==}
+  '@vitest/utils@4.1.9':
+    resolution: {integrity: sha512-A51o8ymO5PpqlWNnBP9ZHPXDIpuMtTLlGSjN7la4US+LJzoUMyhwjA5QXlm39JexgwHKW4Xjs8Z2d3dLCXOeuA==}
 
   '@webassemblyjs/ast@1.14.1':
     resolution: {integrity: sha512-nuBEDgQfm1ccRp/8bCQrx1frohyufl4JlbMMZ4P1wpeOfDhF6FQkxZJ1b/e+PLwr6X1Nhw6OLme5usuBWYBvuQ==}
@@ -11160,20 +11160,20 @@ packages:
       vite:
         optional: true
 
-  vitest@4.1.8:
-    resolution: {integrity: sha512-flY6ScbCIt9HThs+C5HS7jvGOB560DJtk/Z15IQROTA6zEy49Nh8T/dofWTQL+n3vswqn87sbJNiuqw1SDp5Ig==}
+  vitest@4.1.9:
+    resolution: {integrity: sha512-nE3/LEyc0z87uHYLZebqCUOaJr2hdtuPp7BQ4BosVFnfltxgAvMG08NyrSGlPpOUWvR27c5flSmYFTNr78L9GQ==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
     hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
       '@opentelemetry/api': ^1.9.0
       '@types/node': ^20.0.0 || ^22.0.0 || >=24.0.0
-      '@vitest/browser-playwright': 4.1.8
-      '@vitest/browser-preview': 4.1.8
-      '@vitest/browser-webdriverio': 4.1.8
-      '@vitest/coverage-istanbul': 4.1.8
-      '@vitest/coverage-v8': 4.1.8
-      '@vitest/ui': 4.1.8
+      '@vitest/browser-playwright': 4.1.9
+      '@vitest/browser-preview': 4.1.9
+      '@vitest/browser-webdriverio': 4.1.9
+      '@vitest/coverage-istanbul': 4.1.9
+      '@vitest/coverage-v8': 4.1.9
+      '@vitest/ui': 4.1.9
       happy-dom: '*'
       jsdom: '*'
       vite: '>=6.2.7'
@@ -13173,14 +13173,14 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
-  '@inngest/agent-kit@0.13.2(inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3))(supports-color@5.5.0)(zod@4.4.3)':
+  '@inngest/agent-kit@0.13.2(inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       '@dmitryrechkin/json-schema-to-zod': 1.0.1
       '@inngest/ai': 0.1.6
-      '@modelcontextprotocol/sdk': 1.29.0(supports-color@5.5.0)(zod@4.4.3)
+      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
       eventsource: 3.0.7
       express: 4.22.2
-      inngest: 4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
+      inngest: 4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
       xxhashjs: 0.2.2
       zod: 4.4.3
     transitivePeerDependencies:
@@ -13197,11 +13197,11 @@ snapshots:
       '@types/node': 22.19.21
       typescript: 5.9.3
 
-  '@inngest/realtime@0.4.7(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)':
+  '@inngest/realtime@0.4.7(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)':
     dependencies:
       '@standard-schema/spec': 1.1.0
       debug: 4.4.3(supports-color@5.5.0)
-      inngest: 3.54.2(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
+      inngest: 3.54.2(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
       react: 19.2.7
       zod: 4.4.3
     transitivePeerDependencies:
@@ -13219,9 +13219,9 @@ snapshots:
       - supports-color
       - typescript
 
-  '@inngest/use-agent@0.4.0(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(uuid@14.0.0)(zod@4.4.3)':
+  '@inngest/use-agent@0.4.0(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@5.9.3)(uuid@14.0.0)(zod@4.4.3)':
     dependencies:
-      '@inngest/realtime': 0.4.7(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
+      '@inngest/realtime': 0.4.7(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3)
       '@tanstack/react-query': 5.101.0(react@19.2.7)
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
@@ -13474,7 +13474,7 @@ snapshots:
       '@types/react': 19.2.17
       react: 19.2.7
 
-  '@modelcontextprotocol/sdk@1.29.0(supports-color@5.5.0)(zod@4.4.3)':
+  '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.25)
       ajv: 8.20.0
@@ -13484,8 +13484,8 @@ snapshots:
       cross-spawn: 7.0.6
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
-      express: 5.2.1(supports-color@5.5.0)
-      express-rate-limit: 8.5.2(express@5.2.1(supports-color@5.5.0))
+      express: 5.2.1
+      express-rate-limit: 8.5.2(express@5.2.1)
       hono: 4.12.25
       jose: 6.2.3
       json-schema-typed: 8.0.2
@@ -15988,9 +15988,9 @@ snapshots:
 
   '@tanstack/history@1.162.0': {}
 
-  '@tanstack/nitro-v2-vite-plugin@1.155.0(oxc-parser@0.127.0)(rolldown@1.1.1)(supports-color@5.5.0)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))':
+  '@tanstack/nitro-v2-vite-plugin@1.155.0(oxc-parser@0.127.0)(rolldown@1.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))':
     dependencies:
-      nitropack: 2.13.4(oxc-parser@0.127.0)(rolldown@1.1.1)(supports-color@5.5.0)
+      nitropack: 2.13.4(oxc-parser@0.127.0)(rolldown@1.1.1)
       pathe: 2.0.3
       vite: 8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0)
     transitivePeerDependencies:
@@ -16894,26 +16894,26 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 2.0.0
 
-  '@vitest/expect@4.1.8':
+  '@vitest/expect@4.1.9':
     dependencies:
       '@standard-schema/spec': 1.1.0
       '@types/chai': 5.2.3
-      '@vitest/spy': 4.1.8
-      '@vitest/utils': 4.1.8
+      '@vitest/spy': 4.1.9
+      '@vitest/utils': 4.1.9
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.9(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))':
     dependencies:
-      '@vitest/spy': 4.1.8
+      '@vitest/spy': 4.1.9
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
       vite: 8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0)
 
-  '@vitest/mocker@4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.9(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))':
     dependencies:
-      '@vitest/spy': 4.1.8
+      '@vitest/spy': 4.1.9
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
@@ -16923,19 +16923,19 @@ snapshots:
     dependencies:
       tinyrainbow: 2.0.0
 
-  '@vitest/pretty-format@4.1.8':
+  '@vitest/pretty-format@4.1.9':
     dependencies:
       tinyrainbow: 3.1.0
 
-  '@vitest/runner@4.1.8':
+  '@vitest/runner@4.1.9':
     dependencies:
-      '@vitest/utils': 4.1.8
+      '@vitest/utils': 4.1.9
       pathe: 2.0.3
 
-  '@vitest/snapshot@4.1.8':
+  '@vitest/snapshot@4.1.9':
     dependencies:
-      '@vitest/pretty-format': 4.1.8
-      '@vitest/utils': 4.1.8
+      '@vitest/pretty-format': 4.1.9
+      '@vitest/utils': 4.1.9
       magic-string: 0.30.21
       pathe: 2.0.3
 
@@ -16943,7 +16943,7 @@ snapshots:
     dependencies:
       tinyspy: 4.0.4
 
-  '@vitest/spy@4.1.8': {}
+  '@vitest/spy@4.1.9': {}
 
   '@vitest/utils@3.2.4':
     dependencies:
@@ -16951,9 +16951,9 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
-  '@vitest/utils@4.1.8':
+  '@vitest/utils@4.1.9':
     dependencies:
-      '@vitest/pretty-format': 4.1.8
+      '@vitest/pretty-format': 4.1.9
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
@@ -17439,7 +17439,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  body-parser@2.2.2(supports-color@5.5.0):
+  body-parser@2.2.2:
     dependencies:
       bytes: 3.1.2
       content-type: 1.0.5
@@ -18801,9 +18801,9 @@ snapshots:
 
   expect-type@1.3.0: {}
 
-  express-rate-limit@8.5.2(express@5.2.1(supports-color@5.5.0)):
+  express-rate-limit@8.5.2(express@5.2.1):
     dependencies:
-      express: 5.2.1(supports-color@5.5.0)
+      express: 5.2.1
       ip-address: 10.2.0
 
   express@4.22.2:
@@ -18842,10 +18842,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  express@5.2.1(supports-color@5.5.0):
+  express@5.2.1:
     dependencies:
       accepts: 2.0.0
-      body-parser: 2.2.2(supports-color@5.5.0)
+      body-parser: 2.2.2
       content-disposition: 1.1.0
       content-type: 1.0.5
       cookie: 0.7.2
@@ -18855,7 +18855,7 @@ snapshots:
       encodeurl: 2.0.0
       escape-html: 1.0.3
       etag: 1.8.1
-      finalhandler: 2.1.1(supports-color@5.5.0)
+      finalhandler: 2.1.1
       fresh: 2.0.0
       http-errors: 2.0.1
       merge-descriptors: 2.0.0
@@ -18866,8 +18866,8 @@ snapshots:
       proxy-addr: 2.0.7
       qs: 6.15.2
       range-parser: 1.2.1
-      router: 2.2.0(supports-color@5.5.0)
-      send: 1.2.1(supports-color@5.5.0)
+      router: 2.2.0
+      send: 1.2.1
       serve-static: 2.2.1
       statuses: 2.0.2
       type-is: 2.1.0
@@ -18962,7 +18962,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  finalhandler@2.1.1(supports-color@5.5.0):
+  finalhandler@2.1.1:
     dependencies:
       debug: 4.4.3(supports-color@5.5.0)
       encodeurl: 2.0.0
@@ -19570,7 +19570,7 @@ snapshots:
     dependencies:
       css-in-js-utils: 3.1.0
 
-  inngest@3.54.2(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3):
+  inngest@3.54.2(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3):
     dependencies:
       '@bufbuild/protobuf': 2.12.0
       '@inngest/ai': 0.1.7
@@ -19599,7 +19599,7 @@ snapshots:
       ulid: 2.4.0
       zod: 4.4.3
     optionalDependencies:
-      express: 5.2.1(supports-color@5.5.0)
+      express: 5.2.1
       h3: 2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16))
       hono: 4.12.25
       next: 16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -19609,7 +19609,7 @@ snapshots:
       - encoding
       - supports-color
 
-  inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1(supports-color@5.5.0))(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3):
+  inngest@4.4.1-pr-1521.15(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(express@5.2.1)(h3@2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16)))(hono@4.12.25)(next@16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(supports-color@5.5.0)(typescript@5.9.3)(zod@4.4.3):
     dependencies:
       '@bufbuild/protobuf': 2.12.0
       '@inngest/ai': 0.1.7
@@ -19636,7 +19636,7 @@ snapshots:
       ulid: 2.4.0
       zod: 4.4.3
     optionalDependencies:
-      express: 5.2.1(supports-color@5.5.0)
+      express: 5.2.1
       h3: 2.0.1-rc.22(crossws@0.4.6(srvx@0.11.16))
       hono: 4.12.25
       next: 16.2.9(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -19659,7 +19659,7 @@ snapshots:
     dependencies:
       loose-envify: 1.4.0
 
-  ioredis@5.11.1(supports-color@5.5.0):
+  ioredis@5.11.1:
     dependencies:
       '@ioredis/commands': 1.10.0
       cluster-key-slot: 1.1.1
@@ -19910,7 +19910,7 @@ snapshots:
 
   jest-worker@27.5.1:
     dependencies:
-      '@types/node': 24.13.1
+      '@types/node': 24.13.2
       merge-stream: 2.0.0
       supports-color: 8.1.1
 
@@ -20833,7 +20833,7 @@ snapshots:
       - uploadthing
       - wrangler
 
-  nitropack@2.13.4(oxc-parser@0.127.0)(rolldown@1.1.1)(supports-color@5.5.0):
+  nitropack@2.13.4(oxc-parser@0.127.0)(rolldown@1.1.1):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.4.2
       '@rollup/plugin-alias': 6.0.0(rollup@4.62.0)
@@ -20867,7 +20867,7 @@ snapshots:
       h3: 1.15.11
       hookable: 5.5.3
       httpxy: 0.5.3
-      ioredis: 5.11.1(supports-color@5.5.0)
+      ioredis: 5.11.1
       jiti: 2.7.0
       klona: 2.0.6
       knitwork: 1.3.0
@@ -20900,7 +20900,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       unimport: 6.3.0(oxc-parser@0.127.0)(rolldown@1.1.1)
       unplugin-utils: 0.3.1
-      unstorage: 1.17.5(db0@0.3.4)(ioredis@5.11.1(supports-color@5.5.0))
+      unstorage: 1.17.5(db0@0.3.4)(ioredis@5.11.1)
       untyped: 2.0.0
       unwasm: 0.5.3
       youch: 4.1.1
@@ -22151,7 +22151,7 @@ snapshots:
 
   rou3@0.8.1: {}
 
-  router@2.2.0(supports-color@5.5.0):
+  router@2.2.0:
     dependencies:
       debug: 4.4.3(supports-color@5.5.0)
       depd: 2.0.0
@@ -22255,7 +22255,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  send@1.2.1(supports-color@5.5.0):
+  send@1.2.1:
     dependencies:
       debug: 4.4.3(supports-color@5.5.0)
       encodeurl: 2.0.0
@@ -22305,7 +22305,7 @@ snapshots:
       encodeurl: 2.0.0
       escape-html: 1.0.3
       parseurl: 1.3.3
-      send: 1.2.1(supports-color@5.5.0)
+      send: 1.2.1
     transitivePeerDependencies:
       - supports-color
 
@@ -23209,7 +23209,7 @@ snapshots:
       '@unrs/resolver-binding-win32-ia32-msvc': 1.12.2
       '@unrs/resolver-binding-win32-x64-msvc': 1.12.2
 
-  unstorage@1.17.5(db0@0.3.4)(ioredis@5.11.1(supports-color@5.5.0)):
+  unstorage@1.17.5(db0@0.3.4)(ioredis@5.11.1):
     dependencies:
       anymatch: 3.1.3
       chokidar: 5.0.0
@@ -23221,13 +23221,13 @@ snapshots:
       ufo: 1.6.4
     optionalDependencies:
       db0: 0.3.4
-      ioredis: 5.11.1(supports-color@5.5.0)
+      ioredis: 5.11.1
 
   unstorage@2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4)(ioredis@5.11.1)(lru-cache@11.5.1)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       chokidar: 5.0.0
       db0: 0.3.4
-      ioredis: 5.11.1(supports-color@5.5.0)
+      ioredis: 5.11.1
       lru-cache: 11.5.1
       ofetch: 2.0.0-alpha.3
 
@@ -23425,15 +23425,15 @@ snapshots:
     optionalDependencies:
       vite: 8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0)
 
-  vitest@4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0)):
     dependencies:
-      '@vitest/expect': 4.1.8
-      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.8
-      '@vitest/runner': 4.1.8
-      '@vitest/snapshot': 4.1.8
-      '@vitest/spy': 4.1.8
-      '@vitest/utils': 4.1.8
+      '@vitest/expect': 4.1.9
+      '@vitest/mocker': 4.1.9(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@1.21.7)(terser@5.48.0)(yaml@2.9.0))
+      '@vitest/pretty-format': 4.1.9
+      '@vitest/runner': 4.1.9
+      '@vitest/snapshot': 4.1.9
+      '@vitest/spy': 4.1.9
+      '@vitest/utils': 4.1.9
       es-module-lexer: 2.1.0
       expect-type: 1.3.0
       magic-string: 0.30.21
@@ -23454,15 +23454,15 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.8(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0)):
     dependencies:
-      '@vitest/expect': 4.1.8
-      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.8
-      '@vitest/runner': 4.1.8
-      '@vitest/snapshot': 4.1.8
-      '@vitest/spy': 4.1.8
-      '@vitest/utils': 4.1.8
+      '@vitest/expect': 4.1.9
+      '@vitest/mocker': 4.1.9(vite@8.0.16(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
+      '@vitest/pretty-format': 4.1.9
+      '@vitest/runner': 4.1.9
+      '@vitest/snapshot': 4.1.9
+      '@vitest/spy': 4.1.9
+      '@vitest/utils': 4.1.9
       es-module-lexer: 2.1.0
       expect-type: 1.3.0
       magic-string: 0.30.21
