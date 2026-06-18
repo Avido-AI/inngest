@@ -7,7 +7,7 @@ settings:
 overrides:
   '@babel/runtime@<7.26.10': '>=7.26.10'
   '@sentry/browser@<7.119.1': '>=7.119.1'
-  '@urql/core': 6.0.1
+  '@urql/core': 6.0.2
   brace-expansion@>=1.0.0 <=1.1.11: '>=1.1.12'
   brace-expansion@>=2.0.0 <=2.0.1: '>=2.0.2'
   cipher-base@<=1.0.4: '>=1.0.5'
@@ -181,17 +181,17 @@ importers:
         specifier: ^1.0.1
         version: 1.0.2(next@16.2.9(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@urql/core':
-        specifier: 6.0.1
-        version: 6.0.1(graphql@16.14.2)
+        specifier: 6.0.2
+        version: 6.0.2(graphql@16.14.2)
       '@urql/exchange-auth':
         specifier: ^3.0.0
-        version: 3.0.0(@urql/core@6.0.1(graphql@16.14.2))
+        version: 3.0.0(@urql/core@6.0.2(graphql@16.14.2))
       '@urql/exchange-request-policy':
         specifier: ^2.0.0
-        version: 2.0.0(@urql/core@6.0.1(graphql@16.14.2))
+        version: 2.0.0(@urql/core@6.0.2(graphql@16.14.2))
       '@urql/exchange-retry':
         specifier: ^2.0.0
-        version: 2.0.0(@urql/core@6.0.1(graphql@16.14.2))
+        version: 2.0.0(@urql/core@6.0.2(graphql@16.14.2))
       change-case:
         specifier: ^5.4.4
         version: 5.4.4
@@ -263,7 +263,7 @@ importers:
         version: 3.0.2
       urql:
         specifier: ^5.0.2
-        version: 5.0.2(@urql/core@6.0.1(graphql@16.14.2))(react@19.2.7)
+        version: 5.0.3(@urql/core@6.0.2(graphql@16.14.2))(react@19.2.7)
       uuid:
         specifier: ^14.0.0
         version: 14.0.0
@@ -5586,23 +5586,23 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@urql/core@6.0.1':
-    resolution: {integrity: sha512-FZDiQk6jxbj5hixf2rEPv0jI+IZz0EqqGW8mJBEug68/zHTtT+f34guZDmyjJZyiWbj0vL165LoMr/TkeDHaug==}
+  '@urql/core@6.0.2':
+    resolution: {integrity: sha512-9Z4/o97iJujIHKIXcT6jTz147nEb2myZGUKRZ7caHomnKNmm6vd3kpIrkaCuoWJDWrF21eVbNhHWhrBP7gItYw==}
 
   '@urql/exchange-auth@3.0.0':
     resolution: {integrity: sha512-tj09xiOR2f1J2h8TE9uZWjRZipCdmDoTewEytOacDQ+0Teo+yIZxm3ppHxolQtiA51OHrGYiNTkMte8HtfvaBw==}
     peerDependencies:
-      '@urql/core': 6.0.1
+      '@urql/core': 6.0.2
 
   '@urql/exchange-request-policy@2.0.0':
     resolution: {integrity: sha512-GjTY7PMFTGUlXmz75mYcAS6TdLbJxNJ0DilHsLEFPW8CB36McSomCDRKFeCn8OBSw9+BJAaIFLBeGsPf75i69A==}
     peerDependencies:
-      '@urql/core': 6.0.1
+      '@urql/core': 6.0.2
 
   '@urql/exchange-retry@2.0.0':
     resolution: {integrity: sha512-VdSMCiOptd6Ah6g5Bo+MzrNMAGzgRMC775W86strLRQN7lvvNlhx1LwU0gzb2h/z0atcJFAmDJEbMyvupkT+7A==}
     peerDependencies:
-      '@urql/core': 6.0.1
+      '@urql/core': 6.0.2
 
   '@vercel/nft@1.10.2':
     resolution: {integrity: sha512-w+WyX5Ulmj4dtTZrxaulqrjaLZHSbnPzx75SJsTNYmotKsqn1JlLnDJa+lz5hn90HJofhl/2MAtw0mCrgM3qYw==}
@@ -11048,10 +11048,10 @@ packages:
   urlpattern-polyfill@10.1.0:
     resolution: {integrity: sha512-IGjKp/o0NL3Bso1PymYURCJxMPNAf/ILOpendP9f5B6e1rTJgdgiOvgfoT8VxCAdY+Wisb9uhGaJJf3yZ2V9nw==}
 
-  urql@5.0.2:
-    resolution: {integrity: sha512-hiBR9GNbMPMZpv9Yd40EMCc94d8eAkGcmt5jcrKVfp26ScjluAQLCEKetJ4SXLy5DJG59Y6gbuA+2yquzh20/w==}
+  urql@5.0.3:
+    resolution: {integrity: sha512-gWywgPjduTCUqWKofW6YLOy1auxe0uJN/vHa44eXGKn+f+QHNb308ZEZnKBLZ4F+jRrguaJy9CdtecTZJQWPCg==}
     peerDependencies:
-      '@urql/core': 6.0.1
+      '@urql/core': 6.0.2
       react: '>= 16.8.0'
 
   use-callback-ref@1.3.3:
@@ -16859,26 +16859,26 @@ snapshots:
   '@unrs/resolver-binding-win32-x64-msvc@1.12.2':
     optional: true
 
-  '@urql/core@6.0.1(graphql@16.14.2)':
+  '@urql/core@6.0.2(graphql@16.14.2)':
     dependencies:
       '@0no-co/graphql.web': 1.3.2(graphql@16.14.2)
       wonka: 6.3.6
     transitivePeerDependencies:
       - graphql
 
-  '@urql/exchange-auth@3.0.0(@urql/core@6.0.1(graphql@16.14.2))':
+  '@urql/exchange-auth@3.0.0(@urql/core@6.0.2(graphql@16.14.2))':
     dependencies:
-      '@urql/core': 6.0.1(graphql@16.14.2)
+      '@urql/core': 6.0.2(graphql@16.14.2)
       wonka: 6.3.6
 
-  '@urql/exchange-request-policy@2.0.0(@urql/core@6.0.1(graphql@16.14.2))':
+  '@urql/exchange-request-policy@2.0.0(@urql/core@6.0.2(graphql@16.14.2))':
     dependencies:
-      '@urql/core': 6.0.1(graphql@16.14.2)
+      '@urql/core': 6.0.2(graphql@16.14.2)
       wonka: 6.3.6
 
-  '@urql/exchange-retry@2.0.0(@urql/core@6.0.1(graphql@16.14.2))':
+  '@urql/exchange-retry@2.0.0(@urql/core@6.0.2(graphql@16.14.2))':
     dependencies:
-      '@urql/core': 6.0.1(graphql@16.14.2)
+      '@urql/core': 6.0.2(graphql@16.14.2)
       wonka: 6.3.6
 
   '@vercel/nft@1.10.2(rollup@4.62.0)':
@@ -23305,9 +23305,9 @@ snapshots:
 
   urlpattern-polyfill@10.1.0: {}
 
-  urql@5.0.2(@urql/core@6.0.1(graphql@16.14.2))(react@19.2.7):
+  urql@5.0.3(@urql/core@6.0.2(graphql@16.14.2))(react@19.2.7):
     dependencies:
-      '@urql/core': 6.0.1(graphql@16.14.2)
+      '@urql/core': 6.0.2(graphql@16.14.2)
       react: 19.2.7
       wonka: 6.3.6
 
