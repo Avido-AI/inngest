@@ -479,7 +479,7 @@ fragmentLoop:
 
 	// If this span has finished, set a preliminary output ID.
 	if (outputSpanID != nil && *outputSpanID != "") || (inputSpanID != nil && *inputSpanID != "") {
-		newSpan.OutputID, err = encodeSpanOutputID(outputSpanID, inputSpanID)
+		newSpan.OutputID, err = encodeSpanOutputID(newSpan.RunID.String(), outputSpanID, inputSpanID)
 		if err != nil {
 			logger.StdlibLogger(ctx).Error("error encoding span identifier", "error", err)
 			return nil, err
@@ -566,7 +566,7 @@ func mapRootSpansFromRows[T normalizedSpan](ctx context.Context, spans []T) (*cq
 			if targetSpanID, ok := outputDynamicRefs[*spanRefStr]; ok {
 				// We've found the span ID that we need to target for
 				// this span. So let's use it!
-				span.OutputID, err = encodeSpanOutputID(targetSpanID, nil)
+				span.OutputID, err = encodeSpanOutputID(span.RunID.String(), targetSpanID, nil)
 				if err != nil {
 					logger.StdlibLogger(ctx).Error("error encoding span output ID", "error", err)
 					return nil, err
@@ -754,7 +754,7 @@ func walkMetadataSize(span *cqrs.OtelSpan, total *int) {
 	}
 }
 
-func encodeSpanOutputID(outputSpanID *string, inputSpanID *string) (*string, error) {
+func encodeSpanOutputID(runID string, outputSpanID *string, inputSpanID *string) (*string, error) {
 	p := true
 	osid := ""
 	if outputSpanID != nil {
@@ -762,6 +762,7 @@ func encodeSpanOutputID(outputSpanID *string, inputSpanID *string) (*string, err
 	}
 
 	id := &cqrs.SpanIdentifier{
+		RunID:       runID,
 		SpanID:      osid,
 		InputSpanID: inputSpanID,
 		Preview:     &p,
@@ -2009,11 +2010,15 @@ func (w wrapper) GetSpanOutput(ctx context.Context, opts cqrs.SpanIdentifier) (*
 		return nil, fmt.Errorf("span ID or input span ID is required to retrieve output")
 	}
 
+	if opts.RunID == "" {
+		return nil, fmt.Errorf("run ID is required to retrieve span output")
+	}
+
 	so := &cqrs.SpanOutput{}
 
 	// Fetch output data from the output span (SpanID).
 	if opts.SpanID != "" {
-		rows, err := w.q.GetSpanOutput(ctx, []string{opts.SpanID})
+		rows, err := w.q.GetSpanOutput(ctx, opts.RunID, []string{opts.SpanID})
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving span output: %w", err)
 		}
@@ -2032,7 +2037,7 @@ func (w wrapper) GetSpanOutput(ctx context.Context, opts cqrs.SpanIdentifier) (*
 	// This must be queried independently to avoid the input span's output
 	// data from overwriting the correct output fetched above.
 	if opts.InputSpanID != nil && *opts.InputSpanID != "" && *opts.InputSpanID != opts.SpanID {
-		inputRows, err := w.q.GetSpanOutput(ctx, []string{*opts.InputSpanID})
+		inputRows, err := w.q.GetSpanOutput(ctx, opts.RunID, []string{*opts.InputSpanID})
 		if err != nil {
 			return nil, fmt.Errorf("error retrieving input span data: %w", err)
 		}

@@ -1520,17 +1520,22 @@ SELECT
   input,
   output
 FROM spans
-WHERE span_id IN (SELECT UNNEST($1::TEXT[]))
+WHERE run_id = $1::CHAR(26) AND span_id IN (SELECT UNNEST($2::TEXT[]))
 LIMIT 2
 `
+
+type GetSpanOutputParams struct {
+	RunID string
+	Ids   []string
+}
 
 type GetSpanOutputRow struct {
 	Input  pqtype.NullRawMessage
 	Output pqtype.NullRawMessage
 }
 
-func (q *Queries) GetSpanOutput(ctx context.Context, ids []string) ([]*GetSpanOutputRow, error) {
-	rows, err := q.db.QueryContext(ctx, getSpanOutput, pq.Array(ids))
+func (q *Queries) GetSpanOutput(ctx context.Context, arg GetSpanOutputParams) ([]*GetSpanOutputRow, error) {
+	rows, err := q.db.QueryContext(ctx, getSpanOutput, arg.RunID, pq.Array(arg.Ids))
 	if err != nil {
 		return nil, err
 	}
@@ -2564,6 +2569,10 @@ ON CONFLICT (run_id) DO UPDATE SET
                 WHEN trace_runs.has_ai = TRUE THEN TRUE
                 ELSE excluded.has_ai
              END
+WHERE NOT (
+    trace_runs.status IN (50, 300, 400, 500, 600)
+    AND excluded.status NOT IN (50, 300, 400, 500, 600)
+)
 `
 
 type InsertTraceRunParams struct {
@@ -2586,6 +2595,9 @@ type InsertTraceRunParams struct {
 	HasAi        bool
 }
 
+// Terminal status codes (matches enums.runStatusCode in pkg/enums/run_status.go):
+//
+//	50=Overflowed, 300=Completed, 400=Failed, 500=Cancelled, 600=Skipped.
 func (q *Queries) InsertTraceRun(ctx context.Context, arg InsertTraceRunParams) error {
 	_, err := q.db.ExecContext(ctx, insertTraceRun,
 		arg.AccountID,
