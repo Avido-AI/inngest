@@ -51,7 +51,14 @@ export const LinkWrapper = forwardRef<HTMLAnchorElement, LinkWrapperProps>(
         {children}
       </a>
     ) : to ? (
-      <Link to={to as LinkComponentProps['to']} target={target} preload={prefetch} resetScroll={scroll} ref={ref} {...props}>
+      <Link
+        to={to as LinkComponentProps['to']}
+        target={target}
+        preload={prefetch}
+        resetScroll={scroll}
+        ref={ref}
+        {...props}
+      >
         {children}
       </Link>
     ) : (

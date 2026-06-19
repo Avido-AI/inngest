@@ -82,7 +82,11 @@ function StepMenuItem({
     </li>
   );
 
-  return isDisabled ? content : <TanstackLink to={url}>{content}</TanstackLink>;
+  return isDisabled ? (
+    content
+  ) : (
+    <TanstackLink to={url as LinkComponentProps['to']}>{content}</TanstackLink>
+  );
 }
 
 function StepLink({ children, href, ...props }: React.PropsWithChildren<LinkProps>) {
