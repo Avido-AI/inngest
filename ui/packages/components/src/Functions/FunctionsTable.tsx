@@ -14,6 +14,7 @@ import { useSearchParam } from '../hooks/useSearchParams';
 import FunctionsStatusFilter from './StatusMenu';
 import { useColumns } from './columns';
 
+
 export function FunctionsTable({
   getFunctions,
   getFunctionVolume,
@@ -163,7 +164,11 @@ export function FunctionsTable({
             />
           }
           onRowClick={(row) =>
-            navigate({ to: pathCreator.function({ functionSlug: row.original.slug }) })
+            navigate({
+              to: pathCreator.function({
+                functionSlug: row.original.slug,
+              }) as LinkComponentProps['to'],
+            })
           }
           getRowHref={(row) => pathCreator.function({ functionSlug: row.original.slug }) as string}
         />
