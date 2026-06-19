@@ -78,7 +78,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/sqlc-dev/pqtype v0.3.0
 	github.com/stretchr/testify v1.11.1
-	github.com/testcontainers/testcontainers-go v0.42.0
+	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/twmb/franz-go v1.21.3
 	github.com/urfave/cli/v3 v3.10.0
 	github.com/valyala/fastjson v1.6.10
@@ -263,7 +263,7 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sergi/go-diff v1.3.1 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
-	github.com/shirou/gopsutil/v4 v4.26.3 // indirect
+	github.com/shirou/gopsutil/v4 v4.26.5 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/sosodev/duration v1.4.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect

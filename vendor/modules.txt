@@ -1293,7 +1293,7 @@ github.com/shirou/gopsutil/internal/common
 github.com/shirou/gopsutil/mem
 github.com/shirou/gopsutil/net
 github.com/shirou/gopsutil/process
-# github.com/shirou/gopsutil/v4 v4.26.3
+# github.com/shirou/gopsutil/v4 v4.26.5
 ## explicit; go 1.24.0
 github.com/shirou/gopsutil/v4/common
 github.com/shirou/gopsutil/v4/cpu
@@ -1347,7 +1347,7 @@ github.com/stretchr/testify/require
 # github.com/subosito/gotenv v1.6.0
 ## explicit; go 1.18
 github.com/subosito/gotenv
-# github.com/testcontainers/testcontainers-go v0.42.0
+# github.com/testcontainers/testcontainers-go v0.43.0
 ## explicit; go 1.25.0
 github.com/testcontainers/testcontainers-go
 github.com/testcontainers/testcontainers-go/exec
