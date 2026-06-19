@@ -1387,7 +1387,7 @@ github.com/urfave/cli/v3
 ## explicit; go 1.24
 github.com/valyala/fastjson
 github.com/valyala/fastjson/fastfloat
-# github.com/vektah/gqlparser/v2 v2.5.34
+# github.com/vektah/gqlparser/v2 v2.5.35
 ## explicit; go 1.22
 github.com/vektah/gqlparser/v2
 github.com/vektah/gqlparser/v2/ast
