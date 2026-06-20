@@ -1225,7 +1225,7 @@ github.com/protocolbuffers/txtpbfmt/quote
 github.com/protocolbuffers/txtpbfmt/sort
 github.com/protocolbuffers/txtpbfmt/unquote
 github.com/protocolbuffers/txtpbfmt/wrap
-# github.com/redis/rueidis v1.0.75
+# github.com/redis/rueidis v1.0.76
 ## explicit; go 1.25.0
 github.com/redis/rueidis
 github.com/redis/rueidis/internal/cmds
