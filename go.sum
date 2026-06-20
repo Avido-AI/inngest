@@ -525,8 +525,8 @@ github.com/prometheus/procfs v0.20.1 h1:XwbrGOIplXW/AU3YhIhLODXMJYyC1isLFfYCsTEy
 github.com/prometheus/procfs v0.20.1/go.mod h1:o9EMBZGRyvDrSPH1RqdxhojkuXstoe4UlK79eF5TGGo=
 github.com/protocolbuffers/txtpbfmt v0.0.0-20260217160748-a481f6a22f94 h1:2PC6Ql3jipz1KvBlqUHjjk6v4aMwE86mfDu1XMH0LR8=
 github.com/protocolbuffers/txtpbfmt v0.0.0-20260217160748-a481f6a22f94/go.mod h1:JSbkp0BviKovYYt9XunS95M3mLPibE9bGg+Y95DsEEY=
-github.com/redis/rueidis v1.0.75 h1:zPlBDvjeMHaNCJT36U9ZKJNddMDXSti7OL2H7v2KYmo=
-github.com/redis/rueidis v1.0.75/go.mod h1:UsfHPSbomB6QAVMk4iiFkzRy0nh9o7scDGa+SitvBY4=
+github.com/redis/rueidis v1.0.76 h1:RdDWuvlYBSp+bTrBvaXqJnNEL3VVzsnjo+0psPFgLc4=
+github.com/redis/rueidis v1.0.76/go.mod h1:UsfHPSbomB6QAVMk4iiFkzRy0nh9o7scDGa+SitvBY4=
 github.com/redis/rueidis/mock v1.0.68 h1:4KH+DOg8uWrccRpLzjQGJD0xk1YQtBXQhbIYoIGuBro=
 github.com/redis/rueidis/mock v1.0.68/go.mod h1:a+M+Z+czot8TnSTFwfbd9Ru20B5iE4pjyWV1aBIbSrU=
 github.com/redis/rueidis/rueidiscompat v1.0.68 h1:j+C6HpODjJ28dNvfrz5JG9QguVwmgo/WbQn0Y8nj47U=
