@@ -171,8 +171,7 @@ func (q *queue) traceEnqueueItem(ctx context.Context, l logger.Logger, i *osqueu
 		shadowPartition = osqueue.ItemShadowPartition(ctx, *i)
 	}
 
-	partitionID := defaultPartition.Identifier()
-	_, span := q.ConditionalTracer.NewSpan(ctx, "queue.EnqueueItem", partitionID.AccountID, partitionID.EnvID, partitionID.FunctionID)
+	_, span := q.ConditionalTracer.NewSpan(ctx, "queue.EnqueueItem", osqueue.TraceScopeFromQueueItem(*i, q.Name()))
 	span.SetAttributes(attribute.String("partition_id", shadowPartition.PartitionID))
 	span.SetAttributes(attribute.String("item_id", i.ID))
 	span.SetAttributes(attribute.String("run_id", i.Data.Identifier.RunID.String()))
