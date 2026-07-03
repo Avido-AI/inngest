@@ -76,7 +76,11 @@ const CommandBlock = ({
     // typescriptDefaults is a global singleton, but this app has no TypeScript
     // editing surfaces that need diagnostics (CodeSearch uses `cel`, event
     // editors use `json`), so disabling them globally is safe.
-    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+    const ts = monaco.languages.typescript as Record<string, unknown>;
+    const tsDefaults = ts?.typescriptDefaults as
+      | { setDiagnosticsOptions: (opts: Record<string, boolean>) => void }
+      | undefined;
+    tsDefaults?.setDiagnosticsOptions({
       noSemanticValidation: true,
       noSyntaxValidation: true,
       noSuggestionDiagnostics: true,
