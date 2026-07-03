@@ -1,4 +1,4 @@
-import type { SQLEditorModel, SQLEditorMountCallback } from '@inngest/components/SQLEditor/SQLEditor';
+import type { SQLEditorMountCallback } from '@inngest/components/SQLEditor/SQLEditor';
 
 import { useInsightsStateMachineContext } from '../../InsightsStateMachineContext/InsightsStateMachineContext';
 import {
@@ -11,7 +11,6 @@ import { bindEditorShortcuts } from '../actions/handleShortcuts';
 import { markTemplateVars } from '../actions/markTemplateVars';
 import { getCanRunQuery } from '../utils';
 import { useLatest, useLatestCallback } from './useLatestCallback';
-import { clickhouse, formatDialect } from 'sql-formatter';
 
 type UseInsightsSQLEditorOnMountCallbackReturn = {
   onMount: SQLEditorMountCallback;
@@ -60,16 +59,6 @@ export function useInsightsSQLEditorOnMountCallback(): UseInsightsSQLEditorOnMou
         },
       ]);
 
-      monaco.languages.registerDocumentFormattingEditProvider('sql', {
-        provideDocumentFormattingEdits: (model: SQLEditorModel) => {
-          return [
-            {
-              range: model.getFullModelRange(),
-              text: formatDialect(model.getValue(), { dialect: clickhouse }),
-            },
-          ];
-        },
-      });
 
       const markersDisposable = markTemplateVars(editor, monaco);
 

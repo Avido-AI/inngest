@@ -59,9 +59,11 @@ const INFO_PANEL = 'Info';
 const SCORING_PANEL = 'Scoring formula';
 type PanelKey = typeof INFO_PANEL | typeof SCORING_PANEL;
 
-// TimeFilter's longest preset is "Last 30 days". Don't default the range
-// past that even if the account's history retention is longer.
-const MAX_DEFAULT_DAYS = 30;
+// TimeFilter's longest preset is "Last 30 days", but we want to default
+// to 7 days to improve initial page load time.
+// Don't default the range past that even if the account's
+// history retention is longer.
+const MAX_DEFAULT_DAYS = 7;
 
 function rangeToTimeRange(range: RangeChangeProps): ExperimentTimeRange {
   if (range.type === 'absolute') return { from: range.start, to: range.end };
@@ -227,11 +229,13 @@ export function ExperimentDetailPage({
   const helperItems: HelperItem[] = [
     {
       title: INFO_PANEL,
+      label: 'INFO',
       icon: <RiFlaskLine className="h-4 w-4" />,
       action: () => togglePanel(INFO_PANEL),
     },
     {
       title: SCORING_PANEL,
+      label: 'SCORING FORMULA',
       icon: <RiListOrdered2 className="h-4 w-4" />,
       action: () => togglePanel(SCORING_PANEL),
     },
@@ -258,7 +262,7 @@ export function ExperimentDetailPage({
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-10 pt-4">
-          <h1 className="text-basis text-lg font-semibold">{experimentName}</h1>
+          <h1 className="text-basis text-lg">{experimentName}</h1>
 
           {!rangeReady ? (
             <>
@@ -366,7 +370,6 @@ export function ExperimentDetailPage({
                         scoringConfig={scoring.metrics}
                         metricRanges={metricRanges}
                         onUpdateMetric={scoring.updateMetric}
-                        pointsLeft={scoring.pointsLeft}
                         onOpenInsights={onOpenInsights}
                         showInactive={showInactive}
                         onShowInactiveChange={setShowInactive}
@@ -398,7 +401,6 @@ export function ExperimentDetailPage({
                   metrics={scoring.metrics}
                   metricRanges={metricRanges}
                   onUpdateMetric={scoring.updateMetric}
-                  pointsLeft={scoring.pointsLeft}
                 />
               )}
             </HelperPanelFrame>
