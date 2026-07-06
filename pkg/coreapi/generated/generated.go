@@ -328,7 +328,7 @@ type ComplexityRoot struct {
 		CreateDebugSession func(childComplexity int, input models.CreateDebugSessionInput) int
 		DeleteApp          func(childComplexity int, id string) int
 		DeleteAppByName    func(childComplexity int, name string) int
-		InvokeFunction     func(childComplexity int, data map[string]any, functionSlug string, user map[string]any, debugSessionID *ulid.ULID, debugRunID *ulid.ULID) int
+		InvokeFunction     func(childComplexity int, data map[string]any, functionSlug string, meta map[string]any, user map[string]any, debugSessionID *ulid.ULID, debugRunID *ulid.ULID) int
 		Rerun              func(childComplexity int, runID ulid.ULID, fromStep *models.RerunFromStepInput, debugSessionID *ulid.ULID, debugRunID *ulid.ULID) int
 		UpdateApp          func(childComplexity int, input models.UpdateAppInput) int
 	}
@@ -684,7 +684,7 @@ type MutationResolver interface {
 	UpdateApp(ctx context.Context, input models.UpdateAppInput) (*cqrs.App, error)
 	DeleteApp(ctx context.Context, id string) (string, error)
 	DeleteAppByName(ctx context.Context, name string) (bool, error)
-	InvokeFunction(ctx context.Context, data map[string]any, functionSlug string, user map[string]any, debugSessionID *ulid.ULID, debugRunID *ulid.ULID) (*bool, error)
+	InvokeFunction(ctx context.Context, data map[string]any, functionSlug string, meta map[string]any, user map[string]any, debugSessionID *ulid.ULID, debugRunID *ulid.ULID) (*bool, error)
 	CancelRun(ctx context.Context, runID ulid.ULID) (*models.FunctionRun, error)
 	Rerun(ctx context.Context, runID ulid.ULID, fromStep *models.RerunFromStepInput, debugSessionID *ulid.ULID, debugRunID *ulid.ULID) (ulid.ULID, error)
 	CreateDebugSession(ctx context.Context, input models.CreateDebugSessionInput) (*models.CreateDebugSessionResponse, error)
@@ -1938,7 +1938,8 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.InvokeFunction(childComplexity, args["data"].(map[string]any), args["functionSlug"].(string), args["user"].(map[string]any), args["debugSessionID"].(*ulid.ULID), args["debugRunID"].(*ulid.ULID)), true
+		return e.ComplexityRoot.Mutation.InvokeFunction(childComplexity, args["data"].(map[string]any), args["functionSlug"].(string), args["meta"].(map[string]any), args["user"].(map[string]any), args["debugSessionID"].(*ulid.ULID), args["debugRunID"].(*ulid.ULID)), true
+
 	case "Mutation.rerun":
 		if e.ComplexityRoot.Mutation.Rerun == nil {
 			break
@@ -3266,6 +3267,7 @@ type Mutation {
   invokeFunction(
     data: Map
     functionSlug: String!
+    meta: Map
     user: Map
     debugSessionID: ULID
     debugRunID: ULID
@@ -5383,30 +5385,38 @@ func (ec *executionContext) field_Mutation_invokeFunction_args(ctx context.Conte
 		return nil, err
 	}
 	args["functionSlug"] = arg1
-	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "user",
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "meta",
 		func(ctx context.Context, v any) (map[string]any, error) {
 			return ec.unmarshalOMap2map(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["user"] = arg2
-	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "debugSessionID",
+	args["meta"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "user",
+		func(ctx context.Context, v any) (map[string]any, error) {
+			return ec.unmarshalOMap2map(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["user"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "debugSessionID",
 		func(ctx context.Context, v any) (*ulid.ULID, error) {
 			return ec.unmarshalOULID2ᚖgithubᚗcomᚋoklogᚋulidᚋv2ᚐULID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["debugSessionID"] = arg3
-	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "debugRunID",
+	args["debugSessionID"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "debugRunID",
 		func(ctx context.Context, v any) (*ulid.ULID, error) {
 			return ec.unmarshalOULID2ᚖgithubᚗcomᚋoklogᚋulidᚋv2ᚐULID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["debugRunID"] = arg4
+	args["debugRunID"] = arg5
 	return args, nil
 }
 
@@ -10657,7 +10667,7 @@ func (ec *executionContext) _Mutation_invokeFunction(ctx context.Context, field 
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().InvokeFunction(ctx, fc.Args["data"].(map[string]any), fc.Args["functionSlug"].(string), fc.Args["user"].(map[string]any), fc.Args["debugSessionID"].(*ulid.ULID), fc.Args["debugRunID"].(*ulid.ULID))
+			return ec.Resolvers.Mutation().InvokeFunction(ctx, fc.Args["data"].(map[string]any), fc.Args["functionSlug"].(string), fc.Args["meta"].(map[string]any), fc.Args["user"].(map[string]any), fc.Args["debugSessionID"].(*ulid.ULID), fc.Args["debugRunID"].(*ulid.ULID))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *bool) graphql.Marshaler {

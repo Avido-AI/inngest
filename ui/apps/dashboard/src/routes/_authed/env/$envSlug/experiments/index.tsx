@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 
 import { InlineCode } from '@inngest/components/Code';
 import {
+  ExperimentsEmptyState,
   ExperimentsTable,
   type ExperimentListItem,
 } from '@inngest/components/Experiments';
@@ -25,7 +26,7 @@ function ExperimentsInfo() {
       text="View and compare experiment variants across your functions."
       action={
         <Link
-          href="https://www.inngest.com/docs/features/step-experimentation"
+          href="https://www.inngest.com/docs/features/inngest-functions/steps-workflows/step-experiments"
           target="_blank"
         >
           Learn about experiments
@@ -64,6 +65,21 @@ function ExperimentsComponent() {
 
   if (experimentsEnabled.isReady && !experimentsEnabled.value) {
     return <NotFound />;
+  }
+
+  const showEmptyState =
+    !isPending && !error && Array.isArray(data) && data.length === 0;
+
+  if (showEmptyState) {
+    return (
+      <>
+        <Header
+          breadcrumb={[{ text: 'All experiments' }]}
+          infoIcon={<ExperimentsInfo />}
+        />
+        <ExperimentsEmptyState />
+      </>
+    );
   }
 
   return (

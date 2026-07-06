@@ -32,10 +32,23 @@ export type Announcement = {
 
 export const announcements: Announcement[] = [
   {
+    id: 'group-experiment-2026-06',
+    title: 'group.experiment ( )',
+    body: 'Safely test variants in production',
+    imageUrl: '/images/announcements/experiment-light.png',
+    imageUrlDark: '/images/announcements/experiment-dark.png',
+    cta: {
+      label: 'Explore experiments',
+      href: 'https://www.inngest.com/blog/introducing-group-experiment',
+    },
+    startDate: '2026-06-23T17:05:00Z',
+    endDate: '2026-07-23T17:05:00Z',
+  },
+  {
     id: 'announcing-defer-2026-06',
     title: 'Introducing defer ( )',
     body: 'Schedule runs when the parent run finishes.',
-    imageUrl: '/images/announcements/defer-dark.png',
+    imageUrl: '/images/announcements/defer-light.png',
     imageUrlDark: '/images/announcements/defer-dark.png',
     cta: {
       label: 'Learn more',
@@ -44,15 +57,4 @@ export const announcements: Announcement[] = [
     startDate: '2026-06-01T00:00:00Z',
     endDate: '2026-07-01T00:00:00Z',
   },
-
-  // {
-  //   id: 'dashboards-2026-06',
-  //   title: 'Announcing insights',
-  //   body: 'Query runs and step data across your project',
-  //   // imageUrl: '/images/announcements/defer-dark.png',
-  //   // imageUrlDark: '/images/announcements/step-dark.svg',
-  //   cta: { label: 'Explore dashboards', href: 'https://www.inngest.com/docs' },
-  //   startDate: '2026-06-01T00:00:00Z',
-  //   endDate: '2026-07-01T00:00:00Z',
-  // },
 ];
