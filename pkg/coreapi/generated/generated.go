@@ -1939,7 +1939,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.InvokeFunction(childComplexity, args["data"].(map[string]any), args["functionSlug"].(string), args["meta"].(map[string]any), args["user"].(map[string]any), args["debugSessionID"].(*ulid.ULID), args["debugRunID"].(*ulid.ULID)), true
-
 	case "Mutation.rerun":
 		if e.ComplexityRoot.Mutation.Rerun == nil {
 			break
