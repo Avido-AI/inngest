@@ -56,7 +56,7 @@
     "@tanstack/react-router-ssr-query": "^1.158.1",
     "@tanstack/react-start": "^1.158.1",
     "@tanstack/react-table": "^8.21.3",
-    "@team-plain/typescript-sdk": "^3.0.1",
+    "@team-plain/typescript-sdk": "^3.9.0",
     "@unpic/react": "^1.0.1",
     "@urql/core": "^6.0.1",
     "@urql/exchange-auth": "^3.0.0",

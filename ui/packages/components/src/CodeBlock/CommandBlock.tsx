@@ -76,7 +76,8 @@ const CommandBlock = ({
     // typescriptDefaults is a global singleton, but this app has no TypeScript
     // editing surfaces that need diagnostics (CodeSearch uses `cel`, event
     // editors use `json`), so disabling them globally is safe.
-    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- upstream code; languages.typescript is deprecated in types but works at runtime
+    (monaco.languages.typescript as any).typescriptDefaults.setDiagnosticsOptions({
       noSemanticValidation: true,
       noSyntaxValidation: true,
       noSuggestionDiagnostics: true,
