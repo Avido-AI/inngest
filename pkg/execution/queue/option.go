@@ -195,6 +195,19 @@ func WithBacklogNormalizationConcurrency(limit int64) QueueOpt {
 	}
 }
 
+func WithPartitionBacklogSizeConcurrency(limit int64) QueueOpt {
+	return func(q *QueueOptions) {
+		q.partitionBacklogSizeConcurrency = limit
+	}
+}
+
+func (o QueueOptions) PartitionBacklogSizeConcurrency() int64 {
+	if o.partitionBacklogSizeConcurrency <= 0 {
+		return defaultPartitionBacklogSizeConcurrency
+	}
+	return o.partitionBacklogSizeConcurrency
+}
+
 func WithPeekConcurrencyMultiplier(m int64) QueueOpt {
 	return func(q *QueueOptions) {
 		q.peekCurrMultiplier = m
@@ -446,6 +459,7 @@ type QueueOptions struct {
 	PeekEWMALen int
 	// queueKindMapping stores a map of job kind => queue names
 	queueKindMapping        map[string]string
+	queueProducer           Producer
 	disableFifoForFunctions map[string]struct{}
 	disableFifoForAccounts  map[string]struct{}
 	peekSizeForFunctions    map[string]int64
@@ -481,10 +495,11 @@ type QueueOptions struct {
 
 	shadowContinuationLimit uint
 
-	shadowPeekMin               int64
-	shadowPeekMax               int64
-	backlogRefillLimit          int64
-	backlogNormalizeConcurrency int64
+	shadowPeekMin                   int64
+	shadowPeekMax                   int64
+	backlogRefillLimit              int64
+	backlogNormalizeConcurrency     int64
+	partitionBacklogSizeConcurrency int64
 
 	NormalizeRefreshItemCustomConcurrencyKeys NormalizeRefreshItemCustomConcurrencyKeysFn
 	RefreshItemThrottle                       RefreshItemThrottleFn
@@ -599,6 +614,12 @@ func WithInstrumentInterval(t time.Duration) QueueOpt {
 func WithEnableJobPromotion(enable bool) QueueOpt {
 	return func(q *QueueOptions) {
 		q.enableJobPromotion = enable
+	}
+}
+
+func WithQueueProducer(producer Producer) QueueOpt {
+	return func(q *QueueOptions) {
+		q.queueProducer = producer
 	}
 }
 
@@ -782,13 +803,14 @@ func NewQueueOptions(
 		PartitionPausedGetter: func(ctx context.Context, fnID uuid.UUID) PartitionPausedInfo {
 			return PartitionPausedInfo{}
 		},
-		PeekMin:                     DefaultQueuePeekMin,
-		PeekMax:                     DefaultQueuePeekMax,
-		PeekSizeExponent:            7,
-		shadowPeekMin:               ShadowPartitionPeekMinBacklogs,
-		shadowPeekMax:               ShadowPartitionPeekMaxBacklogs,
-		backlogRefillLimit:          BacklogRefillHardLimit,
-		backlogNormalizeConcurrency: defaultBacklogNormalizeConcurrency,
+		PeekMin:                         DefaultQueuePeekMin,
+		PeekMax:                         DefaultQueuePeekMax,
+		PeekSizeExponent:                7,
+		shadowPeekMin:                   ShadowPartitionPeekMinBacklogs,
+		shadowPeekMax:                   ShadowPartitionPeekMaxBacklogs,
+		backlogRefillLimit:              BacklogRefillHardLimit,
+		backlogNormalizeConcurrency:     defaultBacklogNormalizeConcurrency,
+		partitionBacklogSizeConcurrency: defaultPartitionBacklogSizeConcurrency,
 		runMode: QueueRunMode{
 			Sequential:                        true,
 			Scavenger:                         true,

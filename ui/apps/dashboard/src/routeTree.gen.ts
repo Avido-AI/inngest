@@ -16,6 +16,7 @@ import { Route as ApiSupportTicketsRouteImport } from './routes/api/support-tick
 import { Route as ApiSentryRouteImport } from './routes/api/sentry'
 import { Route as ApiInngestRouteImport } from './routes/api/inngest'
 import { Route as ApiCspReportRouteImport } from './routes/api/csp-report'
+import { Route as ApiChatValidateRouteImport } from './routes/api/chat-validate'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as authUserSetupRouteImport } from './routes/(auth)/user-setup'
 import { Route as authSwitchOrganizationRouteImport } from './routes/(auth)/switch-organization'
@@ -56,8 +57,8 @@ import { Route as AuthedSettingsIntegrationsNeonIndexRouteImport } from './route
 import { Route as AuthedSettingsIntegrationsDatadogIndexRouteImport } from './routes/_authed/settings/integrations/datadog/index'
 import { Route as AuthedIntegrationsVercelCallbackIndexRouteImport } from './routes/_authed/integrations/vercel/callback/index'
 import { Route as AuthedEnvEnvSlugUnattachedSyncsIndexRouteImport } from './routes/_authed/env/$envSlug/unattached-syncs/index'
-import { Route as AuthedEnvEnvSlugScoresIndexRouteImport } from './routes/_authed/env/$envSlug/scores/index'
 import { Route as AuthedEnvEnvSlugSessionsIndexRouteImport } from './routes/_authed/env/$envSlug/sessions/index'
+import { Route as AuthedEnvEnvSlugScoresIndexRouteImport } from './routes/_authed/env/$envSlug/scores/index'
 import { Route as AuthedEnvEnvSlugRunsIndexRouteImport } from './routes/_authed/env/$envSlug/runs/index'
 import { Route as AuthedEnvEnvSlugMetricsIndexRouteImport } from './routes/_authed/env/$envSlug/metrics/index'
 import { Route as AuthedEnvEnvSlugManageIndexRouteImport } from './routes/_authed/env/$envSlug/manage/index'
@@ -139,6 +140,11 @@ const ApiInngestRoute = ApiInngestRouteImport.update({
 const ApiCspReportRoute = ApiCspReportRouteImport.update({
   id: '/api/csp-report',
   path: '/api/csp-report',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatValidateRoute = ApiChatValidateRouteImport.update({
+  id: '/api/chat-validate',
+  path: '/api/chat-validate',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChatRoute = ApiChatRouteImport.update({
@@ -362,16 +368,16 @@ const AuthedEnvEnvSlugUnattachedSyncsIndexRoute =
     path: '/',
     getParentRoute: () => AuthedEnvEnvSlugUnattachedSyncsRouteRoute,
   } as any)
-const AuthedEnvEnvSlugScoresIndexRoute =
-  AuthedEnvEnvSlugScoresIndexRouteImport.update({
-    id: '/scores/',
-    path: '/scores/',
-    getParentRoute: () => AuthedEnvEnvSlugRouteRoute,
-  } as any)
 const AuthedEnvEnvSlugSessionsIndexRoute =
   AuthedEnvEnvSlugSessionsIndexRouteImport.update({
     id: '/sessions/',
     path: '/sessions/',
+    getParentRoute: () => AuthedEnvEnvSlugRouteRoute,
+  } as any)
+const AuthedEnvEnvSlugScoresIndexRoute =
+  AuthedEnvEnvSlugScoresIndexRouteImport.update({
+    id: '/scores/',
+    path: '/scores/',
     getParentRoute: () => AuthedEnvEnvSlugRouteRoute,
   } as any)
 const AuthedEnvEnvSlugRunsIndexRoute =
@@ -674,6 +680,7 @@ export interface FileRoutesByFullPath {
   '/switch-organization': typeof authSwitchOrganizationRoute
   '/user-setup': typeof authUserSetupRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/chat-validate': typeof ApiChatValidateRoute
   '/api/csp-report': typeof ApiCspReportRoute
   '/api/inngest': typeof ApiInngestRoute
   '/api/sentry': typeof ApiSentryRoute
@@ -771,6 +778,7 @@ export interface FileRoutesByTo {
   '/switch-organization': typeof authSwitchOrganizationRoute
   '/user-setup': typeof authUserSetupRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/chat-validate': typeof ApiChatValidateRoute
   '/api/csp-report': typeof ApiCspReportRoute
   '/api/inngest': typeof ApiInngestRoute
   '/api/sentry': typeof ApiSentryRoute
@@ -859,6 +867,7 @@ export interface FileRoutesById {
   '/(auth)/switch-organization': typeof authSwitchOrganizationRoute
   '/(auth)/user-setup': typeof authUserSetupRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/chat-validate': typeof ApiChatValidateRoute
   '/api/csp-report': typeof ApiCspReportRoute
   '/api/inngest': typeof ApiInngestRoute
   '/api/sentry': typeof ApiSentryRoute
@@ -959,6 +968,7 @@ export interface FileRouteTypes {
     | '/switch-organization'
     | '/user-setup'
     | '/api/chat'
+    | '/api/chat-validate'
     | '/api/csp-report'
     | '/api/inngest'
     | '/api/sentry'
@@ -1056,6 +1066,7 @@ export interface FileRouteTypes {
     | '/switch-organization'
     | '/user-setup'
     | '/api/chat'
+    | '/api/chat-validate'
     | '/api/csp-report'
     | '/api/inngest'
     | '/api/sentry'
@@ -1143,6 +1154,7 @@ export interface FileRouteTypes {
     | '/(auth)/switch-organization'
     | '/(auth)/user-setup'
     | '/api/chat'
+    | '/api/chat-validate'
     | '/api/csp-report'
     | '/api/inngest'
     | '/api/sentry'
@@ -1240,6 +1252,7 @@ export interface RootRouteChildren {
   authSwitchOrganizationRoute: typeof authSwitchOrganizationRoute
   authUserSetupRoute: typeof authUserSetupRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiChatValidateRoute: typeof ApiChatValidateRoute
   ApiCspReportRoute: typeof ApiCspReportRoute
   ApiInngestRoute: typeof ApiInngestRoute
   ApiSentryRoute: typeof ApiSentryRoute
@@ -1301,6 +1314,13 @@ declare module '@tanstack/react-router' {
       path: '/api/csp-report'
       fullPath: '/api/csp-report'
       preLoaderRoute: typeof ApiCspReportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chat-validate': {
+      id: '/api/chat-validate'
+      path: '/api/chat-validate'
+      fullPath: '/api/chat-validate'
+      preLoaderRoute: typeof ApiChatValidateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chat': {
@@ -1583,18 +1603,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedEnvEnvSlugUnattachedSyncsIndexRouteImport
       parentRoute: typeof AuthedEnvEnvSlugUnattachedSyncsRouteRoute
     }
-    '/_authed/env/$envSlug/scores/': {
-      id: '/_authed/env/$envSlug/scores/'
-      path: '/scores'
-      fullPath: '/env/$envSlug/scores/'
-      preLoaderRoute: typeof AuthedEnvEnvSlugScoresIndexRouteImport
-      parentRoute: typeof AuthedEnvEnvSlugRouteRoute
-    }
     '/_authed/env/$envSlug/sessions/': {
       id: '/_authed/env/$envSlug/sessions/'
       path: '/sessions'
       fullPath: '/env/$envSlug/sessions/'
       preLoaderRoute: typeof AuthedEnvEnvSlugSessionsIndexRouteImport
+      parentRoute: typeof AuthedEnvEnvSlugRouteRoute
+    }
+    '/_authed/env/$envSlug/scores/': {
+      id: '/_authed/env/$envSlug/scores/'
+      path: '/scores'
+      fullPath: '/env/$envSlug/scores/'
+      preLoaderRoute: typeof AuthedEnvEnvSlugScoresIndexRouteImport
       parentRoute: typeof AuthedEnvEnvSlugRouteRoute
     }
     '/_authed/env/$envSlug/runs/': {
@@ -2342,6 +2362,7 @@ const rootRouteChildren: RootRouteChildren = {
   authSwitchOrganizationRoute: authSwitchOrganizationRoute,
   authUserSetupRoute: authUserSetupRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiChatValidateRoute: ApiChatValidateRoute,
   ApiCspReportRoute: ApiCspReportRoute,
   ApiInngestRoute: ApiInngestRoute,
   ApiSentryRoute: ApiSentryRoute,
