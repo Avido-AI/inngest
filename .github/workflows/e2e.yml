@@ -179,6 +179,7 @@ jobs:
           INNGEST_DEV: http://127.0.0.1:8288
           TEST_MODE: true
           TEST_DATABASE: postgres
+          DEBUG: "1"
           EXPERIMENTAL_KEY_QUEUES_ENABLE: "true"
 
       - name: Convert coverage for tooling
