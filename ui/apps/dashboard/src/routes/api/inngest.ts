@@ -1,15 +1,9 @@
 import { serve } from 'inngest/edge';
 import { inngest } from '@/lib/inngest/client';
-import {
-  insightsJudgeScorer,
-  runInsightsAgent,
-} from '@/lib/inngest/functions/run-insights';
+import { runInsightsAgent } from '@/lib/inngest/functions/run-insights';
 import { createFileRoute } from '@tanstack/react-router';
 
-const handler = serve({
-  client: inngest,
-  functions: [runInsightsAgent, insightsJudgeScorer],
-});
+const handler = serve({ client: inngest, functions: [runInsightsAgent] });
 
 export const Route = createFileRoute('/api/inngest')({
   server: {

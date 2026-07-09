@@ -44,12 +44,10 @@ export function RunCountDonutCard({ variants, className, variantColorIndex, onVa
   // When the donut itself is hovered, the active segment grows via activeShape — no dimming.
   const effectiveHighlight = hoveredVariant ? null : (highlightedVariantName ?? null);
 
-  const activeShape = useCallback(
-    (props: { outerRadius?: number; [key: string]: unknown }) => (
-      <Sector {...(props as Record<string, unknown>)} outerRadius={(props.outerRadius ?? 0) + 6} />
-    ),
-    [],
-  );
+  const activeShape = useCallback((props: unknown) => {
+    const shapeProps = props as { outerRadius?: number } & Record<string, unknown>;
+    return <Sector {...shapeProps} outerRadius={(shapeProps.outerRadius ?? 0) + 6} />;
+  }, []);
 
   const data = useMemo(
     () => variants.map((v) => ({ name: v.variantName, value: v.runCount })),

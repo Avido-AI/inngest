@@ -67,20 +67,6 @@ const CommandBlock = ({
 
     monaco.languages.register({ id: 'shell' });
     monaco.languages.setMonarchTokensProvider('shell', shellLanguageTokens);
-
-    // These are read-only snippet viewers showing intentionally-incomplete
-    // code (free identifiers, fragments). Suppress the TypeScript worker's
-    // diagnostics so they don't render error squiggles, and the deprecated-
-    // symbol strikethrough (e.g. bare `event` resolving to the deprecated DOM
-    // global, which comes from suggestion diagnostics, not semantic tokens).
-    // typescriptDefaults is a global singleton, but this app has no TypeScript
-    // editing surfaces that need diagnostics (CodeSearch uses `cel`, event
-    // editors use `json`), so disabling them globally is safe.
-    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-      noSemanticValidation: true,
-      noSyntaxValidation: true,
-      noSuggestionDiagnostics: true,
-    });
   }, [monaco, dark]);
 
   const handleEditorDidMount = (editor: MonacoEditorType) => {
