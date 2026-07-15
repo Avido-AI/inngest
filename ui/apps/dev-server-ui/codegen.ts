@@ -22,8 +22,10 @@ export const config = {
     HTTPHeaders: 'Record<string, string|string[]>',
     Int64: 'number',
     Map: 'Record<string, unknown>',
-    SpanMetadataKind: '@inngest/components/RunDetailsV3/types#SpanMetadataKind',
-    SpanMetadataScope: '@inngest/components/RunDetailsV3/types#SpanMetadataScope',
+    SpanMetadataKind:
+      '@inngest/components/RunDetailsShared/types#SpanMetadataKind',
+    SpanMetadataScope:
+      '@inngest/components/RunDetailsShared/types#SpanMetadataScope',
     SpanMetadataValues: 'Record<string, unknown>',
     Time: 'string',
     ULID: 'string',

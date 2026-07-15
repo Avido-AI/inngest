@@ -59,10 +59,8 @@ protobuf: ## Generate protobuf files
 # $GOBIN must be set and be in your path for this to work
 .PHONY: queries
 queries: ## Generate sqlc queries
-	# Pinned because sqlc v1.31.0 introduced a replace directive that makes
-	# `go install ...@version` fail. This version must match the `sqlc vX.Y.Z`
-	# header in the generated files under pkg/cqrs/base_cqrs/sqlc/**.
-	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
+	# Keep this version aligned with the generated SQLC file headers.
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 	sqlc generate
 
 .PHONY: schema-dump
