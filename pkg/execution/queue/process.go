@@ -35,7 +35,7 @@ func (q *queueProcessor) ProcessItem(
 		"run_id", i.I.Data.Identifier.RunID,
 	)
 
-	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.ProcessItem", accountID, envID, fnID)
+	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.ProcessItem", TraceScopeFromQueueItem(i.I, shard.Name()))
 	defer span.End()
 	span.SetAttributes(attribute.String("partition_id", i.P.ID))
 	span.SetAttributes(attribute.String("item_id", i.I.ID))
@@ -217,6 +217,13 @@ func (q *queueProcessor) ProcessItem(
 				case <-extendCapacityLeaseCtx.Done():
 					return
 				case <-extendCapacityLeaseTick.Chan():
+					if extendCapacityLeaseCtx.Err() != nil {
+						// The capacity lease was released early (or the job
+						// finished) after this tick was buffered. Don't extend
+						// a lease we no longer hold.
+						return
+					}
+
 					if ctx.Err() != nil {
 						// Don't extend lease when the ctx is done.
 						return
@@ -254,7 +261,7 @@ func (q *queueProcessor) ProcessItem(
 					})
 					if err != nil {
 						// If the lease was explicitly released while this extend call was in
-						// flight, the error is expected — don't abort processing.
+						// flight, the error is expected and must not requeue the item.
 						if extendCapacityLeaseCtx.Err() != nil {
 							return
 						}
@@ -276,8 +283,8 @@ func (q *queueProcessor) ProcessItem(
 					}
 
 					if res.LeaseID == nil {
-						// If the lease was explicitly released, a nil response is expected.
 						if extendCapacityLeaseCtx.Err() != nil {
+							// Release won while the extension was in flight.
 							return
 						}
 						// Lease could not be extended
