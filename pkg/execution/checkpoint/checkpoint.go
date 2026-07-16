@@ -51,7 +51,12 @@ type AsyncCheckpointer interface {
 	CheckpointAsyncSteps(context.Context, AsyncCheckpoint) error
 }
 
-const pkgName = "checkpoint"
+const (
+	pkgName = "checkpoint"
+
+	checkpointModeAsync    = "async"
+	checkpointModeEndpoint = "endpoint"
+)
 
 var ErrStaleDispatch = errors.New("stale dispatch")
 
@@ -72,10 +77,6 @@ func (a AllowAsyncDispatchValidation) Enabled(ctx context.Context, acctID uuid.U
 // uncontested. The upper bound is the shortest plausible serverless timeout
 // (~10s) — longer windows let a fast-Requeue race slip past unfenced.
 const dispatchValidationSkipDuration = 10 * time.Second
-
-type queueItemLoader interface {
-	LoadQueueItem(ctx context.Context, shardName string, itemID string) (*queue.QueueItem, error)
-}
 
 type Opts struct {
 	// State allows loading and mutating state from various checkpointing APIs.
@@ -419,6 +420,8 @@ func (c checkpointer) CheckpointSyncSteps(ctx context.Context, input SyncCheckpo
 				l.Error("error handling generator in checkpoint", "error", err, "opcode", op.Op)
 			}
 		}
+
+		recordCheckpointOpcode(ctx, checkpointModeEndpoint, op)
 	}
 
 	// Persist cumulative metadata size delta to Redis so subsequent checkpoint
@@ -620,6 +623,8 @@ func (c checkpointer) checkpointAsyncSteps(ctx context.Context, input AsyncCheck
 			l.Error("unimplemented checkpoint op", "op", op.Op)
 			return fmt.Errorf("cannot checkpoint opcode: %s", op.Op)
 		}
+
+		recordCheckpointOpcode(ctx, checkpointModeAsync, op)
 	}
 
 	// Persist cumulative metadata size delta to Redis so subsequent checkpoint
@@ -669,6 +674,12 @@ func stepOutputSize(ops []state.GeneratorOpcode) int {
 	return total
 }
 
+func recordCheckpointOpcode(ctx context.Context, mode string, op state.GeneratorOpcode) {
+	metrics.IncrCheckpointSDKOpcodeCounter(ctx, op.Op.String(), mode, metrics.CounterOpt{
+		PkgName: pkgName,
+	})
+}
+
 func (c checkpointer) validateAsyncDispatch(ctx context.Context, input AsyncCheckpoint) (err error) {
 	start := time.Now()
 	result := "passed"
@@ -702,16 +713,7 @@ func (c checkpointer) validateAsyncDispatch(ctx context.Context, input AsyncChec
 		return nil
 	}
 
-	loader, ok := c.Queue.(queueItemLoader)
-	if !ok {
-		// Fail open if the queue can't load items (e.g. mock or alt backend);
-		// the alternative is rejecting every fenced POST forever.
-		logger.StdlibLogger(ctx).Warn("checkpoint: queue does not support dispatch validation; skipping", "run_id", input.RunID)
-		result = "no_loader"
-		return nil
-	}
-
-	item, err := loader.LoadQueueItem(ctx, ref.ShardID(), ref.JobID())
+	item, err := c.Queue.LoadQueueItem(ctx, ref.ShardID(), ref.JobID())
 	if errors.Is(err, queue.ErrQueueItemNotFound) {
 		return fmt.Errorf("%w: queue item not found", ErrStaleDispatch)
 	}

@@ -4,10 +4,9 @@ type error = string;
 
 // Span metadata kind types (derived from generated constants)
 export type SpanMetadataKindUserland = `userland.${string}`;
-// Score kinds embed the user-supplied score name in the suffix
-// (e.g. `inngest.score.accuracy`). The KindInngestScore constant is
-// the base prefix, not a complete kind.
-export type SpanMetadataKindInngestScore = `${typeof KindInngestScore}.${string}`;
+// The score kind is the constant `inngest.score`; user-supplied score
+// names are the keys of the values map, not a kind suffix.
+export type SpanMetadataKindInngestScore = typeof KindInngestScore;
 export type SpanMetadataKind =
   | typeof KindInngestAI
   | typeof KindInngestHTTP
@@ -44,12 +43,12 @@ export const KindInngestAI = 'inngest.ai';
 export interface AIMetadata {
   input_tokens: number /* int64 */;
   output_tokens: number /* int64 */;
-  model: string;
-  system: string;
+  request_model: string;
+  provider: string;
   operation_name: string;
   /**
    * Response identity. ResponseModel is the model that served the request (may
-   * differ from the requested Model, e.g. a dated snapshot). FinishReasons is
+   * differ from the RequestModel, e.g. a dated snapshot). FinishReasons is
    * stored raw per emitter — note OpenAI's native "tool_calls" is emitted as
    * the singular "tool_call" by some instrumentations.
    */

@@ -25,12 +25,12 @@ const (
 type AIMetadata struct {
 	InputTokens	int64	`json:"input_tokens"`
 	OutputTokens	int64	`json:"output_tokens"`
-	Model		string	`json:"model"`
-	System		string	`json:"system"`
+	RequestModel	string	`json:"request_model"`
+	Provider	string	`json:"provider"`
 	OperationName	string	`json:"operation_name"`
 
 	// Response identity. ResponseModel is the model that served the request (may
-	// differ from the requested Model, e.g. a dated snapshot). FinishReasons is
+	// differ from the RequestModel, e.g. a dated snapshot). FinishReasons is
 	// stored raw per emitter — note OpenAI's native "tool_calls" is emitted as
 	// the singular "tool_call" by some instrumentations.
 	ResponseModel	string		`json:"response_model,omitempty"`

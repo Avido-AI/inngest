@@ -20,17 +20,31 @@ export type TabsProps = {
   content: string;
   readOnly?: boolean;
   language?: string;
+  wordWrap?: 'on' | 'off';
 };
 
 type MonacoEditorType = editor.IStandaloneCodeEditor | null;
 
-const CommandBlock = ({ currentTabContent }: { currentTabContent?: TabsProps }) => {
+const CommandBlock = ({
+  currentTabContent,
+  height,
+}: {
+  currentTabContent?: TabsProps;
+  // When set, the editor is pinned to this fixed pixel height (content scrolls
+  // internally) instead of growing to fit. Keeps tabbed snippets from jumping.
+  height?: number;
+}) => {
   const [dark, setDark] = useState(isDark());
   const editorRef = useRef<MonacoEditorType>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const monaco = useMonaco();
-  const activeTabContent = currentTabContent || { content: '', readOnly: true, language: 'json' };
+  const activeTabContent: TabsProps = currentTabContent || {
+    title: '',
+    content: '',
+    readOnly: true,
+    language: 'json',
+  };
 
   useEffect(() => {
     // We don't have a DOM ref until we're rendered, so check for dark theme parent classes then
@@ -63,7 +77,7 @@ const CommandBlock = ({ currentTabContent }: { currentTabContent?: TabsProps }) 
   const updateEditorHeight = () => {
     const editor = editorRef.current;
     if (editor) {
-      const contentHeight = Math.min(1000, editor.getContentHeight());
+      const contentHeight = height != null ? height : Math.min(1000, editor.getContentHeight());
       wrapperRef.current!.style.height = `${contentHeight}px`;
       editor.layout();
     }
@@ -100,15 +114,19 @@ const CommandBlock = ({ currentTabContent }: { currentTabContent?: TabsProps }) 
               },
               scrollbar: {
                 verticalScrollbarSize: 10,
-                alwaysConsumeMouseWheel: false,
-                vertical: 'hidden',
+                // When pinned to a fixed height the editor scrolls internally,
+                // so it should consume the wheel rather than leak it to the
+                // page. Auto-height blocks don't scroll, so let the page handle
+                // the wheel as before.
+                alwaysConsumeMouseWheel: height != null,
+                vertical: height != null ? 'auto' : 'hidden',
                 horizontal: 'hidden',
               },
               padding: {
                 top: 10,
                 bottom: 10,
               },
-              wordWrap: 'off',
+              wordWrap: activeTabContent.wordWrap ?? 'off',
               wrappingStrategy: 'advanced',
               overviewRulerLanes: 0,
             }}

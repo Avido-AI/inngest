@@ -68,6 +68,13 @@ func New(
 		quit:         make(chan error, o.numWorkers),
 
 		shards: shards,
+		queueProducer: NewProducer(
+			shards,
+			WithProducerClock(o.Clock),
+			WithProducerKindToQueueMapping(o.queueKindMapping),
+			WithProducerJobPromotion(o.enableJobPromotion),
+			WithProducerConditionalTracer(o.ConditionalTracer),
+		),
 
 		peekSizeCache: ccache.New(ccache.Configure[int64]().MaxSize(50_000)),
 
@@ -86,6 +93,9 @@ func New(
 			return nil, fmt.Errorf("No shards found for configured shard group: %s", o.runMode.ShardGroup)
 		}
 	}
+	if o.queueProducer != nil {
+		qp.queueProducer = o.queueProducer
+	}
 
 	qp.configureQueueRoles()
 
@@ -101,6 +111,8 @@ type queueProcessor struct {
 	// shards owns the {shards map, selector, primary} trio. Topology can be
 	// mutated at runtime via shards.SetPrimary.
 	shards QueueShardRegistry
+
+	queueProducer Producer
 
 	// quit is a channel that any method can send on to trigger termination
 	// of the Run loop.  This typically accepts an error, but a nil error
@@ -246,7 +258,7 @@ func (q *queueProcessor) forAccountShards(ctx context.Context, accountID uuid.UU
 		return q.shards.ForEach(ctx, fn)
 	}
 
-	shard, err := q.shards.Resolve(ctx, accountID, nil)
+	shard, err := q.shards.Resolve(ctx, Scope{AccountID: accountID}, nil)
 	if err != nil {
 		return fmt.Errorf("could not resolve account shard: %w", err)
 	}
@@ -296,6 +308,25 @@ func (q *queueProcessor) Requeue(ctx context.Context, shard QueueShard, i QueueI
 // RequeueByJobID implements QueueManager.
 func (q *queueProcessor) RequeueByJobID(ctx context.Context, shard QueueShard, jobID string, at time.Time) error {
 	return shard.RequeueByJobID(ctx, jobID, at)
+}
+
+// Enqueue implements QueueManager.
+func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, opts EnqueueOpts) error {
+	return q.queueProducer.Enqueue(ctx, item, at, opts)
+}
+
+// EnqueueBatch implements the BatchEnqueuer optional interface by delegating to
+// the underlying producer when it supports batch enqueuing, otherwise falling
+// back to sequential Enqueue calls.
+func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
+	if be, ok := q.queueProducer.(BatchEnqueuer); ok {
+		return be.EnqueueBatch(ctx, items, ats, opts)
+	}
+	errs := make([]error, len(items))
+	for i := range items {
+		errs[i] = q.queueProducer.Enqueue(ctx, items[i], ats[i], opts)
+	}
+	return errs
 }
 
 // TotalSystemQueueDepth implements QueueManager.

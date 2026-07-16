@@ -2,6 +2,129 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.36.0] - 2026-07-08
+
+### 🚀 Features
+
+- Differentiate between request and response model for AI Metadata extraction with ai.step.* (#4518)
+
+### 🐛 Bug Fixes
+
+- *(release)* Open homebrew-tap PRs as ready for review (non-draft) (#4576)
+- Update AI Metadata field names (#4516)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(go)* Move one unit test job to Depot (#4568)
+
+### 🛡️ Security
+
+- Address Go vulnerabilities (#4570)
+
+## [v1.35.0] - 2026-07-07
+
+### 🚀 Features
+
+- *(experiments)* Visualize numeric metrics using box plots (#4517)
+- *(function-view)* Show key queues setting (#4546)
+- *(experiments)* Update charts/layout to match new design (#4551)
+- *(queue)* Jitter PartitionRequeue default case (#4561)
+- *(api)* Experiments api (#4504)
+
+### 🐛 Bug Fixes
+
+- Should not coalesce parallel steps for the V1 execution engine (#4538)
+- *(experiments)* Fix boxplot colors (#4542)
+
+### 🚜 Refactor
+
+- *(queue)* Clean up QueueManager interface (#4541)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(go)* Drop key-queues test matrix dimension (#4552)
+- Upload test results to CodeCov to analyze flake rates (#4545)
+- Use a depot runner for linting (#4554)
+- *(queue)* Add timeout to backlog size (#4556)
+- Track partition processing that yielded 0 peeks (#4562)
+- Cleanup unused queue injections (#4564)
+- *(release)* V1.35.0 (#4535)
+
+### ◀️ Revert
+
+- Always SavePending after parallel ops to coalesce discovery (#4021) (#4534)
+
+## [v1.34.0] - 2026-06-29
+
+### 🚀 Features
+
+- *(sessions)* Add search to `/sessions/:sessionsKey` route (#4499)
+- *(sessions)* Design feedback (#4524)
+
+### 🐛 Bug Fixes
+
+- Custom concurrency cache keys (#4501)
+- Wrong experiments docs URL (#4503)
+- *(queue)* Handle wrapped iterator errors (#4507)
+- *(support)* Fix React hydration — UI interactions unresponsive (#4510)
+- *(metadata)* Show last attempt metadata for retry groups (#4513)
+- Support only OTel GenAI in Extended Traces AI Metadata Extractor (#4509)
+- *(dashboard)* Scoring formula slider interaction (#4484)
+- The display of extended traces for steps with multiple attempts (#4523)
+- Rerun from step (#4182)
+- *(rerun-from-step)* Enable rerun from step everywhere (#4531)
+
+### 🚜 Refactor
+
+- *(queue)* Resolve shards by scope instead of acctID (#4475)
+- *(session)* Session ui empty state refactor (#4508)
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump SDK from 4.8.0 to 4.10.0 (#4496)
+- *(release)* Use homebrew_casks with goreleaser (#3462)
+- *(sessions)* Sessions UI feedback (#4500)
+- *(release)* For homebrew installed inngest-cli, use homebrew-tap for latest version (#4511)
+- Adding metrics for run duration (#4445)
+- *(release)* V1.34.0 (#4497)
+
+## [v1.33.0] - 2026-06-23
+
+### 🚀 Features
+
+- *(debugapi)* Add semaphore routes to the debug API (#4488)
+- *(sessions)* Allow sessions in invoke button (#4489)
+- Insights ai experiments updates (#4492)
+
+### 🚜 Refactor
+
+- *(queue)* Make Producer configurable in Queue (#4078)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V1.33.0 (#4490)
+
+## [v1.32.0] - 2026-06-22
+
+### 🚀 Features
+
+- *(tracing)* Allow system queue tracing (#4442)
+- *(score)* Make score kind constant (#4482)
+- *(sessions)* Sessions page optimization (#4480)
+
+### 🐛 Bug Fixes
+
+- *(support)* Fix local dev deps misalignment (#4472)
+- Update experiments docs links (#4481)
+- *(dashboard)* Drop vite back down until we can test thoroughly (#4486)
+
+### ⚙️ Miscellaneous Tasks
+
+- Dedup parallel fan-in discovery via coalesce key (#4452)
+- *(insights)* Add "Open in Insights" button on Failed Functions chart on the Metrics page (#4046)
+- *(metrics)* Add counter to checkpoint ops (#4478)
+- *(release)* V1.32.0 (#4469)
+
 ## [v1.31.0] - 2026-06-18
 
 ### 🚀 Features
@@ -22,6 +145,10 @@ All notable changes to this project will be documented in this file.
 ### 🚜 Refactor
 
 - *(devServer)* New Information Architecture (#4395)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V1.31.0 (#4451)
 
 ## [v1.30.0] - 2026-06-17
 
