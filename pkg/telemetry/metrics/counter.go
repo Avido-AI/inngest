@@ -981,6 +981,31 @@ func IncrExecutorHandleGeneratorCount(ctx context.Context, op string, opts Count
 	})
 }
 
+func IncrDiscoveryCoalesceDedupCount(ctx context.Context, opts CounterOpt) {
+	RecordCounterMetric(ctx, 1, CounterOpt{
+		PkgName:     opts.PkgName,
+		MetricName:  "executor_discovery_coalesce_dedup_total",
+		Description: "Total number of duplicate discovery steps deduplicated via parallel coalesce key",
+		Tags:        opts.Tags,
+	})
+}
+
+func IncrCheckpointSDKOpcodeCounter(ctx context.Context, op string, mode string, opts CounterOpt) {
+	if opts.Tags == nil {
+		opts.Tags = map[string]any{}
+	}
+
+	opts.Tags["op"] = op
+	opts.Tags["mode"] = mode
+
+	RecordCounterMetric(ctx, 1, CounterOpt{
+		PkgName:     opts.PkgName,
+		MetricName:  "checkpoint_sdk_opcodes_total",
+		Description: "Total number of SDK opcodes processed via checkpointing",
+		Tags:        opts.Tags,
+	})
+}
+
 func IncrConnectProxyLeaseExpiredCount(ctx context.Context, opts CounterOpt) {
 	RecordCounterMetric(ctx, 1, CounterOpt{
 		PkgName:     opts.PkgName,
