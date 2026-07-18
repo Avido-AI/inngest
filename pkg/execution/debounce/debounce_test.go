@@ -2924,6 +2924,14 @@ func (s *stubProducer) Enqueue(_ context.Context, _ queue.Item, _ time.Time, _ q
 	return s.enqueueErr
 }
 
+func (s *stubProducer) Requeue(_ context.Context, _ string, _ queue.QueueItem, _ time.Time, _ ...queue.RequeueOptionFn) error {
+	return nil
+}
+
+func (s *stubProducer) RequeueByJobID(_ context.Context, _ string, _ string, _ time.Time) error {
+	return nil
+}
+
 // stubShard implements the Name() method needed by enqueueDebounce.
 type stubShard struct {
 	queue.QueueShard
