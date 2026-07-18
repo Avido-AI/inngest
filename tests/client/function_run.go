@@ -270,10 +270,17 @@ func (c *Client) WaitForRunStatus(
 		timeout = o.Timeout
 	}
 
+	type statusObs struct {
+		at     time.Duration
+		status string
+	}
+
 	start := time.Now()
 	var (
-		run     Run
-		lastErr error
+		run          Run
+		lastErr      error
+		observations []statusObs
+		lastStatus   string
 	)
 	for {
 		var err error
@@ -284,6 +291,10 @@ func (c *Client) WaitForRunStatus(
 			lastErr = err
 		} else {
 			lastErr = nil
+			if run.Status != lastStatus {
+				observations = append(observations, statusObs{at: time.Since(start), status: run.Status})
+				lastStatus = run.Status
+			}
 			if run.Status == expectedStatus {
 				return run
 			}
@@ -298,7 +309,13 @@ func (c *Client) WaitForRunStatus(
 	if lastErr != nil {
 		require.Failf(t, "run query failed", "last error querying run %s: %v", runID, lastErr)
 	}
-	require.Failf(t, "status didn't match", "didn't get expected status: %s, got %s (runID: %s)", expectedStatus, run.Status, runID)
+	var hist strings.Builder
+	for _, o := range observations {
+		fmt.Fprintf(&hist, "[%s] %s -> ", o.at.Round(100*time.Millisecond), o.status)
+	}
+	hist.WriteString("end")
+
+	require.Failf(t, "status didn't match", "didn't get expected status: %s, got %s (runID: %s); history: %s", expectedStatus, run.Status, runID, hist.String())
 	return run
 }
 
