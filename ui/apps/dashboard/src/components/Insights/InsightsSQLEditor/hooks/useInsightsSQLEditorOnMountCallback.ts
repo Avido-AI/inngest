@@ -1,4 +1,4 @@
-import type { SQLEditorModel, SQLEditorMountCallback } from '@inngest/components/SQLEditor/SQLEditor';
+import type { SQLEditorMountCallback } from '@inngest/components/SQLEditor/SQLEditor';
 
 import { useInsightsStateMachineContext } from '../../InsightsStateMachineContext/InsightsStateMachineContext';
 import {
@@ -58,17 +58,6 @@ export function useInsightsSQLEditorOnMountCallback(): UseInsightsSQLEditorOnMou
           handler: tabManagerActions.createNewTab,
         },
       ]);
-
-      monaco.languages.registerDocumentFormattingEditProvider('sql', {
-        provideDocumentFormattingEdits: (model: SQLEditorModel) => {
-          return [
-            {
-              range: model.getFullModelRange(),
-              text: formatDialect(model.getValue(), { dialect: clickhouse }),
-            },
-          ];
-        },
-      });
 
       const markersDisposable = markTemplateVars(editor, monaco);
 
