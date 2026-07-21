@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExperimentScoringMetric } from '@inngest/components/Experiments';
 import useDebounce from '@inngest/components/hooks/useDebounce';
 
+import {
+  SCORING_METRIC_CHANGED_FIELDS,
+  trackExperimentScoringWeightUpdated,
+} from './tracking';
 import {
   useExperimentScoringConfig,
   useUpdateExperimentScoringConfig,
@@ -12,11 +16,15 @@ const DEBOUNCE_MS = 600;
 /**
  * Manages local scoring-config state with debounced persistence.
  *
- * Every mutator (`updateMetric`, `enableMetric`) applies optimistically and
- * schedules a save after DEBOUNCE_MS of inactivity. The save is skipped when
- * the local state matches the last-known server state.
+ * Every `updateMetric` call applies optimistically and schedules a save after
+ * DEBOUNCE_MS of inactivity. The save is skipped when the local state matches
+ * the last-known server state.
  */
-export function useScoringConfig(functionID: string, experimentName: string) {
+export function useScoringConfig(
+  functionID: string,
+  functionSlug: string,
+  experimentName: string,
+) {
   const scoring = useExperimentScoringConfig(functionID, experimentName);
   const updateScoring = useUpdateExperimentScoringConfig(
     functionID,
@@ -56,7 +64,31 @@ export function useScoringConfig(functionID: string, experimentName: string) {
     const serverMetrics = serverMetricsRef.current;
     if (!current || !serverMetrics) return;
     if (JSON.stringify(current) === JSON.stringify(serverMetrics)) return;
-    mutateRef.current(current);
+
+    const previousByKey = new Map(serverMetrics.map((m) => [m.key, m]));
+    mutateRef.current(current, {
+      onSuccess: () => {
+        for (const metric of current) {
+          const previous = previousByKey.get(metric.key);
+          if (!previous) continue;
+
+          const changedFields = SCORING_METRIC_CHANGED_FIELDS.filter(
+            ([field]) => previous[field] !== metric[field],
+          ).map(([, snakeField]) => snakeField);
+          if (changedFields.length === 0) continue;
+
+          trackExperimentScoringWeightUpdated({
+            experimentName,
+            functionSlug,
+            metricKey: metric.key,
+            metricKind: metric.kind,
+            enabled: metric.enabled,
+            points: metric.points,
+            changedFields,
+          });
+        }
+      },
+    });
   }, DEBOUNCE_MS);
 
   useEffect(() => {
@@ -73,27 +105,9 @@ export function useScoringConfig(functionID: string, experimentName: string) {
     [],
   );
 
-  const enableMetric = useCallback((key: string) => {
-    setLocalMetrics((prev) =>
-      prev
-        ? prev.map((m) => (m.key === key ? { ...m, enabled: true } : m))
-        : prev,
-    );
-  }, []);
-
-  const pointsLeft = useMemo(() => {
-    if (!localMetrics) return 100;
-    const allocated = localMetrics
-      .filter((m) => m.enabled)
-      .reduce((sum, m) => sum + m.points, 0);
-    return 100 - allocated;
-  }, [localMetrics]);
-
   return {
     metrics: localMetrics,
     updateMetric,
-    enableMetric,
-    pointsLeft,
     isSaving: updateScoring.isPending,
     isPending: scoring.isPending,
     error: updateScoring.error ?? scoring.error,
