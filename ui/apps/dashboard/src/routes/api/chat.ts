@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { auth } from '@clerk/tanstack-react-start/server';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { inngest } from '@/lib/inngest/client';
 
 //
@@ -9,7 +9,7 @@ const userMessageSchema = z.object({
   id: z.string().uuid('Valid message ID is required'),
   content: z.string().min(1, 'Message content is required'),
   role: z.literal('user'),
-  state: z.record(z.string(), z.unknown()).optional(),
+  state: z.record(z.unknown()).optional(),
   clientTimestamp: z.string().optional(),
   systemPrompt: z.string().optional(),
 });
@@ -51,7 +51,7 @@ export const Route = createFileRoute('/api/chat')({
             return new Response(
               JSON.stringify({
                 error:
-                  validationResult.error.issues[0]?.message ??
+                  validationResult.error.errors[0]?.message ??
                   'Invalid request',
               }),
               {
@@ -97,7 +97,13 @@ export const Route = createFileRoute('/api/chat')({
               userMessage,
               userId,
               channelKey,
+              // The chat UI subscribes to the agent stream and can execute
+              // validate_query round trips on the agent's behalf.
+              canValidate: true,
             },
+            // Groups every run for this conversation under one session in
+            // the dashboard's AI > Sessions view.
+            meta: threadId ? { sessions: { thread_id: threadId } } : undefined,
           });
 
           return new Response(
