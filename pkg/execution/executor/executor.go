@@ -3733,7 +3733,7 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 			}()
 			iCopy := *i
 			iCopy.item.GroupID = cop.groupID
-			return e.HandleGenerator(ctx, &iCopy, cop.gen)
+			return e.handleGeneratorOp(ctx, &iCopy, cop.gen, group)
 		})
 	}
 
