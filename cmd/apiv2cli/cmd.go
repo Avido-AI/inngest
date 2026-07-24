@@ -42,6 +42,11 @@ var pathParamPattern = regexp.MustCompile(`\{([^}=]+)(=[^}]*)?}`)
 var hiddenEndpointMethods = map[string]struct{}{
 	"CreatePartnerAccount": {},
 	"FetchPartnerAccounts": {},
+	"ListFunctionRuns":     {},
+}
+
+var endpointCommandNames = map[string]string{
+	"ListRuns": "get-function-runs",
 }
 
 type endpoint struct {
@@ -338,6 +343,10 @@ func methodHelp(method protoreflect.MethodDescriptor) (string, string) {
 }
 
 func endpointCommandName(methodName string) string {
+	if name, ok := endpointCommandNames[methodName]; ok {
+		return name
+	}
+
 	name := kebab(methodName)
 	for _, prefix := range []string{"fetch-", "list-"} {
 		if strings.HasPrefix(name, prefix) {
