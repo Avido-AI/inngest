@@ -186,6 +186,8 @@ jobs:
           TEST_MODE: true
           TEST_DATABASE: postgres
           EXPERIMENTAL_KEY_QUEUES_ENABLE: "true"
+          # Starts the debug gRPC API on :7777 that TestWorkerConcurrency dials.
+          DEBUG: "1"
 
       - name: Convert coverage for tooling
         run: |
