@@ -24,10 +24,6 @@ jobs:
         with:
           go-version-file: ./go.mod
 
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "24"
-
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.13.0
 
@@ -38,9 +34,9 @@ jobs:
         with:
           version: 11.8.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: pnpm
           # Key on both lockfiles this job installs: the UI build (the largest
           # install, via make build-ui) and the tests/js E2E deps.
