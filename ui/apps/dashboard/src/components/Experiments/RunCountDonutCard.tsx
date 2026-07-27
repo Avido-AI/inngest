@@ -45,9 +45,10 @@ export function RunCountDonutCard({ variants, className, variantColorIndex, onVa
   const effectiveHighlight = hoveredVariant ? null : (highlightedVariantName ?? null);
 
   const activeShape = useCallback(
-    (props: { outerRadius?: number; [key: string]: unknown }) => (
-      <Sector {...(props as Record<string, unknown>)} outerRadius={(props.outerRadius ?? 0) + 6} />
-    ),
+    (props: unknown) => {
+      const shape = props as { outerRadius?: number } & Record<string, unknown>;
+      return <Sector {...shape} outerRadius={(shape.outerRadius ?? 0) + 6} />;
+    },
     [],
   );
 
