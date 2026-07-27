@@ -8,6 +8,8 @@ import { InsightsIcon } from '@inngest/components/icons/sections/Insights';
 import { MetricsIcon } from '@inngest/components/icons/sections/Metrics';
 import { OverviewIcon } from '@inngest/components/icons/sections/Overview';
 import { RunsIcon } from '@inngest/components/icons/sections/Runs';
+import { SandboxesIcon } from '@inngest/components/icons/sections/Sandboxes';
+import { ScoresIcon } from '@inngest/components/icons/sections/Scores';
 import { SessionsIcon } from '@inngest/components/icons/sections/Sessions';
 import { WebhooksIcon } from '@inngest/components/icons/sections/Webhooks';
 
@@ -23,6 +25,7 @@ export type NavItemConfig = {
 export type NavGroupConfig = {
   heading: string;
   items: NavItemConfig[];
+  beta?: boolean;
 };
 
 export const workflow: NavGroupConfig = {
@@ -41,7 +44,7 @@ export const monitor: NavGroupConfig = {
   heading: 'Monitor',
   items: [
     { label: 'Metrics', route: 'metrics', Icon: MetricsIcon },
-    { label: 'Insights', route: 'insights', Icon: InsightsIcon, beta: true },
+    { label: 'Insights', route: 'insights', Icon: InsightsIcon },
   ],
 };
 
@@ -49,21 +52,24 @@ export const experimentsItem: NavItemConfig = {
   label: 'Experiments',
   route: 'experiments',
   Icon: ExperimentsIcon,
-  beta: true,
 };
 
 export const scoresItem: NavItemConfig = {
   label: 'Scores',
   route: 'scores',
-  Icon: InsightsIcon,
-  beta: true,
+  Icon: ScoresIcon,
 };
 
 export const sessionsItem: NavItemConfig = {
   label: 'Sessions',
   route: 'sessions',
   Icon: SessionsIcon,
-  beta: true,
+};
+
+export const sandboxesItem: NavItemConfig = {
+  label: 'Sandboxes',
+  route: 'sandboxes',
+  Icon: SandboxesIcon,
 };
 
 export const manage: NavGroupConfig = {

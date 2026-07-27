@@ -9,20 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/consts"
 	"github.com/inngest/inngest/pkg/cqrs"
-	cqrsmanager "github.com/inngest/inngest/pkg/cqrs/manager"
-	dbsqlite "github.com/inngest/inngest/pkg/db/sqlite"
 	"github.com/inngest/inngest/pkg/enums"
 	"github.com/inngest/inngest/pkg/event"
 	"github.com/inngest/inngest/pkg/execution"
 	"github.com/inngest/inngest/pkg/execution/checkpoint"
 	"github.com/inngest/inngest/pkg/execution/executor"
-	"github.com/inngest/inngest/pkg/execution/pauses"
 	"github.com/inngest/inngest/pkg/execution/queue"
 	"github.com/inngest/inngest/pkg/execution/state"
-	"github.com/inngest/inngest/pkg/execution/state/redis_state"
 	statev2 "github.com/inngest/inngest/pkg/execution/state/v2"
 	"github.com/inngest/inngest/pkg/inngest"
 	"github.com/inngest/inngest/pkg/logger"
@@ -43,147 +38,10 @@ func (s *loadDefersFailingState) LoadDefers(ctx context.Context, id statev2.ID) 
 	return nil, s.err
 }
 
-// deferTestInfra holds the shared state manager, queue, and loader used by the
-// checkpoint-vs-executor consistency tests so each test can spin up 3 runs
-// against the same backing store.
-type deferTestInfra struct {
-	ctx           context.Context
-	fn            inngest.Function
-	fnID          uuid.UUID
-	wsID          uuid.UUID
-	appID         uuid.UUID
-	aID           uuid.UUID
-	smv2          statev2.RunService
-	pauseMgr      pauses.Manager
-	loader        state.FunctionLoader
-	dbcqrs        cqrs.Manager
-	adapter       *dbsqlite.Adapter
-	queueShard    redis_state.RedisQueueShard
-	shardRegistry queue.ShardRegistryController
-	rq            queue.Queue
-}
-
-func newDeferTestInfra(t *testing.T) *deferTestInfra {
-	t.Helper()
-	ctx := logger.WithStdlib(context.Background(), logger.VoidLogger())
-
-	db, err := dbsqlite.Open(ctx, dbsqlite.Options{Persist: false, ForTest: true})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	adapter := dbsqlite.New(db)
-	dbcqrs := cqrsmanager.New(adapter)
-	loader := dbcqrs.(state.FunctionLoader)
-
-	fnID, wsID, appID, aID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-
-	fn := inngest.Function{
-		ID:              fnID,
-		FunctionVersion: 1,
-		Name:            "test-fn",
-		Slug:            "test-fn",
-		Steps: []inngest.Step{
-			{ID: "step-defer", Name: "step-defer", URI: "/step-defer"},
-		},
-	}
-
-	config, err := json.Marshal(fn)
-	require.NoError(t, err)
-
-	_, err = dbcqrs.UpsertApp(ctx, cqrs.UpsertAppParams{ID: appID, Name: "test-app"})
-	require.NoError(t, err)
-	_, err = dbcqrs.UpsertFunction(ctx, cqrs.UpsertFunctionParams{
-		ID: fnID, AppID: appID, Name: fn.Name, Slug: fn.Slug, Config: string(config),
-	})
-	require.NoError(t, err)
-
-	_, shardedRc, err := createInmemoryRedis(t)
-	require.NoError(t, err)
-	t.Cleanup(func() { shardedRc.Close() })
-
-	_, unshardedRc, err := createInmemoryRedis(t)
-	require.NoError(t, err)
-	t.Cleanup(func() { unshardedRc.Close() })
-
-	unshardedClient := redis_state.NewUnshardedClient(unshardedRc, redis_state.StateDefaultKey, redis_state.QueueDefaultKey)
-	shardedClient := redis_state.NewShardedClient(redis_state.ShardedClientOpts{
-		UnshardedClient:        unshardedClient,
-		FunctionRunStateClient: shardedRc,
-		StateDefaultKey:        redis_state.StateDefaultKey,
-		FnRunIsSharded:         redis_state.AlwaysShardOnRun,
-		BatchClient:            shardedRc,
-		QueueDefaultKey:        redis_state.QueueDefaultKey,
-	})
-
-	pauseMgr := pauses.NewPauseStoreManager(unshardedClient)
-	sm, err := redis_state.New(ctx,
-		redis_state.WithShardedClient(shardedClient),
-		redis_state.WithPauseDeleter(pauseMgr),
-	)
-	require.NoError(t, err)
-	smv2 := redis_state.MustRunServiceV2(sm)
-
-	queueOpts := []queue.QueueOpt{queue.WithIdempotencyTTL(time.Hour)}
-	queueShard := redis_state.NewQueueShard(consts.DefaultQueueShardName, unshardedClient.Queue(), queueOpts...)
-
-	shardRegistry, err := queue.NewSingleShardRegistry(queueShard)
-	require.NoError(t, err)
-
-	rq, err := queue.New(ctx, "test-queue", shardRegistry, queueOpts...)
-	require.NoError(t, err)
-
-	return &deferTestInfra{
-		ctx:           ctx,
-		fn:            fn,
-		fnID:          fnID,
-		wsID:          wsID,
-		appID:         appID,
-		aID:           aID,
-		smv2:          smv2,
-		pauseMgr:      pauseMgr,
-		loader:        loader,
-		dbcqrs:        dbcqrs,
-		adapter:       adapter,
-		queueShard:    queueShard,
-		shardRegistry: shardRegistry,
-		rq:            rq,
-	}
-}
-
-// newExecutor builds an executor wired to the shared infra. Pass a non-nil
-// driver to drive Execute() calls; pass nil when only the checkpointer will
-// be used.
-func (i *deferTestInfra) newExecutor(t *testing.T, driver *mockDriverV1) execution.Executor {
-	t.Helper()
-	return i.newExecutorWithQueue(t, i.rq, driver)
-}
-
-// newExecutorWithQueue is newExecutor with an overridable queue, used by the
-// discovery-enqueue tests that wrap the shared queue in enqueueCountingQueue.
-func (i *deferTestInfra) newExecutorWithQueue(t *testing.T, q queue.Queue, driver *mockDriverV1) execution.Executor {
-	t.Helper()
-
-	opts := []executor.ExecutorOpt{
-		executor.WithStateManager(i.smv2),
-		executor.WithPauseManager(i.pauseMgr),
-		executor.WithQueue(q),
-		executor.WithLogger(logger.StdlibLogger(i.ctx)),
-		executor.WithFunctionLoader(i.loader),
-		executor.WithShardRegistry(i.shardRegistry),
-		executor.WithTracerProvider(tracing.NewSqlcTracerProvider(i.adapter.Q())),
-	}
-	if driver != nil {
-		opts = append(opts, executor.WithDriverV1(driver))
-	}
-
-	exec, err := executor.NewExecutor(opts...)
-	require.NoError(t, err)
-	return exec
-}
-
 // newCheckpointer builds a Checkpointer using the shared infra. The Executor
 // is passed in so the checkpointer can reuse the same handler for non-Defer
 // async opcodes; for Defer-only tests, any executor works.
-func (i *deferTestInfra) newCheckpointer(t *testing.T, exec execution.Executor) checkpoint.Checkpointer {
+func (i *execTestInfra) newCheckpointer(t *testing.T, exec execution.Executor) checkpoint.Checkpointer {
 	t.Helper()
 	return checkpoint.New(checkpoint.Opts{
 		State:          i.smv2,
@@ -192,22 +50,6 @@ func (i *deferTestInfra) newCheckpointer(t *testing.T, exec execution.Executor) 
 		TracerProvider: tracing.NewSqlcTracerProvider(i.adapter.Q()),
 		Queue:          i.rq,
 	})
-}
-
-// scheduleRun kicks off a fresh run and returns its metadata.
-func (i *deferTestInfra) scheduleRun(t *testing.T, exec execution.Executor) *statev2.Metadata {
-	t.Helper()
-	now := time.Now()
-	evtID := ulid.MustNew(ulid.Timestamp(now), rand.Reader)
-
-	_, run, err := exec.Schedule(i.ctx, execution.ScheduleRequest{
-		Function: i.fn, At: &now, AccountID: i.aID, WorkspaceID: i.wsID, AppID: i.appID,
-		Events: []event.TrackedEvent{
-			event.NewBaseTrackedEventWithID(event.Event{Name: "test/event"}, evtID),
-		},
-	})
-	require.NoError(t, err)
-	return run
 }
 
 // enqueueCountingQueue wraps a queue.Queue and counts Enqueue calls for
@@ -261,10 +103,10 @@ func (s *pendingCapturingState) calls() [][]string {
 func TestDeferFinalize(t *testing.T) {
 	t.Run("emits schedule events for AfterRun defers", func(t *testing.T) {
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		ctx := infra.ctx
 
-		exec := infra.newExecutor(t, nil)
+		exec := infra.newExecutor(t)
 		var capturedEvents []event.Event
 		exec.SetFinalizer(func(ctx context.Context, id statev2.ID, events []event.Event) error {
 			capturedEvents = append(capturedEvents, events...)
@@ -341,7 +183,7 @@ func TestDeferFinalize(t *testing.T) {
 	t.Run("continues on LoadDefers error", func(t *testing.T) {
 		// Better to miss deferred runs than to block the run from finalizing.
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		ctx := infra.ctx
 
 		failingState := &loadDefersFailingState{
@@ -393,10 +235,10 @@ func TestDeferFinalize(t *testing.T) {
 
 	t.Run("rejected defers do not emit schedule events", func(t *testing.T) {
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		ctx := infra.ctx
 
-		exec := infra.newExecutor(t, nil)
+		exec := infra.newExecutor(t)
 		var capturedEvents []event.Event
 		exec.SetFinalizer(func(ctx context.Context, id statev2.ID, events []event.Event) error {
 			capturedEvents = append(capturedEvents, events...)
@@ -447,7 +289,7 @@ func TestDeferAdd(t *testing.T) {
 	t.Run("consistent across executor and checkpoint paths", func(t *testing.T) {
 		// Originally added to catch a regression where DeferAdd worked in
 		// non-checkpointing codepaths but not in checkpointing.
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		ctx := infra.ctx
 
 		op := state.GeneratorOpcode{
@@ -476,7 +318,7 @@ func TestDeferAdd(t *testing.T) {
 						response: &state.DriverResponse{StatusCode: 206, Generator: []*state.GeneratorOpcode{&op}},
 						t:        t,
 					}
-					exec := infra.newExecutor(t, driver)
+					exec := infra.newExecutor(t, executor.WithDriverV1(driver))
 					run := infra.scheduleRun(t, exec)
 					_, err := exec.Execute(ctx, state.Identifier{
 						WorkflowID: infra.fnID, RunID: run.ID.RunID, AccountID: infra.aID,
@@ -493,7 +335,7 @@ func TestDeferAdd(t *testing.T) {
 			{
 				name: "sync-checkpoint",
 				run: func(t *testing.T) statev2.ID {
-					exec := infra.newExecutor(t, nil)
+					exec := infra.newExecutor(t)
 					run := infra.scheduleRun(t, exec)
 					cp := infra.newCheckpointer(t, exec)
 					err := cp.CheckpointSyncSteps(ctx, checkpoint.SyncCheckpoint{
@@ -512,7 +354,7 @@ func TestDeferAdd(t *testing.T) {
 			{
 				name: "async-checkpoint",
 				run: func(t *testing.T) statev2.ID {
-					exec := infra.newExecutor(t, nil)
+					exec := infra.newExecutor(t)
 					run := infra.scheduleRun(t, exec)
 					cp := infra.newCheckpointer(t, exec)
 					// No QueueItemRef → async path skips the ResetAttemptsByJobID call.
@@ -554,7 +396,7 @@ func TestDeferAdd(t *testing.T) {
 		// a deferred.schedule event for the defer. Observing the event
 		// proves SaveDefer ran before state cleanup.
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		countingQ := &enqueueCountingQueue{Queue: infra.rq}
 
 		stepID := "step-defer"
@@ -580,7 +422,7 @@ func TestDeferAdd(t *testing.T) {
 			},
 		}
 
-		exec := infra.newExecutorWithQueue(t, countingQ, driver)
+		exec := infra.newExecutorWithQueue(t, countingQ, executor.WithDriverV1(driver))
 
 		var capturedEvents []event.Event
 		exec.SetFinalizer(func(ctx context.Context, id statev2.ID, events []event.Event) error {
@@ -627,7 +469,7 @@ func TestDeferAdd(t *testing.T) {
 		// run can progress. "Shouldn't happen" in normal operation (the
 		// SDK piggybacks lazy ops), but the fallback path must stay safe.
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		countingQ := &enqueueCountingQueue{Queue: infra.rq}
 
 		stepID := "step-defer"
@@ -648,7 +490,7 @@ func TestDeferAdd(t *testing.T) {
 			},
 		}
 
-		exec := infra.newExecutorWithQueue(t, countingQ, driver)
+		exec := infra.newExecutorWithQueue(t, countingQ, executor.WithDriverV1(driver))
 		run := infra.scheduleRun(t, exec)
 		countBeforeExecute := countingQ.enqueues
 
@@ -676,12 +518,13 @@ func TestDeferAdd(t *testing.T) {
 		// Lazy ops do not decrement the pending step count, so including
 		// them in the pending set wedges the run.
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		ctx := infra.ctx
 
 		const (
-			plannedStepID = "planned-step"
-			deferStepID   = "defer-add-step"
+			plannedStepID  = "planned-step"
+			plannedStepID2 = "planned-step-2"
+			deferStepID    = "defer-add-step"
 		)
 
 		spy := &pendingCapturingState{RunService: infra.smv2}
@@ -690,11 +533,12 @@ func TestDeferAdd(t *testing.T) {
 			t: t,
 			response: &state.DriverResponse{
 				StatusCode: 206,
-				// ShouldCoalesceParallelism returns true for >= 2; required for
-				// the executor to invoke SavePending.
+				// Two non-lazy ops are required for len(nonLazyIDs) > 1, which
+				// is the condition that triggers SavePending.
 				RequestVersion: 2,
 				Generator: []*state.GeneratorOpcode{
 					{Op: enums.OpcodeStepPlanned, ID: plannedStepID, Name: plannedStepID},
+					{Op: enums.OpcodeStepPlanned, ID: plannedStepID2, Name: plannedStepID2},
 					{
 						Op: enums.OpcodeDeferAdd,
 						ID: deferStepID,
@@ -747,7 +591,7 @@ func TestDeferAdd(t *testing.T) {
 		// retransmits. Bare DeferAdd (no RunComplete) so the run doesn't
 		// finalize during Execute, leaving state inspectable afterward.
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		ctx := infra.ctx
 
 		const stepID = "step-oversized"
@@ -774,7 +618,7 @@ func TestDeferAdd(t *testing.T) {
 			},
 		}
 
-		exec := infra.newExecutor(t, driver)
+		exec := infra.newExecutor(t, executor.WithDriverV1(driver))
 		run := infra.scheduleRun(t, exec)
 
 		_, err := exec.Execute(ctx, state.Identifier{
@@ -800,7 +644,7 @@ func TestDeferAdd(t *testing.T) {
 		// MaxDeferInputAggregateSize is rejected via sentinel without
 		// failing the run. The earlier accepted defer remains valid.
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		ctx := infra.ctx
 
 		const (
@@ -843,7 +687,7 @@ func TestDeferAdd(t *testing.T) {
 			},
 		}
 
-		exec := infra.newExecutor(t, driver)
+		exec := infra.newExecutor(t, executor.WithDriverV1(driver))
 		run := infra.scheduleRun(t, exec)
 
 		_, err := exec.Execute(ctx, state.Identifier{
@@ -884,7 +728,7 @@ func TestDeferAbort(t *testing.T) {
 	t.Run("consistent across executor and checkpoint paths", func(t *testing.T) {
 		// Originally added to catch a regression where DeferAbort worked
 		// in non-checkpointing codepaths but not in checkpointing.
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		ctx := infra.ctx
 
 		const (
@@ -922,7 +766,7 @@ func TestDeferAbort(t *testing.T) {
 						response: &state.DriverResponse{StatusCode: 206, Generator: []*state.GeneratorOpcode{&abortOp}},
 						t:        t,
 					}
-					exec := infra.newExecutor(t, driver)
+					exec := infra.newExecutor(t, executor.WithDriverV1(driver))
 					run := infra.scheduleRun(t, exec)
 					require.NoError(t, infra.smv2.SaveDefer(ctx, run.ID, seed))
 					_, err := exec.Execute(ctx, state.Identifier{
@@ -940,7 +784,7 @@ func TestDeferAbort(t *testing.T) {
 			{
 				name: "sync-checkpoint",
 				run: func(t *testing.T) statev2.ID {
-					exec := infra.newExecutor(t, nil)
+					exec := infra.newExecutor(t)
 					run := infra.scheduleRun(t, exec)
 					require.NoError(t, infra.smv2.SaveDefer(ctx, run.ID, seed))
 					cp := infra.newCheckpointer(t, exec)
@@ -960,7 +804,7 @@ func TestDeferAbort(t *testing.T) {
 			{
 				name: "async-checkpoint",
 				run: func(t *testing.T) statev2.ID {
-					exec := infra.newExecutor(t, nil)
+					exec := infra.newExecutor(t)
 					run := infra.scheduleRun(t, exec)
 					require.NoError(t, infra.smv2.SaveDefer(ctx, run.ID, seed))
 					cp := infra.newCheckpointer(t, exec)
@@ -996,7 +840,7 @@ func TestDeferAbort(t *testing.T) {
 		// actually reached (an error there would short-circuit before the
 		// OnlyHasLazyOps check).
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 		countingQ := &enqueueCountingQueue{Queue: infra.rq}
 
 		const (
@@ -1020,7 +864,7 @@ func TestDeferAbort(t *testing.T) {
 			},
 		}
 
-		exec := infra.newExecutorWithQueue(t, countingQ, driver)
+		exec := infra.newExecutorWithQueue(t, countingQ, executor.WithDriverV1(driver))
 		run := infra.scheduleRun(t, exec)
 
 		r.NoError(infra.smv2.SaveDefer(infra.ctx, run.ID, statev2.Defer{
@@ -1056,7 +900,7 @@ func TestDeferAbort(t *testing.T) {
 // DeferAdd hashedIDs piggybacked on RunComplete, and returns the parent run
 // ID and the deferred.schedule events emitted by Finalize. Each hashedID gets
 // its own DeferAdd op targeting the same child fn_slug.
-func (i *deferTestInfra) runParentDefer(t *testing.T, hashedIDs ...string) (ulid.ULID, []event.Event) {
+func (i *execTestInfra) runParentDefer(t *testing.T, hashedIDs ...string) (ulid.ULID, []event.Event) {
 	t.Helper()
 	r := require.New(t)
 	r.NotEmpty(hashedIDs)
@@ -1081,7 +925,7 @@ func (i *deferTestInfra) runParentDefer(t *testing.T, hashedIDs ...string) (ulid
 		t:        t,
 		response: &state.DriverResponse{StatusCode: 206, Generator: ops},
 	}
-	exec := i.newExecutor(t, driver)
+	exec := i.newExecutor(t, executor.WithDriverV1(driver))
 
 	// Capture finalization events
 	var finalizationEvents []event.Event
@@ -1134,11 +978,11 @@ func findDeferEvent(t *testing.T, events []event.Event, parentRunID ulid.ULID, h
 
 // scheduleChildRun schedules a child run with the given deferred.schedule
 // events as its triggering batch.
-func (i *deferTestInfra) scheduleChildRun(t *testing.T, deferSchedules ...event.Event) ulid.ULID {
+func (i *execTestInfra) scheduleChildRun(t *testing.T, deferSchedules ...event.Event) ulid.ULID {
 	t.Helper()
 	require.NotEmpty(t, deferSchedules)
 
-	exec := i.newExecutor(t, nil)
+	exec := i.newExecutor(t)
 	now := time.Now()
 	events := make([]event.TrackedEvent, len(deferSchedules))
 	for k, s := range deferSchedules {
@@ -1194,7 +1038,7 @@ func toParentRunIDs(got map[ulid.ULID][]cqrs.RunDeferredFrom) map[ulid.ULID][]ul
 // (flushed every sqlcFlushInterval), so linkage assertions poll until the
 // writes land instead of reading immediately.
 
-func requireDefersEventually(t *testing.T, infra *deferTestInfra, runIDs []ulid.ULID, want map[ulid.ULID][]deferRecord) {
+func requireDefersEventually(t *testing.T, infra *execTestInfra, runIDs []ulid.ULID, want map[ulid.ULID][]deferRecord) {
 	t.Helper()
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		defers, err := infra.dbcqrs.GetRunDefers(infra.ctx, runIDs)
@@ -1205,7 +1049,7 @@ func requireDefersEventually(t *testing.T, infra *deferTestInfra, runIDs []ulid.
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
-func requireDeferredFromEventually(t *testing.T, infra *deferTestInfra, runIDs []ulid.ULID, want map[ulid.ULID][]ulid.ULID) map[ulid.ULID][]cqrs.RunDeferredFrom {
+func requireDeferredFromEventually(t *testing.T, infra *execTestInfra, runIDs []ulid.ULID, want map[ulid.ULID][]ulid.ULID) map[ulid.ULID][]cqrs.RunDeferredFrom {
 	t.Helper()
 	var got map[ulid.ULID][]cqrs.RunDeferredFrom
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -1226,7 +1070,7 @@ func requireDeferredFromEventually(t *testing.T, infra *deferTestInfra, runIDs [
 func TestDeferLinkage(t *testing.T) {
 	t.Run("1 parent to 1 child", func(t *testing.T) {
 		r := require.New(t)
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 
 		parentRunID, evts := infra.runParentDefer(t, "hash-1")
 		childRunID := infra.scheduleChildRun(t,
@@ -1252,7 +1096,7 @@ func TestDeferLinkage(t *testing.T) {
 
 	// 1 parent run calls defer() twice, triggering 2 child runs.
 	t.Run("1 parent to 2 children", func(t *testing.T) {
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 
 		parentRunID, evts := infra.runParentDefer(t, "hash-a", "hash-b")
 		child1ID := infra.scheduleChildRun(t,
@@ -1289,7 +1133,7 @@ func TestDeferLinkage(t *testing.T) {
 
 	// 2 parent runs call defer() and both events batch into 1 child run.
 	t.Run("2 parents to 1 child", func(t *testing.T) {
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 
 		parent1ID, evts1 := infra.runParentDefer(t, "hash-a")
 		parent2ID, evts2 := infra.runParentDefer(t, "hash-b")
@@ -1323,7 +1167,7 @@ func TestDeferLinkage(t *testing.T) {
 
 	// 1 parent run calls defer() twice and both events batch into 1 child run.
 	t.Run("1 parent batches 2 defers to 1 child", func(t *testing.T) {
-		infra := newDeferTestInfra(t)
+		infra := newExecTestInfra(t, "step-defer")
 
 		parentRunID, evts := infra.runParentDefer(t, "hash-a", "hash-b")
 		childID := infra.scheduleChildRun(t,

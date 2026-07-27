@@ -1944,7 +1944,7 @@ func TestCQRSInsertTraceRun_TerminalMonotonicityUnderAllOrderings(t *testing.T) 
 }
 
 func TestCQRSGetTraceRunsPagination(t *testing.T) {
-	// This test verifies that cursor-based pagination works correctly for the GetSpanRuns
+	// This test verifies that cursor-based pagination works correctly for the span-backed runs list.
 	ctx := context.Background()
 	appID := uuid.New()
 
@@ -1954,8 +1954,28 @@ func TestCQRSGetTraceRunsPagination(t *testing.T) {
 	accountID := uuid.New()
 	workspaceID := uuid.New()
 	functionID := uuid.New()
+	otherAppID := uuid.New()
+	otherFunctionID := uuid.New()
+	appName := fmt.Sprintf("app:%s", appID)
+	otherAppName := "other-app"
+	functionConfig := `{"name":"Hello world","slug":"hello-world"}`
 
-	// Create 3 spans with "executor.run" name (required for GetSpanRuns) with distinct start_time
+	_, err := cm.UpsertFunction(ctx, cqrs.UpsertFunctionParams{
+		ID: functionID, AccountID: accountID, EnvID: workspaceID, AppID: appID,
+		Name: "Hello world", Slug: appName + "-hello-world", Config: functionConfig,
+	})
+	require.NoError(t, err)
+	_, err = cm.UpsertApp(ctx, cqrs.UpsertAppParams{
+		ID: otherAppID, Name: otherAppName, Checksum: "other-app", Url: "http://other-app",
+	})
+	require.NoError(t, err)
+	_, err = cm.UpsertFunction(ctx, cqrs.UpsertFunctionParams{
+		ID: otherFunctionID, AccountID: accountID, EnvID: workspaceID, AppID: otherAppID,
+		Name: "Hello world", Slug: otherAppName + "-hello-world", Config: functionConfig,
+	})
+	require.NoError(t, err)
+
+	// Create 3 spans with "executor.run" name (required for GetRuns) with distinct start_time.
 	baseTime := time.Now().UTC().Truncate(time.Second)
 	runIDs := make([]string, 3)
 	for i := 0; i < 3; i++ {
@@ -1973,6 +1993,49 @@ func TestCQRSGetTraceRunsPagination(t *testing.T) {
 			EnvID:         workspaceID.String(),
 		})
 	}
+	insertTestSpan(t, cm, testSpanFields{
+		RunID:         ulid.MustNew(ulid.Now(), rand.Reader).String(),
+		DynamicSpanID: "dyn-other-app",
+		Name:          "executor.run",
+		StartTime:     baseTime.Add(4 * time.Second),
+		AccountID:     accountID.String(),
+		AppID:         otherAppID.String(),
+		FunctionID:    otherFunctionID.String(),
+		EnvID:         workspaceID.String(),
+	})
+
+	t.Run("function-only public filter requires app", func(t *testing.T) {
+		_, err := cm.GetRuns(ctx, cqrs.GetTraceRunOpt{
+			Filter: cqrs.GetTraceRunFilter{
+				AccountID: accountID, WorkspaceID: workspaceID,
+				FunctionSlug: []string{"hello-world"},
+				TimeField:    enums.TraceRunTimeStartedAt,
+				From:         baseTime.Add(-time.Hour), Until: baseTime.Add(time.Hour),
+			},
+			Order: []cqrs.GetTraceRunOrder{{Field: enums.TraceRunTimeStartedAt, Direction: enums.TraceRunOrderDesc}},
+		})
+		require.EqualError(t, err, "app name is required when filtering by function slug")
+	})
+
+	t.Run("app and function public filters work with ended-at aggregation", func(t *testing.T) {
+		runs, err := cm.GetRuns(ctx, cqrs.GetTraceRunOpt{
+			Filter: cqrs.GetTraceRunFilter{
+				AccountID: accountID, WorkspaceID: workspaceID,
+				AppName:      []string{appName},
+				FunctionSlug: []string{"hello-world"},
+				TimeField:    enums.TraceRunTimeEndedAt,
+				From:         baseTime.Add(-time.Hour), Until: baseTime.Add(time.Hour),
+			},
+			Order: []cqrs.GetTraceRunOrder{{Field: enums.TraceRunTimeEndedAt, Direction: enums.TraceRunOrderDesc}},
+		})
+		require.NoError(t, err)
+		require.Len(t, runs, 3)
+		for _, run := range runs {
+			assert.Equal(t, "hello-world", run.FunctionSlug)
+			assert.Equal(t, "Hello world", run.FunctionName)
+			assert.Equal(t, appName, run.AppName)
+		}
+	})
 
 	t.Run("preview path paginate with cursor", func(t *testing.T) {
 		// Fetch a page of 1 item at a time. We'll use cursor to get 3 pages
@@ -2230,6 +2293,244 @@ func TestCQRSGetTraceRunsCountNonPreview(t *testing.T) {
 	count, err := cm.GetTraceRunsCount(ctx, opt)
 	require.NoError(t, err)
 	assert.Equal(t, len(runs), count, "non-preview count should match the listed runs")
+}
+
+func TestCQRSGetRunsUsesModernSpanData(t *testing.T) {
+	ctx := t.Context()
+	cm, cleanup := initCQRS(t)
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	appID := uuid.New()
+	functionID := uuid.New()
+	firstEventID := ulid.Make()
+	eventID := ulid.Make()
+	thirdEventID := ulid.Make()
+	runID := ulid.Make()
+	batchID := ulid.Make()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	deferred := true
+
+	attrs, err := json.Marshal(map[string]any{
+		meta.Attrs.BatchID.Key():      batchID.String(),
+		meta.Attrs.CronSchedule.Key(): "*/5 * * * *",
+	})
+	require.NoError(t, err)
+	eventIDs, err := json.Marshal([]string{firstEventID.String(), eventID.String(), thirdEventID.String()})
+	require.NoError(t, err)
+	insertTestSpan(t, cm, testSpanFields{
+		RunID:         runID.String(),
+		DynamicSpanID: "dyn-list-run",
+		Name:          meta.SpanNameRun,
+		Status:        enums.StepStatusQueued.String(),
+		StartTime:     baseTime,
+		AccountID:     accountID.String(),
+		AppID:         appID.String(),
+		FunctionID:    functionID.String(),
+		EnvID:         workspaceID.String(),
+		Attributes:    attrs,
+		Output:        []byte(`{"data":{"source":"root"}}`),
+		EventIds:      eventIDs,
+		IsDeferred:    deferred,
+	})
+	insertTestSpan(t, cm, testSpanFields{
+		RunID:         runID.String(),
+		DynamicSpanID: "dyn-list-run",
+		Name:          meta.SpanNameDynamicExtension,
+		Status:        enums.StepStatusCompleted.String(),
+		StartTime:     baseTime.Add(time.Second),
+		AccountID:     accountID.String(),
+		AppID:         appID.String(),
+		FunctionID:    functionID.String(),
+		EnvID:         workspaceID.String(),
+	})
+	outputAttrs, err := json.Marshal(map[string]any{meta.Attrs.IsFunctionOutput.Key(): true})
+	require.NoError(t, err)
+	insertTestSpan(t, cm, testSpanFields{
+		RunID:         runID.String(),
+		DynamicSpanID: "dyn-list-output",
+		Name:          meta.SpanNameExecution,
+		StartTime:     baseTime.Add(500 * time.Millisecond),
+		AccountID:     accountID.String(),
+		AppID:         appID.String(),
+		FunctionID:    functionID.String(),
+		EnvID:         workspaceID.String(),
+		Attributes:    outputAttrs,
+		Output:        []byte(`{"data":{"source":"function"}}`),
+	})
+	insertTestSpan(t, cm, testSpanFields{
+		RunID:         runID.String(),
+		DynamicSpanID: "dyn-list-step-output",
+		Name:          meta.SpanNameExecution,
+		StartTime:     baseTime.Add(750 * time.Millisecond),
+		AccountID:     accountID.String(),
+		AppID:         appID.String(),
+		FunctionID:    functionID.String(),
+		EnvID:         workspaceID.String(),
+		Attributes:    []byte(`{}`),
+		Output:        []byte(`{"data":{"source":"step"}}`),
+	})
+
+	runs, err := cm.GetRuns(ctx, cqrs.GetTraceRunOpt{
+		Filter: cqrs.GetTraceRunFilter{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			AppID:       []uuid.UUID{appID},
+			FunctionID:  []uuid.UUID{functionID},
+			EventID:     []ulid.ULID{eventID},
+			TimeField:   enums.TraceRunTimeStartedAt,
+			From:        baseTime.Add(-time.Hour),
+			Until:       baseTime.Add(time.Hour),
+			Status:      []enums.RunStatus{enums.RunStatusCompleted},
+			IsDeferred:  &deferred,
+		},
+		Order: []cqrs.GetTraceRunOrder{{
+			Field:     enums.TraceRunTimeStartedAt,
+			Direction: enums.TraceRunOrderDesc,
+		}},
+		Items:         10,
+		IncludeOutput: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, runID.String(), runs[0].RunID)
+	assert.Equal(t, enums.RunStatusCompleted, runs[0].Status)
+	assert.True(t, runs[0].IsDeferred)
+	assert.Equal(t, []string{firstEventID.String(), eventID.String(), thirdEventID.String()}, runs[0].TriggerIDs)
+	require.NotNil(t, runs[0].BatchID)
+	assert.Equal(t, batchID, *runs[0].BatchID)
+	require.NotNil(t, runs[0].CronSchedule)
+	assert.Equal(t, "*/5 * * * *", *runs[0].CronSchedule)
+	assert.JSONEq(t, `{"data":{"source":"function"}}`, string(runs[0].Output))
+	assert.NotEmpty(t, runs[0].Cursor)
+}
+
+func TestCQRSGetRunsMapsScheduledStatusFilter(t *testing.T) {
+	cm, cleanup := initCQRS(t)
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	appID := uuid.New()
+	functionID := uuid.New()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	runID := ulid.Make()
+	insertTestSpan(t, cm, testSpanFields{
+		RunID:         runID.String(),
+		DynamicSpanID: "dyn-scheduled-run",
+		Name:          meta.SpanNameRun,
+		Status:        enums.StepStatusQueued.String(),
+		StartTime:     baseTime,
+		AccountID:     accountID.String(),
+		AppID:         appID.String(),
+		FunctionID:    functionID.String(),
+		EnvID:         workspaceID.String(),
+	})
+
+	runs, err := cm.GetRuns(t.Context(), cqrs.GetTraceRunOpt{
+		Filter: cqrs.GetTraceRunFilter{
+			AccountID:   accountID,
+			WorkspaceID: workspaceID,
+			TimeField:   enums.TraceRunTimeStartedAt,
+			From:        baseTime.Add(-time.Hour),
+			Until:       baseTime.Add(time.Hour),
+			Status:      []enums.RunStatus{enums.RunStatusScheduled},
+		},
+		Order: []cqrs.GetTraceRunOrder{{Field: enums.TraceRunTimeStartedAt, Direction: enums.TraceRunOrderDesc}},
+		Items: 10,
+	})
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, runID.String(), runs[0].RunID)
+	assert.Equal(t, enums.RunStatusScheduled, runs[0].Status)
+}
+
+func TestCQRSGetRunsIncludesStartedAtRangeBoundaries(t *testing.T) {
+	cm, cleanup := initCQRS(t)
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	appID := uuid.New()
+	functionID := uuid.New()
+	from := time.Now().UTC().Truncate(time.Second)
+	until := from.Add(time.Minute)
+
+	for i, startedAt := range []time.Time{from, until} {
+		insertTestSpan(t, cm, testSpanFields{
+			RunID:         ulid.Make().String(),
+			DynamicSpanID: fmt.Sprintf("dyn-boundary-%d", i),
+			Name:          meta.SpanNameRun,
+			Status:        enums.StepStatusQueued.String(),
+			StartTime:     startedAt,
+			AccountID:     accountID.String(),
+			AppID:         appID.String(),
+			FunctionID:    functionID.String(),
+			EnvID:         workspaceID.String(),
+		})
+	}
+
+	runs, err := cm.GetRuns(t.Context(), cqrs.GetTraceRunOpt{
+		Filter: cqrs.GetTraceRunFilter{
+			AccountID: accountID, WorkspaceID: workspaceID,
+			TimeField: enums.TraceRunTimeStartedAt,
+			From:      from,
+			Until:     until,
+		},
+		Order: []cqrs.GetTraceRunOrder{{Field: enums.TraceRunTimeStartedAt, Direction: enums.TraceRunOrderAsc}},
+		Items: 10,
+	})
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+}
+
+func TestCQRSGetRunsIncludesFinalEndedAtUntilBoundary(t *testing.T) {
+	cm, cleanup := initCQRS(t)
+	defer cleanup()
+
+	accountID := uuid.New()
+	workspaceID := uuid.New()
+	appID := uuid.New()
+	functionID := uuid.New()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	insideRunID := ulid.Make()
+	outsideRunID := ulid.Make()
+
+	insertLifecycle := func(runID ulid.ULID, dynamicID string, finalAt time.Time) {
+		traceID := "trace-" + runID.String()
+		insertTestSpan(t, cm, testSpanFields{
+			RunID: runID.String(), TraceID: traceID, DynamicSpanID: dynamicID, Name: meta.SpanNameRun,
+			Status: enums.StepStatusQueued.String(), StartTime: baseTime.Add(-time.Second),
+			AccountID: accountID.String(), AppID: appID.String(), FunctionID: functionID.String(), EnvID: workspaceID.String(),
+		})
+		insertTestSpan(t, cm, testSpanFields{
+			RunID: runID.String(), TraceID: traceID, DynamicSpanID: dynamicID, Name: meta.SpanNameDynamicExtension,
+			Status: enums.StepStatusRunning.String(), StartTime: baseTime.Add(4 * time.Second),
+			AccountID: accountID.String(), AppID: appID.String(), FunctionID: functionID.String(), EnvID: workspaceID.String(),
+		})
+		insertTestSpan(t, cm, testSpanFields{
+			RunID: runID.String(), TraceID: traceID, DynamicSpanID: dynamicID, Name: meta.SpanNameDynamicExtension,
+			Status: enums.StepStatusCompleted.String(), StartTime: finalAt,
+			AccountID: accountID.String(), AppID: appID.String(), FunctionID: functionID.String(), EnvID: workspaceID.String(),
+		})
+	}
+	insertLifecycle(insideRunID, "dyn-ended-inside", baseTime.Add(10*time.Second-100*time.Millisecond))
+	insertLifecycle(outsideRunID, "dyn-ended-outside", baseTime.Add(15*time.Second))
+
+	runs, err := cm.GetRuns(t.Context(), cqrs.GetTraceRunOpt{
+		Filter: cqrs.GetTraceRunFilter{
+			AccountID: accountID, WorkspaceID: workspaceID,
+			TimeField: enums.TraceRunTimeEndedAt,
+			From:      baseTime,
+			Until:     baseTime.Add(10 * time.Second),
+		},
+		Order: []cqrs.GetTraceRunOrder{{Field: enums.TraceRunTimeEndedAt, Direction: enums.TraceRunOrderDesc}},
+		Items: 10,
+	})
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, insideRunID.String(), runs[0].RunID)
 }
 
 //
@@ -2611,18 +2912,18 @@ func TestExtendedTraceReparenting(t *testing.T) {
 
 		for _, attempt := range []int{0, 1} {
 			insertTestSpan(t, cm, testSpanFields{
-				RunID:        runIDStr,
+				RunID:         runIDStr,
 				DynamicSpanID: fmt.Sprintf("dyn-step-%d", attempt),
-				Name:         meta.SpanNameStep,
-				ParentSpanID: "dyn-run",
-				Attributes:   stepAttrs("step-retry", attempt),
+				Name:          meta.SpanNameStep,
+				ParentSpanID:  "dyn-run",
+				Attributes:    stepAttrs("step-retry", attempt),
 			})
 			insertTestSpan(t, cm, testSpanFields{
-				RunID:        runIDStr,
+				RunID:         runIDStr,
 				DynamicSpanID: fmt.Sprintf("dyn-userland-%d", attempt),
-				Name:         "userland",
-				ParentSpanID: "stale-otel-id",
-				Attributes:   userlandAttrs("step-retry", attempt),
+				Name:          "userland",
+				ParentSpanID:  "stale-otel-id",
+				Attributes:    userlandAttrs("step-retry", attempt),
 			})
 		}
 
@@ -2764,7 +3065,8 @@ func TestExtendedTraceReparenting(t *testing.T) {
 //
 
 type testSpanFields struct {
-	RunID          string    // required
+	RunID          string // required
+	TraceID        string
 	DynamicSpanID  string    // required for GROUP BY tests
 	ParentSpanID   string    // for child spans (references parent's DynamicSpanID)
 	DebugRunID     string    // for debug run tests
@@ -2788,7 +3090,10 @@ func insertTestSpan(t *testing.T, cm cqrs.Manager, spanFields testSpanFields) {
 	t.Helper()
 
 	spanID := ulid.MustNew(ulid.Now(), rand.Reader).String()
-	traceID := ulid.MustNew(ulid.Now(), rand.Reader).String()
+	traceID := spanFields.TraceID
+	if traceID == "" {
+		traceID = ulid.MustNew(ulid.Now(), rand.Reader).String()
+	}
 
 	// Apply defaults
 	if spanFields.Name == "" {
@@ -3010,4 +3315,134 @@ func TestCQRSGetFunctionByInternalUUIDCopyIsolation(t *testing.T) {
 	var cfg map[string]any
 	require.NoError(t, json.Unmarshal(fn.Config, &cfg))
 	assert.NotEmpty(t, cfg["triggers"])
+}
+
+// TestCQRSGetSpanReparentsUserland covers userland (extended trace) span
+// reparenting in mapRootSpansFromRows.
+//
+// The SDK parents userland spans via OTel context, whose parent_span_id is
+// unreliable across step attempts — e.g. an attempt-0 LLM span can be
+// physically parented under the attempt-1 step span, which resolves fine and
+// would otherwise leave the span on the wrong attempt.
+//
+// The reader must reparent each userland subtree ROOT to the span matching its
+// (stepID, attempt) attributes, preferring executor.step and falling back to
+// executor.execution.
+func TestCQRSGetSpanReparentsUserland(t *testing.T) {
+	const stepID = "step1"
+	runAttr := []byte(`{"_inngest.dynamic.status":"Running"}`)
+	stepAttrs := func(id string, attempt int) []byte {
+		return fmt.Appendf(nil, `{"_inngest.step.id":%q,"_inngest.step.attempt":%d}`, id, attempt)
+	}
+	userlandAttrs := func(id string, attempt int) []byte {
+		return fmt.Appendf(nil, `{"_inngest.userland":true,"_inngest.step.id":%q,"_inngest.step.attempt":%d}`, id, attempt)
+	}
+	userlandNoAttempt := func(id string) []byte {
+		return fmt.Appendf(nil, `{"_inngest.userland":true,"_inngest.step.id":%q}`, id)
+	}
+
+	// span dynamic-id -> expected parent dynamic-id after the tree is built.
+	type expect struct{ span, parent string }
+
+	cases := []struct {
+		name    string
+		spans   []testSpanFields
+		expects []expect
+	}{
+		{
+			// Both LLM spans land under the attempt-1 step in
+			// the raw data; each must move to the step matching its own attempt.
+			name: "cross-attempt: each userland span moves to its own attempt's step",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step0", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "step1", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 1)},
+				{DynamicSpanID: "chat0", ParentSpanID: "step1", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+				{DynamicSpanID: "chat1", ParentSpanID: "step1", Name: "chat", Attributes: userlandAttrs(stepID, 1)},
+			},
+			expects: []expect{{"chat0", "step0"}, {"chat1", "step1"}},
+		},
+		{
+			name: "prefers executor.step over executor.execution",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "exec", ParentSpanID: "root", Name: meta.SpanNameExecution, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "ul", ParentSpanID: "root", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+			},
+			expects: []expect{{"ul", "step"}},
+		},
+		{
+			name: "falls back to executor.execution when no step matches",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "exec", ParentSpanID: "root", Name: meta.SpanNameExecution, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "ul", ParentSpanID: "root", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+			},
+			expects: []expect{{"ul", "exec"}},
+		},
+		{
+			name: "no reparent when attempt attribute missing",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "ul", ParentSpanID: "root", Name: "chat", Attributes: userlandNoAttempt(stepID)},
+			},
+			expects: []expect{{"ul", "root"}},
+		},
+		{
+			name: "no reparent when no step or execution matches the key",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs("other", 0)},
+				{DynamicSpanID: "ul", ParentSpanID: "root", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+			},
+			expects: []expect{{"ul", "root"}},
+		},
+		{
+			// Only the root of a userland subtree is reparented; an interior node
+			// whose parent is itself userland must keep its original parent.
+			name: "only subtree root reparented; interior userland node kept",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "ulroot", ParentSpanID: "root", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+				{DynamicSpanID: "ulchild", ParentSpanID: "ulroot", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+			},
+			expects: []expect{{"ulroot", "step"}, {"ulchild", "ulroot"}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cm, cleanup := initCQRS(t)
+			defer cleanup()
+
+			runID := ulid.MustNew(ulid.Now(), rand.Reader).String()
+			for _, s := range tc.spans {
+				s.RunID = runID
+				insertTestSpan(t, cm, s)
+			}
+
+			root, err := cm.GetSpansByRunID(t.Context(), ulid.MustParse(runID))
+			require.NoError(t, err)
+			require.NotNil(t, root)
+
+			// Build a child -> parent map keyed by dynamic span ID.
+			parentOf := map[string]string{}
+			var walk func(s *cqrs.OtelSpan)
+			walk = func(s *cqrs.OtelSpan) {
+				for _, c := range s.Children {
+					parentOf[c.SpanID] = s.SpanID
+					walk(c)
+				}
+			}
+			walk(root)
+
+			for _, e := range tc.expects {
+				assert.Equal(t, e.parent, parentOf[e.span],
+					"span %q should be parented under %q", e.span, e.parent)
+			}
+		})
+	}
 }
