@@ -14,7 +14,10 @@
       "h3@<1.15.6": ">=1.15.6 <2",
       "cjs-module-lexer@<=2.2.0": "2.2.0",
       "next@<16.2.6": "16.2.6",
-      "protobufjs@<=8.6.0": "8.6.0"
+      "@opentelemetry/auto-instrumentations-node@<=0.78.0": "0.78.0",
+      "sharp@<=0.35.0": "0.35.0",
+      "protobufjs@<=8.6.5": "8.6.5",
+      "yargs@<=18.1.0": "18.1.0"
     }
   },
   "dependencies": {
@@ -23,7 +26,7 @@
     "@types/react-dom": "19.2.3",
     "inngest": "4.2.6",
     "inngest-v4": "npm:inngest@4.3.0",
-    "next": "16.2.6",
+    "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "typescript": "5.9.3",
