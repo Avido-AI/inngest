@@ -3,6 +3,7 @@ import { Card } from '@inngest/components/Card';
 import type { ExperimentVariantMetrics } from '@inngest/components/Experiments';
 import { cn } from '@inngest/components/utils/classNames';
 import { Cell, Pie, PieChart, ResponsiveContainer, Sector } from 'recharts';
+import type { PieSectorDataItem } from 'recharts/types/polar/Pie';
 
 import { computeChartSizing, truncateCenter } from '@/lib/experiments/chart';
 import { colorForVariant, subtleColorForVariant } from '@/lib/experiments/colors';
@@ -45,8 +46,8 @@ export function RunCountDonutCard({ variants, className, variantColorIndex, onVa
   const effectiveHighlight = hoveredVariant ? null : (highlightedVariantName ?? null);
 
   const activeShape = useCallback(
-    (props: { outerRadius?: number; [key: string]: unknown }) => (
-      <Sector {...(props as Record<string, unknown>)} outerRadius={(props.outerRadius ?? 0) + 6} />
+    (props: PieSectorDataItem) => (
+      <Sector {...props} outerRadius={(props.outerRadius ?? 0) + 6} />
     ),
     [],
   );
