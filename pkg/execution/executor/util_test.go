@@ -5,6 +5,7 @@ import (
 
 	"github.com/inngest/inngest/pkg/enums"
 	"github.com/inngest/inngest/pkg/execution/state"
+	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,6 +86,20 @@ func TestOpGroupsNoInput(t *testing.T) {
 	actual := opGroups(input)
 
 	require.EqualValues(t, expected, actual)
+}
+
+func TestParseBatchID(t *testing.T) {
+	expected := ulid.Make()
+
+	parsed, err := parseBatchID(expected.String())
+	require.NoError(t, err)
+	require.Equal(t, expected, parsed)
+
+	_, err = parseBatchID("")
+	require.ErrorContains(t, err, "batch append returned empty batch ID")
+
+	_, err = parseBatchID("not-a-ulid")
+	require.ErrorContains(t, err, "invalid batch ID")
 }
 
 func TestOpGroupsSingleInput(t *testing.T) {
@@ -360,6 +375,38 @@ func TestOpcodeGroups_IDs_ExcludesLazyOps(t *testing.T) {
 			require.ElementsMatch(t, tc.want, got)
 		})
 	}
+}
+
+func TestComputeParallelCoalesceKey(t *testing.T) {
+	t.Run("deterministic", func(t *testing.T) {
+		a := computeParallelCoalesceKey("run-1", []string{"step-a", "step-b"})
+		b := computeParallelCoalesceKey("run-1", []string{"step-a", "step-b"})
+		require.Equal(t, a, b)
+	})
+
+	t.Run("order independent", func(t *testing.T) {
+		a := computeParallelCoalesceKey("run-1", []string{"step-a", "step-b"})
+		b := computeParallelCoalesceKey("run-1", []string{"step-b", "step-a"})
+		require.Equal(t, a, b)
+	})
+
+	t.Run("different step sets produce different keys", func(t *testing.T) {
+		a := computeParallelCoalesceKey("run-1", []string{"step-a", "step-b"})
+		b := computeParallelCoalesceKey("run-1", []string{"step-a", "step-c"})
+		require.NotEqual(t, a, b)
+	})
+
+	t.Run("different run IDs produce different keys", func(t *testing.T) {
+		a := computeParallelCoalesceKey("run-1", []string{"step-a"})
+		b := computeParallelCoalesceKey("run-2", []string{"step-a"})
+		require.NotEqual(t, a, b)
+	})
+
+	t.Run("no length extension collision", func(t *testing.T) {
+		a := computeParallelCoalesceKey("run-1", []string{"ab", "c"})
+		b := computeParallelCoalesceKey("run-1", []string{"a", "bc"})
+		require.NotEqual(t, a, b)
+	})
 }
 
 func TestAllEmptyNoneOps(t *testing.T) {
