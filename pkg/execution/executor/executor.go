@@ -5497,6 +5497,16 @@ func (e *executor) buildInvokeTimeoutItem(i *runInstance, gen state.GeneratorOpc
 
 // createInvokeStepSpan creates the droppable span for a batch invoke item.
 func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen state.GeneratorOpcode, evt event.BaseTrackedEvent, pause state.Pause, nextItem *queue.Item, lifecycleItem queue.Item, now time.Time) *tracing.DroppableSpan {
+	attrs := tracing.GeneratorAttrs(&gen)
+	// The invoke is queued the moment this opcode is handled. Do NOT stamp the
+	// reporting request's queue times here: with checkpointing that request
+	// predates sibling steps executed within it, and the trace UI sorts run
+	// children by queuedAt — a stale stamp prepends the invoke span with a
+	// phantom queued segment.
+	tracing.AddTimingAttrs(attrs, now, now, time.Time{}, time.Time{})
+	meta.AddAttr(attrs, meta.Attrs.StepInvokeTriggerEventID, &evt.ID)
+	meta.AddAttr(attrs, meta.Attrs.DynamicStatus, inngestgo.Ptr(enums.StepStatusInvoking))
+
 	span, err := e.tracerProvider.CreateDroppableSpan(
 		ctx,
 		meta.SpanNameStep,
@@ -5508,9 +5518,7 @@ func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen
 			Metadata:    &i.md,
 			QueueItem:   nextItem,
 			Parent:      tracing.RunSpanRefFromMetadata(&i.md),
-			Attributes: tracing.GeneratorAttrs(&gen).Merge(
-				meta.NewAttrSet(meta.Attr(meta.Attrs.StepInvokeTriggerEventID, &evt.ID)),
-			),
+			Attributes:  attrs,
 		},
 	)
 	if err != nil {
