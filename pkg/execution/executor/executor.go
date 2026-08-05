@@ -3908,7 +3908,7 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 					e.log.Error("panic in handleBatchInvokeFunctions", "error", r, "stack", string(debug.Stack()))
 				}
 			}()
-			return e.handleBatchInvokeFunctions(ctx, i, invokeOps)
+			return e.handleBatchInvokeFunctions(ctx, i, invokeOps, group)
 		})
 	}
 
@@ -5305,7 +5305,7 @@ type batchInvokeItem struct {
 //  2. Writes each pause individually with per-pause retry
 //  3. Enqueues timeout + publishes event per-item (interleaved)
 //  4. Fires lifecycle hooks
-func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstance, inputs []batchInvokeInput) error {
+func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstance, inputs []batchInvokeInput, group OpcodeGroup) error {
 	if e.handleInvokeEvent == nil {
 		return fmt.Errorf("no handleSendingEvent function specified")
 	}
@@ -5319,7 +5319,7 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 	eventName := event.FnFinishedName
 	pauseIdx := pauses.Index{WorkspaceID: i.md.ID.Tenant.EnvID, EventName: eventName}
 
-	items, err := e.buildBatchInvokeItems(ctx, i, inputs, edge, eventName, lifecycleItem)
+	items, err := e.buildBatchInvokeItems(ctx, i, inputs, edge, eventName, lifecycleItem, group)
 	if err != nil {
 		return err
 	}
@@ -5348,12 +5348,12 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 }
 
 // buildBatchInvokeItems pre-computes all data structures for a batch of invoke opcodes (no I/O).
-func (e *executor) buildBatchInvokeItems(ctx context.Context, i *runInstance, inputs []batchInvokeInput, edge queue.PayloadEdge, eventName string, lifecycleItem queue.Item) ([]batchInvokeItem, error) {
+func (e *executor) buildBatchInvokeItems(ctx context.Context, i *runInstance, inputs []batchInvokeInput, edge queue.PayloadEdge, eventName string, lifecycleItem queue.Item, group OpcodeGroup) ([]batchInvokeItem, error) {
 	now := e.now()
 	items := make([]batchInvokeItem, 0, len(inputs))
 
 	for _, input := range inputs {
-		item, err := e.buildSingleInvokeItem(ctx, i, input, edge, eventName, lifecycleItem, now)
+		item, err := e.buildSingleInvokeItem(ctx, i, input, edge, eventName, lifecycleItem, now, group)
 		if err != nil {
 			dropUnprocessedSpans(items, 0)
 			return nil, err
@@ -5365,7 +5365,7 @@ func (e *executor) buildBatchInvokeItems(ctx context.Context, i *runInstance, in
 }
 
 // buildSingleInvokeItem constructs a batchInvokeItem for one invoke opcode.
-func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, input batchInvokeInput, edge queue.PayloadEdge, eventName string, lifecycleItem queue.Item, now time.Time) (batchInvokeItem, error) {
+func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, input batchInvokeInput, edge queue.PayloadEdge, eventName string, lifecycleItem queue.Item, now time.Time, group OpcodeGroup) (batchInvokeItem, error) {
 	gen := input.gen
 	groupID := input.groupID
 
@@ -5428,7 +5428,7 @@ func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, in
 
 	pause := e.buildInvokePause(i, gen, edge, groupID, pauseID, opcode, eventName, strExpr, correlationID, evt, opts, carrier, expires, now)
 	nextItem := e.buildInvokeTimeoutItem(i, gen, groupID, pauseID, pause)
-	span := e.createInvokeStepSpan(ctx, i, gen, evt, pause, &nextItem, lifecycleItem, now)
+	span := e.createInvokeStepSpan(ctx, i, gen, evt, pause, &nextItem, lifecycleItem, now, group)
 
 	return batchInvokeItem{
 		gen:     gen,
@@ -5503,7 +5503,15 @@ func (e *executor) buildInvokeTimeoutItem(i *runInstance, gen state.GeneratorOpc
 }
 
 // createInvokeStepSpan creates the droppable span for a batch invoke item.
-func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen state.GeneratorOpcode, evt event.BaseTrackedEvent, pause state.Pause, nextItem *queue.Item, lifecycleItem queue.Item, now time.Time) *tracing.DroppableSpan {
+func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen state.GeneratorOpcode, evt event.BaseTrackedEvent, pause state.Pause, nextItem *queue.Item, lifecycleItem queue.Item, now time.Time, group OpcodeGroup) *tracing.DroppableSpan {
+	attrs := tracing.GeneratorAttrs(&gen)
+	// The invoke is queued the moment this opcode is handled; stamping the
+	// reporting request's queue times would prepend a phantom queued segment.
+	handledAt := e.opcodeHandledAt(group)
+	tracing.AddTimingAttrs(attrs, handledAt, handledAt, time.Time{}, time.Time{})
+	meta.AddAttr(attrs, meta.Attrs.StepInvokeTriggerEventID, &evt.ID)
+	meta.AddAttr(attrs, meta.Attrs.DynamicStatus, inngestgo.Ptr(enums.StepStatusInvoking))
+
 	span, err := e.tracerProvider.CreateDroppableSpan(
 		ctx,
 		meta.SpanNameStep,
@@ -5515,9 +5523,7 @@ func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen
 			Metadata:    &i.md,
 			QueueItem:   nextItem,
 			Parent:      tracing.RunSpanRefFromMetadata(&i.md),
-			Attributes: tracing.GeneratorAttrs(&gen).Merge(
-				meta.NewAttrSet(meta.Attr(meta.Attrs.StepInvokeTriggerEventID, &evt.ID)),
-			),
+			Attributes:  attrs,
 		},
 	)
 	if err != nil {
