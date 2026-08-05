@@ -19,13 +19,10 @@ import (
 	"time"
 	"unicode"
 
-	openapiv2 "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2/options"
 	localconfig "github.com/inngest/inngest/cmd/internal/config"
 	"github.com/inngest/inngest/pkg/api"
-	apiv2 "github.com/inngest/inngest/proto/gen/api/v2"
+	"github.com/inngest/inngest/pkg/api/v2/apiv2endpoint"
 	"github.com/urfave/cli/v3"
-	"google.golang.org/genproto/googleapis/api/annotations"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -38,11 +35,6 @@ const (
 )
 
 var pathParamPattern = regexp.MustCompile(`\{([^}=]+)(=[^}]*)?}`)
-
-var hiddenEndpointMethods = map[string]struct{}{
-	"CreatePartnerAccount": {},
-	"FetchPartnerAccounts": {},
-}
 
 type endpoint struct {
 	name       string
@@ -64,6 +56,7 @@ func Command() *cli.Command {
 			"Beta: this command is under active development and may change.",
 			"By default, the command targets the local dev server.",
 			"Set --prod to target Inngest Cloud Production, or --api-host/--api-port to target a custom API server.",
+			"Authentication: https://api-docs.inngest.com/authentication",
 		}, "\n"),
 		Flags:    commonFlags(),
 		Commands: endpointCommands(),
@@ -211,7 +204,22 @@ func endpointFlags(ep endpoint) []cli.Flag {
 			category = "Body"
 		}
 
+		if ep.name == "rerun" && flagName == "from-step" {
+			flags = append(flags, &cli.StringFlag{
+				Category: category,
+				Name:     flagName,
+				Usage:    "Step name to rerun from.",
+			})
+			continue
+		}
 		flags = append(flags, flagForField(category, flagName, field))
+	}
+	if ep.name == "rerun" {
+		flags = append(flags, &cli.StringFlag{
+			Category: "Body",
+			Name:     "input",
+			Usage:    "Optional replacement step input as a JSON array.",
+		})
 	}
 
 	return flags
@@ -236,13 +244,7 @@ func flagForField(category, name string, field protoreflect.FieldDescriptor) cli
 }
 
 func fieldUsage(field protoreflect.FieldDescriptor) string {
-	usage := string(field.JSONName())
-	opts := field.Options()
-	if proto.HasExtension(opts, openapiv2.E_Openapiv2Field) {
-		if schema, ok := proto.GetExtension(opts, openapiv2.E_Openapiv2Field).(*openapiv2.JSONSchema); ok && schema.GetDescription() != "" {
-			usage = schema.GetDescription()
-		}
-	}
+	usage := apiv2endpoint.FieldDescription(field)
 
 	if isRequiredField(field) {
 		usage += " (required)"
@@ -252,47 +254,40 @@ func fieldUsage(field protoreflect.FieldDescriptor) string {
 }
 
 func discoverEndpoints() []endpoint {
-	service := apiv2.File_api_v2_service_proto.Services().ByName("V2")
-	if service == nil {
-		return nil
-	}
-
-	endpoints := []endpoint{}
-	methods := service.Methods()
-	for i := 0; i < methods.Len(); i++ {
-		method := methods.Get(i)
-		methodName := string(method.Name())
-		if strings.HasPrefix(methodName, "_") {
-			continue
-		}
-		if _, hidden := hiddenEndpointMethods[methodName]; hidden {
-			continue
-		}
-
-		httpRule := httpRule(method)
-		if httpRule == nil {
-			continue
-		}
-
-		httpMethod, path := methodAndPath(httpRule)
-		if path == "" {
-			continue
-		}
-
-		summary, help := methodHelp(method)
+	shared := canonicalCommandEndpoints(apiv2endpoint.Discover())
+	endpoints := make([]endpoint, 0, len(shared))
+	for _, discovered := range shared {
 		endpoints = append(endpoints, endpoint{
-			name:       endpointCommandName(methodName),
-			method:     httpMethod,
-			path:       path,
-			summary:    summary,
-			help:       help,
-			body:       httpRule.Body,
-			input:      method.Input(),
-			pathParams: pathParams(path),
+			name:       discovered.CommandName,
+			method:     discovered.HTTPMethod,
+			path:       discovered.Path,
+			summary:    discovered.Summary,
+			help:       discovered.Description,
+			body:       discovered.Body,
+			input:      discovered.Input,
+			pathParams: discovered.PathParams,
 		})
 	}
 
 	return endpoints
+}
+
+func canonicalCommandEndpoints(endpoints []apiv2endpoint.Endpoint) []apiv2endpoint.Endpoint {
+	explicitOwners := map[string]string{}
+	for _, endpoint := range endpoints {
+		if endpoint.CommandNameExplicit {
+			explicitOwners[endpoint.CommandName] = endpoint.MethodName
+		}
+	}
+
+	result := make([]apiv2endpoint.Endpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if owner, ok := explicitOwners[endpoint.CommandName]; ok && owner != endpoint.MethodName {
+			continue
+		}
+		result = append(result, endpoint)
+	}
+	return result
 }
 
 func endpointUsage(ep endpoint) string {
@@ -311,65 +306,22 @@ func endpointDescription(ep endpoint) string {
 	lines = append(lines,
 		fmt.Sprintf("Endpoint: %s %s", ep.method, ep.path),
 		"",
-		"Target, auth, and output flags are inherited from `inngest alpha api`:",
+		"Target, auth, and output flags are inherited from `inngest api`:",
 		"  --prod                  Target Inngest Cloud Production",
 		"  --api-host, --api-port  Target a custom API server; host may include /api/v2 or /v2",
 		"  --api-key               API key, or INNGEST_API_KEY",
 		"  --signing-key           Signing key, or INNGEST_SIGNING_KEY",
 		"  --env                   Environment name, or INNGEST_ENV",
 		"  --raw                   Print the response body without formatting",
+		"",
+		"Authentication: https://api-docs.inngest.com/authentication",
 	)
 
 	return strings.Join(lines, "\n")
 }
 
-func methodHelp(method protoreflect.MethodDescriptor) (string, string) {
-	opts := method.Options()
-	if !proto.HasExtension(opts, openapiv2.E_Openapiv2Operation) {
-		return "", ""
-	}
-
-	op, ok := proto.GetExtension(opts, openapiv2.E_Openapiv2Operation).(*openapiv2.Operation)
-	if !ok {
-		return "", ""
-	}
-
-	return op.GetSummary(), op.GetDescription()
-}
-
 func endpointCommandName(methodName string) string {
-	name := kebab(methodName)
-	for _, prefix := range []string{"fetch-", "list-"} {
-		if strings.HasPrefix(name, prefix) {
-			return "get-" + strings.TrimPrefix(name, prefix)
-		}
-	}
-	return name
-}
-
-func httpRule(method protoreflect.MethodDescriptor) *annotations.HttpRule {
-	opts := method.Options()
-	if !proto.HasExtension(opts, annotations.E_Http) {
-		return nil
-	}
-	return proto.GetExtension(opts, annotations.E_Http).(*annotations.HttpRule)
-}
-
-func methodAndPath(rule *annotations.HttpRule) (string, string) {
-	switch pattern := rule.Pattern.(type) {
-	case *annotations.HttpRule_Get:
-		return http.MethodGet, pattern.Get
-	case *annotations.HttpRule_Post:
-		return http.MethodPost, pattern.Post
-	case *annotations.HttpRule_Put:
-		return http.MethodPut, pattern.Put
-	case *annotations.HttpRule_Delete:
-		return http.MethodDelete, pattern.Delete
-	case *annotations.HttpRule_Patch:
-		return http.MethodPatch, pattern.Patch
-	default:
-		return http.MethodPost, ""
-	}
+	return apiv2endpoint.CommandName(methodName)
 }
 
 func callEndpoint(ctx context.Context, cmd *cli.Command, ep endpoint) error {
@@ -666,6 +618,11 @@ func requestBody(cmd *cli.Command, ep endpoint) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if ep.name == "rerun" {
+		if err := addRerunFromStepBody(cmd, body); err != nil {
+			return nil, err
+		}
+	}
 
 	fields := ep.input.Fields()
 	for i := 0; i < fields.Len(); i++ {
@@ -676,6 +633,9 @@ func requestBody(cmd *cli.Command, ep endpoint) (map[string]any, error) {
 		}
 
 		flagName := kebab(name)
+		if ep.name == "rerun" && flagName == "from-step" {
+			continue
+		}
 		if !cmd.IsSet(flagName) {
 			continue
 		}
@@ -692,6 +652,30 @@ func requestBody(cmd *cli.Command, ep endpoint) (map[string]any, error) {
 	}
 
 	return body, nil
+}
+
+func addRerunFromStepBody(cmd *cli.Command, body map[string]any) error {
+	if !cmd.IsSet("from-step") {
+		if cmd.IsSet("input") {
+			return errors.New("--input requires --from-step")
+		}
+		return nil
+	}
+
+	fromStep := map[string]any{"stepId": cmd.String("from-step")}
+
+	if cmd.IsSet("input") {
+		var input []any
+		if err := json.Unmarshal([]byte(cmd.String("input")), &input); err != nil {
+			return fmt.Errorf("--input must be a valid JSON array: %w", err)
+		}
+		if input == nil {
+			return errors.New("--input must be a valid JSON array")
+		}
+		fromStep["input"] = input
+	}
+	body["fromStep"] = fromStep
+	return nil
 }
 
 func rawBody(cmd *cli.Command) (map[string]any, error) {
@@ -755,18 +739,8 @@ func validateBody(cmd *cli.Command, ep endpoint, body map[string]any) error {
 	return nil
 }
 
-// isRequiredField reports whether the field carries a
-// `(google.api.field_behavior) = REQUIRED` annotation.
 func isRequiredField(field protoreflect.FieldDescriptor) bool {
-	opts := field.Options()
-	if !proto.HasExtension(opts, annotations.E_FieldBehavior) {
-		return false
-	}
-	behaviors, ok := proto.GetExtension(opts, annotations.E_FieldBehavior).([]annotations.FieldBehavior)
-	if !ok {
-		return false
-	}
-	return slices.Contains(behaviors, annotations.FieldBehavior_REQUIRED)
+	return apiv2endpoint.IsRequired(field)
 }
 
 func fieldValue(cmd *cli.Command, field protoreflect.FieldDescriptor, flagName string) (any, error) {
@@ -794,6 +768,14 @@ func fieldValue(cmd *cli.Command, field protoreflect.FieldDescriptor, flagName s
 	case protoreflect.EnumKind:
 		return cmd.String(flagName), nil
 	case protoreflect.MessageKind, protoreflect.GroupKind:
+		if field.Message().FullName() == "google.protobuf.Timestamp" {
+			value, err := parseTimestamp(cmd.String(flagName))
+			if err != nil {
+				return nil, fmt.Errorf("--%s must be an RFC 3339 timestamp: %w", flagName, err)
+			}
+			return value, nil
+		}
+
 		var value any
 		if err := json.Unmarshal([]byte(cmd.String(flagName)), &value); err != nil {
 			return nil, fmt.Errorf("--%s must be valid JSON: %w", flagName, err)
@@ -804,6 +786,20 @@ func fieldValue(cmd *cli.Command, field protoreflect.FieldDescriptor, flagName s
 	default:
 		return nil, fmt.Errorf("unsupported field type for --%s", flagName)
 	}
+}
+
+func parseTimestamp(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, `"`) {
+		if err := json.Unmarshal([]byte(trimmed), &value); err != nil {
+			return "", err
+		}
+	}
+
+	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func authToken(cmd *cli.Command) (string, error) {
@@ -822,17 +818,6 @@ func addQueryValue(values url.Values, key string, value any) {
 	default:
 		values.Set(key, fmt.Sprint(v))
 	}
-}
-
-func pathParams(path string) []string {
-	matches := pathParamPattern.FindAllStringSubmatch(path, -1)
-	params := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) > 1 {
-			params = append(params, match[1])
-		}
-	}
-	return params
 }
 
 func parseInt(value string, bitSize int) (int64, error) {

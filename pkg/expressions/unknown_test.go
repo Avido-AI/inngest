@@ -500,6 +500,65 @@ func TestTruthyLogicalCoercion(t *testing.T) {
 	}
 }
 
+func TestTruthyConditionalCoercion(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		data     map[string]interface{}
+		expected string
+	}{
+		{
+			name:     "missing field selects the falsy branch",
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{}}},
+			expected: "falsy",
+		},
+		{
+			name:     "null field selects the falsy branch",
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"value": nil}}},
+			expected: "falsy",
+		},
+		{
+			name:     "false selects the falsy branch",
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"value": false}}},
+			expected: "falsy",
+		},
+		{
+			name:     "empty string selects the falsy branch",
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"value": ""}}},
+			expected: "falsy",
+		},
+		{
+			name:     "integer zero selects the falsy branch",
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"value": 0}}},
+			expected: "falsy",
+		},
+		{
+			name:     "double zero selects the falsy branch",
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"value": 0.0}}},
+			expected: "falsy",
+		},
+		{
+			name:     "true selects the truthy branch",
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"value": true}}},
+			expected: "truthy",
+		},
+		{
+			name:     "nonempty string selects the truthy branch",
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"value": "candidate-123"}}},
+			expected: "truthy",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Evaluate(ctx, `event.data.value ? "truthy" : "falsy"`, test.data)
+			require.NoError(t, err)
+			require.Equal(t, test.expected, result)
+		})
+	}
+}
+
 // TestMacrosWithUnknowns tests that macros (exists, all) handle unknowns correctly.
 // The key invariant: lambda variables produce "no such attribute" errors which must
 // pass through the decorator unchanged, not be treated as unknown call failures.
@@ -513,51 +572,51 @@ func TestMacrosWithUnknowns(t *testing.T) {
 		expected interface{}
 	}{
 		{
-			name: "exists on real list with matching element → true",
-			expr: `event.data.tags.exists(x, x == "a")`,
-			data: map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"tags": []string{"a", "b", "c"}}}},
+			name:     "exists on real list with matching element → true",
+			expr:     `event.data.tags.exists(x, x == "a")`,
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"tags": []string{"a", "b", "c"}}}},
 			expected: true,
 		},
 		{
-			name: "exists on real list with no matching element → false",
-			expr: `event.data.tags.exists(x, x == "z")`,
-			data: map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"tags": []string{"a", "b", "c"}}}},
+			name:     "exists on real list with no matching element → false",
+			expr:     `event.data.tags.exists(x, x == "z")`,
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"tags": []string{"a", "b", "c"}}}},
 			expected: false,
 		},
 		{
-			name: "exists on real list with OR inside lambda → true",
-			expr: `event.data.tags.exists(x, x == "d" || x == "a")`,
-			data: map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"tags": []string{"a", "b", "c"}}}},
+			name:     "exists on real list with OR inside lambda → true",
+			expr:     `event.data.tags.exists(x, x == "d" || x == "a")`,
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"tags": []string{"a", "b", "c"}}}},
 			expected: true,
 		},
 		{
-			name: "exists on unknown field → false",
-			expr: `event.nonexistent.exists(x, x == "a")`,
-			data: map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{}}},
+			name:     "exists on unknown field → false",
+			expr:     `event.nonexistent.exists(x, x == "a")`,
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{}}},
 			expected: false,
 		},
 		{
-			name: "all on real list all matching → true",
-			expr: `event.data.nums.all(x, x > 0)`,
-			data: map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"nums": []int{1, 2, 3}}}},
+			name:     "all on real list all matching → true",
+			expr:     `event.data.nums.all(x, x > 0)`,
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"nums": []int{1, 2, 3}}}},
 			expected: true,
 		},
 		{
-			name: "all on real list not all matching → false",
-			expr: `event.data.nums.all(x, x > 1)`,
-			data: map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"nums": []int{1, 2, 3}}}},
+			name:     "all on real list not all matching → false",
+			expr:     `event.data.nums.all(x, x > 1)`,
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"nums": []int{1, 2, 3}}}},
 			expected: false,
 		},
 		{
-			name: "contains on unknown nested field → false",
-			expr: `event.data.some.unknown.contains("x")`,
-			data: map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{}}},
+			name:     "contains on unknown nested field → false",
+			expr:     `event.data.some.unknown.contains("x")`,
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{}}},
 			expected: false,
 		},
 		{
-			name: "in operator with unknown field → false",
-			expr: `event.data.nonexistent in ["LOL", "Issue", "Epic"]`,
-			data: map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"issue": "Bug"}}},
+			name:     "in operator with unknown field → false",
+			expr:     `event.data.nonexistent in ["LOL", "Issue", "Epic"]`,
+			data:     map[string]interface{}{"event": map[string]interface{}{"data": map[string]interface{}{"issue": "Bug"}}},
 			expected: false,
 		},
 	}

@@ -3,6 +3,7 @@ package apiv2
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/inngest/inngest/pkg/cqrs"
 	"github.com/inngest/inngest/pkg/inngest"
 	"github.com/oklog/ulid/v2"
@@ -23,6 +24,12 @@ func (m *mockAppProvider) GetApp(ctx context.Context, identifier string) (App, e
 	args := m.Called(ctx, identifier)
 	app, _ := args.Get(0).(App)
 	return app, args.Error(1)
+}
+
+func (m *mockAppProvider) GetApps(ctx context.Context, opts GetAppsOpts) (*GetAppsResult, error) {
+	args := m.Called(ctx, opts)
+	result, _ := args.Get(0).(*GetAppsResult)
+	return result, args.Error(1)
 }
 
 type mockFunctionProvider struct {
@@ -69,6 +76,10 @@ func (m *mockRunProvider) Rerun(ctx context.Context, runID ulid.ULID, opts Rerun
 	return runID, args.Error(1)
 }
 
+func (m *mockRunProvider) Cancel(ctx context.Context, runID ulid.ULID) error {
+	return m.Called(ctx, runID).Error(0)
+}
+
 type mockFunctionTraceReader struct {
 	mock.Mock
 }
@@ -83,6 +94,12 @@ func (m *mockFunctionTraceReader) GetSpanOutput(ctx context.Context, id cqrs.Spa
 	args := m.Called(ctx, id)
 	output, _ := args.Get(0).(*cqrs.SpanOutput)
 	return output, args.Error(1)
+}
+
+func (m *mockFunctionTraceReader) GetStepSpanByStepID(ctx context.Context, runID ulid.ULID, stepID string, accountID, workspaceID uuid.UUID) (*cqrs.OtelSpan, error) {
+	args := m.Called(ctx, runID, stepID, accountID, workspaceID)
+	span, _ := args.Get(0).(*cqrs.OtelSpan)
+	return span, args.Error(1)
 }
 
 type mockRateLimitProvider struct {

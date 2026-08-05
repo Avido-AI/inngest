@@ -97,7 +97,7 @@ func (m *missingMetadataRunService) LoadDefers(context.Context, sv2.ID) (map[str
 	return nil, nil
 }
 
-func (m *missingMetadataRunService) Delete(context.Context, sv2.ID) error {
+func (m *missingMetadataRunService) Delete(context.Context, sv2.ID, ...sv2.DeleteOption) error {
 	m.deleted.Store(true)
 	return nil
 }
@@ -106,7 +106,7 @@ type missingShardRegistry struct {
 	queue.ShardRegistry
 }
 
-func (missingShardRegistry) Resolve(context.Context, uuid.UUID, *string) (queue.QueueShard, error) {
+func (missingShardRegistry) Resolve(context.Context, queue.Scope, *string) (queue.QueueShard, error) {
 	return nil, errors.New("missing shard")
 }
 
