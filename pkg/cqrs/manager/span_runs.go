@@ -1096,39 +1096,6 @@ func newSpanRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runs
 	}
 }
 
-func traceRunStatusFromDB(status int64) enums.RunStatus {
-	if decoded := enums.RunCodeToStatus(status); decoded != enums.RunStatusUnknown {
-		return decoded
-	}
-	raw := enums.RunStatus(status)
-	if raw.IsARunStatus() {
-		return raw
-	}
-	return enums.RunStatusUnknown
-}
-
-func runStatusFromSpanStatus(status *string) (enums.RunStatus, bool) {
-	if status == nil || *status == "" {
-		return enums.RunStatusUnknown, false
-	}
-	if stepStatus, err := enums.StepStatusString(*status); err == nil && stepStatus != enums.StepStatusUnknown {
-		return enums.StepStatusToRunStatus(stepStatus), true
-	}
-	if runStatus, err := enums.RunStatusString(*status); err == nil && runStatus != enums.RunStatusUnknown {
-		return runStatus, true
-	}
-	return enums.RunStatusUnknown, false
-}
-
-func traceRunStatusDBValues(status enums.RunStatus) []int64 {
-	values := []int64{status.ToCode()}
-	raw := int64(status)
-	if raw != values[0] {
-		values = append(values, raw)
-	}
-	return values
-}
-
 // GetTraceRunsCount returns the number of runs matching opt.
 func (w wrapper) GetTraceRunsCount(ctx context.Context, opt cqrs.GetTraceRunOpt) (int, error) {
 	// explicitly set it to zero so it would not attempt to paginate
