@@ -24,14 +24,25 @@ jobs:
         with:
           go-version-file: ./go.mod
 
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "24"
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
 
+      # pnpm must be set up before setup-node so the "pnpm" cache can resolve
+      # the pnpm store path.
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           version: 11.8.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: pnpm
+          # Key on both lockfiles this job installs: the UI build (the largest
+          # install, via make build-ui) and the tests/js E2E deps.
+          cache-dependency-path: |
+            ui/pnpm-lock.yaml
+            tests/js/pnpm-lock.yaml
 
       - name: Build UI
         run: make build-ui
@@ -45,7 +56,7 @@ jobs:
           cd ./tests/js
           pnpm install --frozen-lockfile
           pnpm dev &
-          sleep 5
+          "$GITHUB_WORKSPACE/scripts/wait-for-healthy.sh" "SDK app" "$SDK_URL"
           cd ../../
           # The connect gRPC ports (50052/50053) sit inside the kernel's
           # ephemeral port range; reserve them so outbound connections cannot
@@ -55,9 +66,8 @@ jobs:
           mkdir $GOCOVERDIR
           nohup ./inngest-bin dev --no-discovery --no-poll 2> /tmp/devserver-logs-ts.txt &
           echo "Ran dev server"
-          sleep 5
-          curl http://127.0.0.1:8288/dev > /dev/null 2> /dev/null
-          go test ./tests -v
+          ./scripts/wait-for-healthy.sh "dev server" http://127.0.0.1:8288/health
+          gotestsum --junitfile=junit.xml --format=standard-verbose -- ./tests
         env:
           INNGEST_SIGNING_KEY: test
           API_URL: http://127.0.0.1:8288
@@ -85,6 +95,15 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: ts-e2e
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./junit.xml
+          flags: ts-e2e
+          report_type: test_results
 
   # refs:
   #  - https://go.dev/doc/build-cover
@@ -156,10 +175,9 @@ jobs:
           mkdir $GOCOVERDIR
           nohup ./inngest-bin dev --no-discovery --no-poll --postgres-uri "postgres://postgres:postgres@localhost:5432/inngest_test?sslmode=disable" 2> /tmp/dev-output.txt &
           echo "Ran dev server"
-          sleep 5
-          curl http://127.0.0.1:8288/dev > /dev/null 2> /dev/null
+          ./scripts/wait-for-healthy.sh "dev server" http://127.0.0.1:8288/health
 
-          gotesplit -total ${{ matrix.parallelism }} -index ${{ matrix.index }} ./tests/golang -- -v -count=1
+          gotesplit -total ${{ matrix.parallelism }} -index ${{ matrix.index }} -junit-dir test-results ./tests/golang -- -v -count=1
         env:
           API_URL: http://127.0.0.1:8288
           INNGEST_EVENT_KEY: test
@@ -189,6 +207,15 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: go-e2e,split-${{ matrix.index }}
 
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./test-results/junit-${{ matrix.index }}-0.xml
+          flags: go-e2e,split-${{ matrix.index }}
+          report_type: test_results
+
   batch:
     name: Batch
     runs-on: ubuntu-latest
@@ -201,6 +228,9 @@ jobs:
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: ./go.mod
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Start postgres container
         run: |
@@ -249,10 +279,9 @@ jobs:
           mkdir $GOCOVERDIR
           nohup ./inngest-bin dev --no-discovery --no-poll --postgres-uri "postgres://postgres:postgres@localhost:5432/inngest_test?sslmode=disable" 2> /tmp/dev-output.txt &
           echo "Ran dev server"
-          sleep 5
-          curl http://127.0.0.1:8288/dev > /dev/null 2> /dev/null
+          ./scripts/wait-for-healthy.sh "dev server" http://127.0.0.1:8288/health
 
-          go test ./tests/batch/... -v -count=1
+          gotestsum --junitfile=junit.xml --format=standard-verbose -- ./tests/batch/... -count=1
         env:
           API_URL: http://127.0.0.1:8288
           INNGEST_EVENT_KEY: test
@@ -282,6 +311,15 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: batch-e2e
 
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./junit.xml
+          flags: batch-e2e
+          report_type: test_results
+
   api:
     name: API
     runs-on: ubuntu-latest
@@ -294,6 +332,9 @@ jobs:
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: ./go.mod
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Start postgres container
         run: |
@@ -342,10 +383,9 @@ jobs:
           mkdir $GOCOVERDIR
           nohup ./inngest-bin dev --no-discovery --no-poll --postgres-uri "postgres://postgres:postgres@localhost:5432/inngest_test?sslmode=disable" 2> /tmp/dev-output.txt &
           echo "Ran dev server"
-          sleep 5
-          curl http://127.0.0.1:8288/dev > /dev/null 2> /dev/null
+          ./scripts/wait-for-healthy.sh "dev server" http://127.0.0.1:8288/health
 
-          go test ./tests/api/... -v -count=1
+          gotestsum --junitfile=junit.xml --format=standard-verbose -- ./tests/api/... -count=1
         env:
           API_URL: http://127.0.0.1:8288
           INNGEST_EVENT_KEY: test
@@ -374,6 +414,15 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: api-e2e
 
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./junit.xml
+          flags: api-e2e
+          report_type: test_results
+
   execution:
     name: Execution
     runs-on: ubuntu-latest
@@ -387,8 +436,11 @@ jobs:
         with:
           go-version-file: ./go.mod
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
       - name: Run execution tests
-        run: go test ./tests/execution/... -v -count=1 -coverprofile=coverage.txt
+        run: gotestsum --junitfile=junit.xml --format=standard-verbose -- ./tests/execution/... -count=1 -coverprofile=coverage.txt
         env:
           EXPERIMENTAL_KEY_QUEUES_ENABLE: "true"
 
@@ -397,6 +449,15 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: exec
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./junit.xml
+          flags: exec
+          report_type: test_results
 
   e2e-ci:
     name: E2E CI

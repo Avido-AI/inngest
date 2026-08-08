@@ -22,7 +22,8 @@ type Querier interface {
 	GetAppByID(ctx context.Context, id uuid.UUID) (*App, error)
 	GetAppByName(ctx context.Context, name string) (*App, error)
 	GetAppByURL(ctx context.Context, url string) (*App, error)
-	GetApps(ctx context.Context) ([]*App, error)
+	GetApps(ctx context.Context, arg GetAppsParams) ([]*App, error)
+	GetAppFunctionCounts(ctx context.Context, appIDs []uuid.UUID) ([]AppFunctionCount, error)
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (*App, error)
 	UpsertAppByName(ctx context.Context, arg UpsertAppParams) (*App, error)
 	UpdateAppError(ctx context.Context, arg UpdateAppErrorParams) (*App, error)
@@ -58,7 +59,6 @@ type Querier interface {
 	GetFunctionRun(ctx context.Context, runID ulid.ULID) (*FunctionRunRow, error)
 	GetFunctionRuns(ctx context.Context) ([]*FunctionRunRow, error)
 	GetFunctionRunsFromEvents(ctx context.Context, eventIds []ulid.ULID) ([]*FunctionRunRow, error)
-	GetRuns(ctx context.Context, arg GetRunsParams) ([]*RunListItemRow, error)
 	GetFunctionRunsTimebound(ctx context.Context, arg GetFunctionRunsTimeboundParams) ([]*FunctionRunRow, error)
 	GetFunctionRunFinishesByRunIDs(ctx context.Context, runIds []ulid.ULID) ([]*FunctionFinish, error)
 

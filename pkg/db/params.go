@@ -36,6 +36,18 @@ type UpdateAppURLParams struct {
 	ID  uuid.UUID
 }
 
+type GetAppsParams struct {
+	Cursor   uuid.UUID
+	Limit    int
+	Archived bool
+	Method   string
+}
+
+type AppFunctionCount struct {
+	AppID         uuid.UUID
+	FunctionCount int
+}
+
 // UpsertFunctionParams are the parameters for inserting or refreshing a
 // function definition. On id conflict, the row's app_id, name, slug, config
 // are overwritten and archived_at is cleared.
@@ -122,13 +134,6 @@ type GetFunctionRunsTimeboundParams struct {
 	After  time.Time
 	Before time.Time
 	Limit  int64
-}
-
-type GetRunsParams struct {
-	EventID       ulid.ULID
-	Limit         int64
-	Cursor        ulid.ULID
-	IncludeOutput bool
 }
 
 // InsertHistoryParams are the parameters for inserting a history record.

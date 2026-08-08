@@ -28,10 +28,10 @@ func spanRunGroupByCols() []interface{} {
 	}
 }
 
-// GetSpanRuns retrieves a list of span-based runs using the same filtering
+// GetRuns retrieves a list of span-based runs using the same filtering
 // logic as GetTraceRuns but working against the spans table with executor.run +
 // EXTEND span grouping.
-func (w wrapper) GetSpanRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
+func (w wrapper) GetRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
 	l := logger.StdlibLogger(ctx)
 	h := w.helpers()
 
@@ -50,11 +50,11 @@ func (w wrapper) GetSpanRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*c
 		return nil, err
 	}
 
-	l.Debug("GetSpanRuns query", "sql", sqlQuery, "args", args)
+	l.Debug("GetRuns query", "sql", sqlQuery, "args", args)
 
 	rows, err := w.adapter.Conn().QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
-		l.Debug("GetSpanRuns query error", "error", err)
+		l.Debug("GetRuns query error", "error", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -114,7 +114,7 @@ func spanRunOrderExprs(order []cqrs.GetTraceRunOrder) []sqexp.OrderedExpression 
 }
 
 // buildSpanRunsBaseQuery builds the shared FROM/JOIN/WHERE/GROUP BY for the
-// span-based run list. GetSpanRuns layers SELECT/ORDER BY/LIMIT on top for the
+// span-based run list. GetRuns layers SELECT/ORDER BY/LIMIT on top for the
 // list; getSpanRunsCount wraps it in a COUNT(*). Keeping the filtering and
 // grouping in one place stops the list and count queries from drifting apart.
 func (w wrapper) buildSpanRunsBaseQuery(ctx context.Context, opt cqrs.GetTraceRunOpt) (*sq.SelectDataset, *runsQueryBuilder, error) {

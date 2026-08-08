@@ -4,12 +4,18 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "dev": "vite dev --port 3002",
-    "build": "vite build && tsc --noEmit",
+    "dev": "concurrently --prefix-colors \"green.inverse,magenta.inverse,blue.inverse\" pnpm:dev:*",
+    "build": "pnpm build:tsc && pnpm build:graphql-codegen && pnpm build:vite",
     "start": "vite start",
     "format": "prettier --write .",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "dev:vite": "vite dev --port 3002",
+    "dev:graphql-codegen": "graphql-codegen -w -r dotenv/config",
+    "build:tsc": "tsc --noEmit",
+    "build:graphql-codegen": "if test \"$VERCEL_ENV\" = \"production\"; then pnpm graphql-codegen;  fi",
+    "build:vite": "vite build",
+    "graphql-codegen": "graphql-codegen -r dotenv/config"
   },
   "dependencies": {
     "@clerk/tanstack-react-start": "^0.29.0",
@@ -37,7 +43,8 @@
     "remark-gfm": "^4.0.1",
     "srvx": "0.11.17",
     "unified": "^11.0.5",
-    "unist-util-visit": "^5.0.0"
+    "unist-util-visit": "^5.0.0",
+    "use-sync-external-store": "1.6.0"
   },
   "devDependencies": {
     "@tanstack/eslint-config": "0.4.0",
@@ -57,7 +64,9 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.61.1",
     "vite": "8.0.16",
-    "vite-tsconfig-paths": "6.1.1"
+    "vite-tsconfig-paths": "6.1.1",
+    "@graphql-codegen/cli": "^6.0.2",
+    "@graphql-codegen/client-preset": "^5.1.3"
   },
   "packageManager": "pnpm@11.8.0"
 }
