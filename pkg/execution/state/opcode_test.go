@@ -92,6 +92,65 @@ func TestWaitForEventOpts_Expires(t *testing.T) {
 		require.NoError(t, err)
 		assert.WithinDuration(t, time.Now(), got, time.Second)
 	})
+
+	t.Run("accepts a timeout of exactly one leap year", func(t *testing.T) {
+		opts := WaitForEventOpts{Timeout: "366d"}
+		now := time.Now()
+		got, err := opts.Expires()
+		require.NoError(t, err)
+		assert.WithinDuration(t, now.Add(consts.MaxWaitForEventTimeout), got, time.Second)
+	})
+
+	t.Run("rejects a duration beyond one leap year", func(t *testing.T) {
+		opts := WaitForEventOpts{Timeout: "367d"}
+		_, err := opts.Expires()
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrTimeoutTooLong)
+	})
+
+	t.Run("rejects an RFC 3339 timestamp beyond one year", func(t *testing.T) {
+		opts := WaitForEventOpts{
+			Timeout: time.Now().AddDate(2, 0, 0).Format(time.RFC3339),
+		}
+		_, err := opts.Expires()
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrTimeoutTooLong)
+	})
+}
+
+func TestGeneratorOpcode_SleepDuration(t *testing.T) {
+	sleepOp := func(duration string) GeneratorOpcode {
+		return GeneratorOpcode{
+			Op:   enums.OpcodeSleep,
+			Opts: map[string]any{"duration": duration},
+		}
+	}
+
+	t.Run("accepts a duration of exactly one leap year", func(t *testing.T) {
+		dur, err := sleepOp("366d").SleepDuration()
+		require.NoError(t, err)
+		assert.Equal(t, consts.MaxSleepDuration, dur)
+	})
+
+	t.Run("rejects a duration beyond one leap year", func(t *testing.T) {
+		_, err := sleepOp("367d").SleepDuration()
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrTimeoutTooLong)
+	})
+
+	t.Run("rejects a date beyond one year", func(t *testing.T) {
+		at := time.Now().AddDate(2, 0, 0).Format(time.RFC3339)
+		_, err := sleepOp(at).SleepDuration()
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrTimeoutTooLong)
+	})
+
+	t.Run("accepts a date within one year", func(t *testing.T) {
+		at := time.Now().Add(30 * 24 * time.Hour)
+		dur, err := sleepOp(at.Format(time.RFC3339)).SleepDuration()
+		require.NoError(t, err)
+		assert.WithinDuration(t, at, time.Now().Add(dur), time.Second)
+	})
 }
 
 func TestSignalOpts_Expires(t *testing.T) {
@@ -214,4 +273,122 @@ func TestDeferAddOpts_Validate(t *testing.T) {
 		opts := DeferAddOpts{FnSlug: "fn", Input: json.RawMessage(atLimit)}
 		require.NoError(t, opts.Validate())
 	})
+
+	t.Run("accepts object Meta", func(t *testing.T) {
+		opts := DeferAddOpts{
+			FnSlug: "fn",
+			Input:  json.RawMessage(`{}`),
+			Meta:   json.RawMessage(`{"sessions":{"conversation_id":"conversation_1234"}}`),
+		}
+		require.NoError(t, opts.Validate())
+	})
+
+	t.Run("accepts a whole-field sessions tombstone", func(t *testing.T) {
+		// `sessions: null` clears every inherited session (RFC 7386). The
+		// envelope is still an object, so it must pass the shape check.
+		opts := DeferAddOpts{
+			FnSlug: "fn",
+			Input:  json.RawMessage(`{}`),
+			Meta:   json.RawMessage(`{"sessions":null}`),
+		}
+		require.NoError(t, opts.Validate())
+	})
+
+	t.Run("accepts absent and null Meta", func(t *testing.T) {
+		// Meta is optional, and a literal `null` is equivalent to absent.
+		for _, meta := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(" null ")} {
+			opts := DeferAddOpts{FnSlug: "fn", Input: json.RawMessage(`{}`), Meta: meta}
+			require.NoError(t, opts.Validate(), "Meta %q must be treated as absent", meta)
+		}
+	})
+
+	t.Run("rejects non-object Meta", func(t *testing.T) {
+		// Valid JSON that isn't an object would persist fine and then fail to
+		// unmarshal into event.EventMeta at finalize, where the only remaining
+		// outcome is silently dropping the deferred run. Reject at op receipt so
+		// it becomes a soft rejection the caller can see.
+		for _, meta := range []string{`3`, `"sessions"`, `[{"sessions":{}}]`, `true`} {
+			opts := DeferAddOpts{
+				FnSlug: "fn",
+				Input:  json.RawMessage(`{}`),
+				Meta:   json.RawMessage(meta),
+			}
+			require.ErrorIs(t, opts.Validate(), ErrDeferMetaInvalid,
+				"non-object Meta %s must be rejected at validation, not dropped at finalize", meta)
+		}
+	})
+
+	t.Run("rejects Meta larger than MaxEventMetaSize", func(t *testing.T) {
+		oversized, _ := json.Marshal(map[string]any{
+			"sessions": map[string]string{"k": string(bytes.Repeat([]byte("x"), consts.MaxEventMetaSize))},
+		})
+		opts := DeferAddOpts{
+			FnSlug: "fn",
+			Input:  json.RawMessage(`{}`),
+			Meta:   json.RawMessage(oversized),
+		}
+		require.ErrorIs(t, opts.Validate(), ErrDeferMetaTooLarge,
+			"Meta is persisted unparsed until finalize, so the byte cap is its only bound")
+	})
+
+	t.Run("accepts Meta at exactly MaxEventMetaSize", func(t *testing.T) {
+		// Boundary: equal-to-limit must pass; only strictly greater fails.
+		envelope := `{"sessions":{"k":""}}`
+		atLimit := json.RawMessage(`{"sessions":{"k":"` +
+			string(bytes.Repeat([]byte("x"), consts.MaxEventMetaSize-len(envelope))) + `"}}`)
+		require.Equal(t, consts.MaxEventMetaSize, len(atLimit))
+		opts := DeferAddOpts{
+			FnSlug: "fn",
+			Input:  json.RawMessage(`{}`),
+			Meta:   json.RawMessage(atLimit),
+		}
+		require.NoError(t, opts.Validate())
+	})
+}
+
+// TestInvokeFunctionOptsPreservesSessionNulls pins that RFC 7386 null
+// tombstones on the invoke payload survive decoding into InvokeFunctionOpts.
+//
+// GeneratorOpcode.Opts is `any`, so UnmarshalAny round-trips through a generic
+// map where a JSON null stays nil and re-marshals as null, reaching
+// EventMeta.UnmarshalJSON intact. A typed intermediate would silently drop the
+// tombstones — EventMeta holds them in unexported fields and has no
+// MarshalJSON — which would both break clearing and understate the executor's
+// session adoption metric.
+func TestInvokeFunctionOptsPreservesSessionNulls(t *testing.T) {
+	cases := []struct {
+		name        string
+		sessions    string
+		wantNulling bool
+	}{
+		{name: "per-key tombstone", sessions: `{"conv_id":null}`, wantNulling: true},
+		{name: "whole-field null", sessions: `null`, wantNulling: true},
+		{name: "concrete keys only", sessions: `{"conv_id":"123"}`, wantNulling: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := require.New(t)
+
+			// Decode the SDK's opcode the way the executor does: into the
+			// generic `Opts any` field, then through InvokeFunctionOpts.
+			raw := `{"op":"InvokeFunction","id":"1","opts":{"function_id":"fn",` +
+				`"payload":{"name":"evt","meta":{"sessions":` + tc.sessions +
+				`,"propagated_sessions":{"conv_id":"inherited"}}}}}`
+			var gen GeneratorOpcode
+			r.NoError(json.Unmarshal([]byte(raw), &gen))
+
+			opts, err := gen.InvokeFunctionOpts()
+			r.NoError(err)
+			r.NotNil(opts.Payload)
+
+			res := opts.Payload.Meta.ResolveSessions()
+			r.Equal(tc.wantNulling, res.Nulling)
+			r.True(res.Propagated)
+			if tc.wantNulling {
+				r.NotContains(opts.Payload.Meta.Sessions, "conv_id",
+					"the inherited key is cut by the tombstone")
+			}
+		})
+	}
 }

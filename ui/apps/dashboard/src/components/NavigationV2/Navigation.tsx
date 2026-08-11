@@ -1,11 +1,13 @@
-import { useBooleanFlag } from '@/components/FeatureFlags/hooks';
 import type { Environment as EnvType } from '@/utils/environments';
+import { useBooleanFlag } from '@/components/FeatureFlags/hooks';
 import KeysNavItem from './KeysNavItem';
 import NavSection from './NavSection';
 import {
+  aiOverviewItem,
   experimentsItem,
   manage,
   monitor,
+  sandboxesItem,
   scoresItem,
   sessionsItem,
   workflow,
@@ -24,24 +26,20 @@ export const getNavRoute = (activeEnv: EnvType, link: string) =>
   `/env/${activeEnv.slug}/${link}` as FileRouteTypes['to'];
 
 export default function Navigation({ collapsed, activeEnv }: NavProps) {
-  const experimentsEnabled = useBooleanFlag('experimentation-steps');
-  const scoresEnabled = useBooleanFlag('scoring-dashboard');
-  const sessionsEnabled = useBooleanFlag('sessions-ui');
+  const isAIOverviewEnabled = useBooleanFlag('ai-overview-dashboard', false);
 
-  const aiItems: NavItemConfig[] = [];
-  if (experimentsEnabled.value) {
-    aiItems.push(experimentsItem);
-  }
-  if (scoresEnabled.value) {
-    aiItems.push(scoresItem);
-  }
-  if (sessionsEnabled.value) {
-    aiItems.push(sessionsItem);
-  }
+  const aiItems: NavItemConfig[] = [
+    ...(isAIOverviewEnabled.value ? [aiOverviewItem] : []),
+    experimentsItem,
+    scoresItem,
+    sessionsItem,
+    sandboxesItem,
+  ];
 
   const ai: NavGroupConfig = {
     heading: 'AI',
     items: aiItems,
+    beta: true,
   };
 
   if (!activeEnv) {

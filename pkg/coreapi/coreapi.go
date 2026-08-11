@@ -38,7 +38,7 @@ type Options struct {
 	Logger         logger.Logger
 	Runner         runner.Runner
 	State          state.Manager
-	Queue          queue.JobQueueReader
+	QueueReader    queue.JobQueueReader
 	EventHandler   api.EventHandler
 	Executor       execution.Executor
 	HistoryReader  history_reader.Reader
@@ -98,7 +98,7 @@ func NewCoreApi(o Options) (*CoreAPI, error) {
 			Data:            o.Data,
 			HistoryReader:   o.HistoryReader,
 			Runner:          o.Runner,
-			Queue:           o.Queue,
+			QueueReader:     o.QueueReader,
 			EventHandler:    o.EventHandler,
 			Executor:        o.Executor,
 			ServerKind:      o.Config.GetServerKind(),
@@ -183,7 +183,6 @@ func (a CoreAPI) GetActions(w http.ResponseWriter, r *http.Request) {
 	actions := state.Actions()
 	_ = json.NewEncoder(w).Encode(actions)
 }
-
 
 func (a CoreAPI) GetEventBatch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 
 import { ElementWrapper, TextElement, TimeElement } from '../DetailsCard/Element';
 import type { SpanMetadata, SpanMetadataKind } from './types';
@@ -39,13 +39,20 @@ const getKindLabel = (kind: SpanMetadataKind): string => {
   return `User Metadata (${kindName})`;
 };
 
-const MetadataAttrRow = ({
-  kind,
-  scope,
-  values,
-  updatedAt,
-  isLast,
-}: SpanMetadata & { isLast: boolean }) => {
+// Row props are intentionally decoupled from the SpanMetadata discriminated
+// union: the row renders values generically via Object.entries and never relies
+// on the kind/values correlation. Indexing the union keeps it permissive enough
+// to accept any arm's values (including generated interface types like
+// AIMetadata, which lack an implicit index signature).
+type MetadataAttrRowProps = {
+  kind: SpanMetadataKind;
+  scope: SpanMetadata['scope'];
+  values: SpanMetadata['values'];
+  updatedAt: string;
+  isLast: boolean;
+};
+
+const MetadataAttrRow = ({ kind, scope, values, updatedAt, isLast }: MetadataAttrRowProps) => {
   const sortedEntries = useMemo(
     () =>
       Object.entries(values ?? {}).sort(([a], [b]) => {
@@ -106,7 +113,13 @@ const MetadataAttrRow = ({
 };
 
 /** Displays metadata attributes as key-value pairs. Status Code is pinned to the top, remaining entries sorted alphabetically. */
-export const MetadataAttrs = ({ metadata }: { metadata: SpanMetadata[] }) => {
+export const MetadataAttrs = ({
+  metadata,
+  footer,
+}: {
+  metadata: SpanMetadata[];
+  footer?: ReactNode;
+}) => {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (ref.current && ref.current.clientHeight > 0) {
@@ -132,6 +145,7 @@ export const MetadataAttrs = ({ metadata }: { metadata: SpanMetadata[] }) => {
           />
         );
       })}
+      {footer}
     </div>
   );
 };
