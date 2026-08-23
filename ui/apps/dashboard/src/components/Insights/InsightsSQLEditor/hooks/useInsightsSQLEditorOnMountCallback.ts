@@ -1,4 +1,5 @@
 import type { SQLEditorModel, SQLEditorMountCallback } from '@inngest/components/SQLEditor/SQLEditor';
+import { clickhouse, formatDialect } from 'sql-formatter';
 
 import { useInsightsStateMachineContext } from '../../InsightsStateMachineContext/InsightsStateMachineContext';
 import {

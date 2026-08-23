@@ -10,7 +10,6 @@ import { IconVercel } from '@inngest/components/icons/platforms/Vercel';
 import { RiExternalLinkLine } from '@remixicon/react';
 
 import { useBooleanFlag } from '@/components/FeatureFlags/hooks';
-import type { FileRouteTypes } from '@tanstack/react-router';
 import { pathCreator } from '@/utils/urls';
 
 type Integration = {
