@@ -23,67 +23,84 @@
 const fs = require('fs');
 const path = require('path');
 
-const filePath = process.argv[2];
-if (!filePath) {
-  process.exit(0);
-}
+const requestedPath = process.argv[2];
+const filePaths = requestedPath
+  ? [requestedPath]
+  : ['src/store/generated-types.ts', 'src/store/generated.ts'];
 
-const absPath = path.resolve(filePath);
-let src;
-try {
-  src = fs.readFileSync(absPath, 'utf8');
-} catch {
-  process.exit(0);
-}
-
-// (2) Strip the self-referential namespace import emitted by
-// typescript-operations when importSchemaTypesFrom points at this same file.
-const fileBaseName = path.basename(absPath).replace(/\.[cm]?[jt]sx?$/, '');
-const selfImportRe = new RegExp(
-  String.raw`^import type \* as (\w+) from ['"]\.\/${fileBaseName}['"];\s*$`,
-  'm',
-);
-const selfImportMatch = src.match(selfImportRe);
-if (selfImportMatch) {
-  const ns = selfImportMatch[1];
-  src = src.replace(selfImportRe, '');
-  // Replace `Types.Foo` with `Foo`. The namespace alias is a TS identifier so
-  // a word-boundary match is sufficient here.
-  src = src.replace(new RegExp(String.raw`\b${ns}\.`, 'g'), '');
-}
-
-const importRe =
-  /^import type \{\s*([^}]+?)\s*\} from ['"]([^'"]+)['"];\s*$/gm;
-const bySource = new Map();
-const order = [];
-for (const match of src.matchAll(importRe)) {
-  const source = match[2];
-  const symbols = match[1]
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!bySource.has(source)) {
-    bySource.set(source, new Set());
-    order.push(source);
+for (const filePath of filePaths) {
+  const absPath = path.resolve(filePath);
+  let src;
+  try {
+    src = fs.readFileSync(absPath, 'utf8');
+  } catch {
+    continue;
   }
-  const set = bySource.get(source);
-  for (const sym of symbols) {
-    set.add(sym);
-  }
-}
 
-if (order.length === 0) {
+  // Normalize the path emitted by typescript-operations when it resolves
+  // importSchemaTypesFrom relative to the schema instead of the output file.
+  src = src.replaceAll("'../../generated-types'", "'./generated-types'");
+  src = src.replaceAll('"../../generated-types"', '"./generated-types"');
+
+  // (2) Strip the self-referential namespace import emitted by
+  // typescript-operations when importSchemaTypesFrom points at this same file.
+  const fileBaseName = path.basename(absPath).replace(/\.[cm]?[jt]sx?$/, '');
+  const selfImportRe = new RegExp(
+    String.raw`^import type \* as (\w+) from ['"]\.\/${fileBaseName}['"];\s*$`,
+    'm',
+  );
+  const selfImportMatch = src.match(selfImportRe);
+  if (selfImportMatch) {
+    const ns = selfImportMatch[1];
+    src = src.replace(selfImportRe, '');
+    // Replace `Types.Foo` with `Foo`. The namespace alias is a TS identifier so
+    // a word-boundary match is sufficient here.
+    src = src.replace(new RegExp(String.raw`\b${ns}\.`, 'g'), '');
+  }
+
+  const namespaceImportRe =
+    /^import type \* as (\w+) from ['"]([^'"]+)['"];\s*$/gm;
+  const namespaceSources = new Set();
+  src = src.replace(namespaceImportRe, (statement, alias, source) => {
+    if (namespaceSources.has(source)) {
+      return '';
+    }
+    namespaceSources.add(source);
+    return statement;
+  });
+
+  const importRe =
+    /^import type \{\s*([^}]+?)\s*\} from ['"]([^'"]+)['"];\s*$/gm;
+  const bySource = new Map();
+  const order = [];
+  for (const match of src.matchAll(importRe)) {
+    const source = match[2];
+    const symbols = match[1]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!bySource.has(source)) {
+      bySource.set(source, new Set());
+      order.push(source);
+    }
+    const set = bySource.get(source);
+    for (const sym of symbols) {
+      set.add(sym);
+    }
+  }
+
+  if (order.length > 0) {
+    const withoutImports = src.replace(importRe, '');
+    const merged = order
+      .map((source) => {
+        const symbols = Array.from(bySource.get(source)).sort();
+        return `import type { ${symbols.join(', ')} } from '${source}';`;
+      })
+      .join('\n');
+
+    const cleaned = withoutImports.replace(/^\s*\n+/, '');
+    src = `${merged}\n\n${cleaned}`;
+  }
+
   fs.writeFileSync(absPath, src);
-  process.exit(0);
 }
-
-const withoutImports = src.replace(importRe, '');
-const merged = order
-  .map((source) => {
-    const symbols = Array.from(bySource.get(source)).sort();
-    return `import type { ${symbols.join(', ')} } from '${source}';`;
-  })
-  .join('\n');
-
-const cleaned = withoutImports.replace(/^\s*\n+/, '');
-fs.writeFileSync(absPath, `${merged}\n\n${cleaned}`);

@@ -70,9 +70,6 @@ const codegenConfig: CodegenConfig = {
         namespacedImportName: undefined,
       },
       plugins: ['typescript', 'typescript-operations'],
-      hooks: {
-        afterOneFileWrite: ['node ./codegen-dedupe-imports.cjs'],
-      },
     },
     //
     // The full RTK-Query bundle. importSchemaTypesFrom makes the
@@ -97,6 +94,9 @@ const codegenConfig: CodegenConfig = {
         },
       ],
     },
+  },
+  hooks: {
+    afterAllFileWrite: ['node ./codegen-dedupe-imports.cjs'],
   },
 };
 
