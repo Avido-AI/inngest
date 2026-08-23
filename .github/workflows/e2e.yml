@@ -24,6 +24,9 @@ jobs:
         with:
           go-version-file: ./go.mod
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
       # pnpm must be set up before setup-node so the "pnpm" cache can resolve
       # the pnpm store path.
       - name: Install pnpm
