@@ -16,13 +16,12 @@ const (
 	pkgName = "queue.processor"
 )
 
-// Enqueue adds an item to the queue to be processed at the given time.
-// TODO: Lift this function and the queue interface to a higher level, so that it's disconnected from the
-// concrete Redis implementation.
-func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, opts EnqueueOpts) error {
-	l := logger.StdlibLogger(ctx)
+type batchEnqueueShard interface {
+	EnqueueItemBatch(ctx context.Context, items []QueueItem, ats []time.Time, opts EnqueueOpts) []error
+}
 
-	// propagate
+// buildQueueItem converts an Item to a QueueItem, validates it, and computes its effective enqueue time.
+func (q *queueProducer) buildQueueItem(item Item, at time.Time, opts EnqueueOpts) (QueueItem, time.Time, error) {
 	if item.Metadata == nil {
 		item.Metadata = map[string]any{}
 	}
@@ -33,7 +32,6 @@ func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, op
 	}
 
 	if item.QueueName == nil {
-		// Check if we have a kind => queuename mapping.
 		item.QueueName = q.defaultQueueNameForItemKind(item.Kind)
 	}
 
@@ -47,6 +45,30 @@ func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, op
 		WallTimeMS:  at.UnixMilli(),
 	}
 
+	if item.QueueName == nil && qi.FunctionID == uuid.Nil {
+		return QueueItem{}, time.Time{}, fmt.Errorf("queue name or function ID must be set")
+	}
+
+	if opts.IdempotencyPeriod != nil {
+		qi.IdempotencyPeriod = opts.IdempotencyPeriod
+	}
+
+	next := time.UnixMilli(qi.Score(q.Clock().Now()))
+	if factor := qi.Data.GetPriorityFactor(); factor != 0 {
+		qi.AtMS -= factor
+	}
+
+	return qi, next, nil
+}
+
+// Enqueue adds an item to the queue to be processed at the given time.
+// TODO: Lift this function and the queue interface to a higher level, so that it's disconnected from the
+// concrete Redis implementation.
+func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, opts EnqueueOpts) error {
+	l := logger.StdlibLogger(ctx)
+
+	qi, next, err := q.buildQueueItem(item, at, opts)
+
 	l = l.With(
 		"item", qi,
 		"account_id", item.Identifier.AccountID,
@@ -55,26 +77,13 @@ func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, op
 		"fn_id", item.Identifier.WorkflowID,
 	)
 
-	if item.QueueName == nil && qi.FunctionID == uuid.Nil {
-		err := fmt.Errorf("queue name or function ID must be set")
+	if err != nil {
 		l.ReportError(err, "attempted to enqueue QueueItem without function ID or queueName override")
 		return err
 	}
 
-	// Pass optional idempotency period to queue item
-	if opts.IdempotencyPeriod != nil {
-		qi.IdempotencyPeriod = opts.IdempotencyPeriod
-	}
-
 	// Use the queue item's score, ensuring we process older function runs first
 	// (eg. before at)
-	next := time.UnixMilli(qi.Score(q.Clock().Now()))
-
-	if factor := qi.Data.GetPriorityFactor(); factor != 0 {
-		// Ensure we mutate the AtMS time by the given priority factor.
-		qi.AtMS -= factor
-	}
-
 	ctx, span := q.conditionalTracer.NewSpan(ctx, "queue.Enqueue.select_shard", TraceScopeFromQueueItem(qi, opts.ForceQueueShardName))
 	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, qi)
 	span.End()
@@ -96,6 +105,11 @@ func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, op
 		return err
 	}
 
+	q.maybeEnqueuePromotionJob(ctx, l, qi)
+	return nil
+}
+
+func (q *queueProducer) maybeEnqueuePromotionJob(ctx context.Context, l logger.Logger, qi QueueItem) {
 	// XXX: If we've enqueued a user queue item (sleep, retry, step, etc.) and it's in the future,
 	// we want to ensure that we schedule a rebalance job which takes the queue item and places it
 	// at the correct score based off of the item's run ID when it becomes available.
@@ -103,14 +117,10 @@ func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, op
 	// Without this, step.sleep or retries for a very old workflow may still lag behind steps from
 	// later workflows when scheduled in the future.  This can, worst case, cause never-ending runs.
 	if !q.enableJobPromotion || !qi.RequiresPromotionJob(q.Clock().Now()) {
-		// scheule a rebalance job automatically.
-		return nil
+		return
 	}
-
-	// This is to prevent infinite recursion in case RequiresPromotion is accidentally refactored
-	// to include the below job kind.
 	if qi.Data.Kind == KindJobPromote {
-		return nil
+		return
 	}
 
 	// This is the fudge job.  What a name!
@@ -122,7 +132,7 @@ func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, op
 	promoteAt := time.UnixMilli(qi.AtMS).Add(consts.FutureAtLimit * -1)
 	promoteJobID := fmt.Sprintf("promote-%s", qi.ID)
 	promoteQueueName := fmt.Sprintf("job-promote:%s", qi.FunctionID)
-	err = q.Enqueue(ctx, Item{
+	err := q.Enqueue(ctx, Item{
 		JobID:          &promoteJobID,
 		WorkspaceID:    qi.Data.WorkspaceID,
 		QueueName:      &promoteQueueName,
@@ -136,8 +146,100 @@ func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, op
 		},
 	}, promoteAt, EnqueueOpts{})
 	if err != nil && !errors.Is(err, ErrQueueItemExists) {
-		// This is best effort, and shouldn't fail the OG enqueue.
 		l.ReportError(err, "error scheduling promotion job")
 	}
-	return nil
+}
+
+func (q *queueProducer) EnqueueBatch(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	if len(items) != len(ats) {
+		err := fmt.Errorf("queue batch items and times must have the same length")
+		errs := make([]error, len(items))
+		for idx := range errs {
+			errs[idx] = err
+		}
+		return errs
+	}
+
+	qis := make([]QueueItem, len(items))
+	effectiveAts := make([]time.Time, len(items))
+	for idx := range items {
+		qi, effectiveAt, err := q.buildQueueItem(items[idx], ats[idx], opts)
+		if err != nil {
+			errs := make([]error, len(items))
+			errs[idx] = err
+			return errs
+		}
+		qis[idx] = qi
+		effectiveAts[idx] = effectiveAt
+	}
+
+	ctx, span := q.conditionalTracer.NewSpan(
+		ctx,
+		"queue.Enqueue.select_shard",
+		TraceScopeFromQueueItem(qis[0], opts.ForceQueueShardName),
+	)
+	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, qis[0])
+	span.End()
+	if err != nil {
+		errs := make([]error, len(items))
+		for idx := range errs {
+			errs[idx] = err
+		}
+		return errs
+	}
+
+	batchShard, ok := shard.(batchEnqueueShard)
+	if !ok {
+		errs := make([]error, len(items))
+		for idx := range items {
+			errs[idx] = q.Enqueue(ctx, items[idx], ats[idx], opts)
+		}
+		return errs
+	}
+
+	errs := batchShard.EnqueueItemBatch(ctx, qis, effectiveAts, opts)
+	if len(errs) != len(items) {
+		normalized := make([]error, len(items))
+		copy(normalized, errs)
+		errs = normalized
+	}
+
+	q.emitBatchMetrics(ctx, items, errs, shard)
+	q.maybeEnqueueBatchPromotionJobs(ctx, qis, errs)
+	return errs
+}
+
+func (q *queueProducer) maybeEnqueueBatchPromotionJobs(ctx context.Context, qis []QueueItem, errs []error) {
+	l := logger.StdlibLogger(ctx)
+	for idx := range qis {
+		if idx >= len(errs) || errs[idx] != nil {
+			continue
+		}
+		q.maybeEnqueuePromotionJob(ctx, l, qis[idx])
+	}
+}
+
+func (q *queueProducer) emitBatchMetrics(ctx context.Context, items []Item, errs []error, shard QueueShard) {
+	for idx := range items {
+		status := "enqueued"
+		if idx < len(errs) && errs[idx] != nil {
+			if errors.Is(errs[idx], ErrQueueItemExists) {
+				status = "exists"
+			} else {
+				status = "error"
+			}
+		}
+		metrics.IncrQueueItemStatusCounter(ctx, metrics.CounterOpt{
+			PkgName: pkgName,
+			Tags: map[string]any{
+				"status":      status,
+				"kind":        items[idx].Kind,
+				"queue_shard": shard.Name(),
+			},
+		})
+	}
 }
