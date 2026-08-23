@@ -230,7 +230,8 @@ func TestHandleGeneratorResponse_CoalesceKeyBySDKRequestVersion(t *testing.T) {
 
 		require.NoError(t, e.HandleGeneratorResponse(context.Background(), i, resp))
 
-		require.Empty(t, svc.savePendingCalls, "SavePending must not be called when SDK reports V1")
+		require.Len(t, svc.savePendingCalls, 1,
+			"SavePending must track planned steps even when SDK reports V1")
 		require.Len(t, q.enqueued, len(stepIDs))
 		for _, item := range q.enqueued {
 			require.Nil(t, item.ParallelCoalesceKey,
