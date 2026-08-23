@@ -32,6 +32,30 @@ func (q *queueProcessor) ProcessShadowPartition(ctx context.Context, shadowPart 
 	metrics.ActiveShadowScannerCount(ctx, 1, metrics.CounterOpt{PkgName: pkgName, Tags: map[string]any{"queue_shard": shard.Name()}})
 	defer metrics.ActiveShadowScannerCount(ctx, -1, metrics.CounterOpt{PkgName: pkgName, Tags: map[string]any{"queue_shard": shard.Name()}})
 
+	if shadowPart.AccountID != nil {
+		accountExists, err := q.accountExists(ctx, *shadowPart.AccountID)
+		if err != nil {
+			metrics.IncrQueueDeletedAccountPartitionCounter(ctx, metrics.CounterOpt{
+				PkgName: pkgName,
+				Tags: map[string]any{
+					"queue_shard": shard.Name(),
+					"action":      deletedAccountPartitionActionCheckError,
+				},
+			})
+			l.Warn("error checking account existence for shadow partition", "error", err, "account_id", shadowPart.AccountID.String(), "partition_id", shadowPart.PartitionID)
+		} else if !accountExists {
+			metrics.IncrQueueDeletedAccountPartitionCounter(ctx, metrics.CounterOpt{
+				PkgName: pkgName,
+				Tags: map[string]any{
+					"queue_shard": shard.Name(),
+					"action":      deletedAccountPartitionActionFound,
+				},
+			})
+			q.removeShadowContinue(ctx, shadowPart, false)
+			return q.requeueDeletedAccountShadowPartition(ctx, shard, shadowPart)
+		}
+	}
+
 	// Check if shadow partition cannot be processed (paused/refill disabled, etc.)
 	if shadowPart.FunctionID != nil && shadowPart.AccountID != nil && shadowPart.EnvID != nil {
 		lockedUntil, err := shard.IsMigrationLocked(ctx, Scope{
@@ -481,7 +505,7 @@ func (q *queueProcessor) ProcessShadowPartitionBacklog(
 	now := q.Clock().Now()
 	operationIdempotencyKey := fmt.Sprintf("%s-%d", backlog.BacklogID, now.UnixMilli())
 
-	constraintCheckRes, err := q.BacklogRefillConstraintCheck(ctx, shadowPart, backlog, constraints, items, operationIdempotencyKey, now)
+	constraintCheckRes, err := q.BacklogRefillConstraintCheck(ctx, shadowPart, backlog, constraints, items, operationIdempotencyKey, now, enableKeyQueues)
 	if err != nil {
 		// Do not pass on error further, we want to prevent quitting the queue
 		l.ReportError(err, "could not check constraints for backlogRefill")

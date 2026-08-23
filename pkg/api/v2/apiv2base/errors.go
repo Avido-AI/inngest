@@ -3,6 +3,7 @@ package apiv2base
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -30,6 +31,8 @@ const (
 	// 409 Conflict errors
 	ErrorResourceAlreadyExists = "resource_already_exists"
 	ErrorIdempotencyConflict   = "idempotency_conflict"
+	ErrorRunAlreadyCancelled   = "run_already_cancelled"
+	ErrorRunAlreadyEnded       = "run_already_ended"
 
 	// 429 Too Many Requests errors
 	ErrorRateLimited = "rate_limited"
@@ -66,6 +69,19 @@ type ErrorResponse struct {
 	Errors []ErrorItem `json:"errors"`
 }
 
+type httpStatusError struct {
+	error
+	status int
+}
+
+func (e *httpStatusError) HTTPStatus() int {
+	return e.status
+}
+
+func (e *httpStatusError) GRPCStatus() *status.Status {
+	return status.Convert(e.error)
+}
+
 // NewErrors creates a gRPC error that will be properly formatted by grpc-gateway
 // Takes one or more ErrorItem and returns a gRPC error
 func NewErrors(httpCode int, errors ...ErrorItem) error {
@@ -87,7 +103,10 @@ func NewErrors(httpCode int, errors ...ErrorItem) error {
 	// Create gRPC error with JSON in the message
 	// Our custom error handler will extract and format this properly
 	grpcCode := httpToGRPCStatus(httpCode)
-	return status.Error(grpcCode, string(jsonData))
+	return &httpStatusError{
+		error:  status.Error(grpcCode, string(jsonData)),
+		status: httpCode,
+	}
 }
 
 // NewSingleError creates a gRPC error for a single error condition
@@ -112,6 +131,10 @@ func httpToGRPCStatus(httpCode int) codes.Code {
 		return codes.FailedPrecondition
 	case http.StatusTooManyRequests:
 		return codes.ResourceExhausted
+	case http.StatusRequestEntityTooLarge:
+		return codes.ResourceExhausted
+	case http.StatusGatewayTimeout:
+		return codes.DeadlineExceeded
 	case http.StatusInternalServerError:
 		return codes.Internal
 	case http.StatusNotImplemented:
@@ -141,6 +164,10 @@ func CustomErrorHandler(base *Base) func(context.Context, *runtime.ServeMux, run
 
 		// Map gRPC codes to HTTP status codes
 		httpCode := base.GRPCToHTTPStatus(st.Code())
+		var exactStatus interface{ HTTPStatus() int }
+		if errors.As(err, &exactStatus) {
+			httpCode = exactStatus.HTTPStatus()
+		}
 
 		// Try to parse the error message as our error format
 		message := st.Message()

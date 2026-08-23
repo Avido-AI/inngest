@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"time"
@@ -600,6 +601,7 @@ func start(ctx context.Context, opts StartOpts) error {
 				run.NewTraceLifecycleListener(nil),
 			}, metrics.NewLifecycleListeners()...)...,
 		),
+		executor.WithEventLifecycleListeners(execution.NoopEventLifecycleListener{}),
 		executor.WithStepLimits(func(id sv2.ID) int {
 			if override, hasOverride := stepLimitOverrides[id.FunctionID.String()]; hasOverride {
 				l.Warn("using step limit override", "override", override, "fn_id", id.FunctionID)
@@ -653,7 +655,7 @@ func start(ctx context.Context, opts StartOpts) error {
 		opts.Config,
 		executor.WithExecutionManager(dbcqrs),
 		executor.WithState(sm),
-		executor.WithServiceQueue(rq),
+		executor.WithServiceQueueProcessor(rq),
 		executor.WithServiceExecutor(exec),
 		executor.WithServiceBatcher(batcher),
 		executor.WithServiceDebouncer(debouncer),
@@ -661,9 +663,6 @@ func start(ctx context.Context, opts StartOpts) error {
 		executor.WithServiceLogger(l),
 		executor.WithServiceShardRegistry(shardRegistry),
 		executor.WithServicePublisher(pb),
-		executor.WithServiceEnableKeyQueues(func(ctx context.Context, acctID uuid.UUID) bool {
-			return enableKeyQueues
-		}),
 	)
 
 	runner := runner.NewService(
@@ -673,7 +672,6 @@ func start(ctx context.Context, opts StartOpts) error {
 		runner.WithExecutionManager(dbcqrs),
 		runner.WithPauseManager(pauseMgr),
 		runner.WithStateManager(sm),
-		runner.WithRunnerQueue(rq),
 		runner.WithBatchManager(batcher),
 		runner.WithCronManager(croner),
 		runner.WithPublisher(pb),
@@ -683,7 +681,6 @@ func start(ctx context.Context, opts StartOpts) error {
 	// The devserver embeds the event API.
 	ds := NewService(opts, runner, dbcqrs, pb, stepLimitOverrides, stateSizeLimitOverrides, unshardedRc, nil)
 	ds.State = sm
-	ds.Queue = rq
 	ds.Executor = exec
 	ds.SemaphoreManager = semaphores
 	ds.CronSyncer = croner
@@ -692,8 +689,6 @@ func start(ctx context.Context, opts StartOpts) error {
 	// registering functions.
 	devAPI := NewDevAPI(ds, DevAPIOptions{AuthMiddleware: authn.SigningKeyMiddleware(opts.SigningKey), disableUI: opts.NoUI})
 
-	// Add MCP server route
-	AddMCPRoute(devAPI, ds.HandleEvent, ds.Data, opts.Tick)
 	core, err := coreapi.NewCoreApi(coreapi.Options{
 		AuthMiddleware: authn.SigningKeyMiddleware(opts.SigningKey),
 		Data:           ds.Data,
@@ -701,7 +696,7 @@ func start(ctx context.Context, opts StartOpts) error {
 		Logger:         l,
 		Runner:         ds.Runner,
 		State:          ds.State,
-		Queue:          ds.Queue,
+		QueueReader:    rq,
 		EventHandler:   ds.HandleEvent,
 		Executor:       ds.Executor,
 		HistoryReader:  cqrsmanager.NewHistoryReader(adapter),
@@ -732,9 +727,11 @@ func start(ctx context.Context, opts StartOpts) error {
 			AuthMiddleware:    authn.SigningKeyMiddleware(opts.SigningKey),
 			CachingMiddleware: caching,
 			FunctionReader:    ds.Data,
-			JobQueueReader:    ds.Queue.(queue.JobQueueReader),
 			Executor:          ds.Executor,
-			Queue:             rq,
+			QueueProducer:     rq,
+			RunQueueReader:    rq,
+			QueueItemReader:   rq,
+			AttemptResetter:   rq,
 			QueueShards:       shardRegistry,
 			Broadcaster:       broadcaster,
 			TraceReader:       ds.Data,
@@ -796,10 +793,24 @@ func start(ctx context.Context, opts StartOpts) error {
 		EventKeysProvider:   apiv2.NewEventKeysProvider(opts.EventKeys),
 		Apps:                NewAppProvider(dbcqrs),
 		Functions:           NewFunctionProvider(dbcqrs),
-		Runs:                NewRunProvider(dbcqrs, adapter.Q(), exec),
+		Runs:                NewRunProvider(dbcqrs, exec),
 		FunctionTraces:      NewFunctionTraceReader(dbcqrs),
 		Executor:            exec,
 		EventPublisher:      runner,
+		EventSender: func(ctx context.Context, evt *event.Event) (string, error) {
+			return ds.HandleEvent(ctx, evt, nil)
+		},
+		Scores: apiv2.NewStateScoreProvider(apiv2.StateScoreProviderOptions{
+			State:          smv2,
+			TracerProvider: tp,
+			Auth: func(ctx context.Context) (uuid.UUID, uuid.UUID, error) {
+				return consts.DevServerAccountID, consts.DevServerEnvID, nil
+			},
+			Enabled: func(ctx context.Context, accountID uuid.UUID) bool {
+				return enableStepMetadata
+			},
+			MissingStateLoader: scoreMetadataLoader(dbcqrs),
+		}),
 	}
 
 	apiv2Base := apiv2base.NewBase()
@@ -809,6 +820,9 @@ func start(ctx context.Context, opts StartOpts) error {
 	if err != nil {
 		return fmt.Errorf("failed to create v2 handler: %w", err)
 	}
+
+	mcpHandler := newMCPHandler(ds.HandleEvent, ds.Data, opts.Tick, apiv2Handler)
+	addMCPRoute(devAPI, mcpHandler)
 
 	// Create a new data API directly in the devserver.  This allows us to inject
 	// the data API into the dev server port, providing a single router for the dev
@@ -820,6 +834,8 @@ func start(ctx context.Context, opts StartOpts) error {
 	mounts := []api.Mount{
 		{At: "/", Router: devAPI},
 		{At: "/v0", Router: core.Router},
+		{At: "/api/v2/operations", Handler: http.HandlerFunc(mcpHandler.Operations)},
+		{At: "/v2/operations", Handler: http.HandlerFunc(mcpHandler.Operations)},
 		{At: "/api/v2", Handler: apiv2Handler},
 		{At: "/v2", Handler: apiv2Handler},
 		{At: "/debug", Handler: middleware.Profiler()},
@@ -829,7 +845,6 @@ func start(ctx context.Context, opts StartOpts) error {
 	if testapi.ShouldEnable() {
 		mounts = append(mounts, api.Mount{At: "/test", Handler: testapi.New(testapi.Options{
 			QueueShards:  shardRegistry,
-			Queue:        rq,
 			Executor:     exec,
 			StateManager: smv2,
 			ResetAll: func() {
@@ -885,15 +900,19 @@ func start(ctx context.Context, opts StartOpts) error {
 
 	if os.Getenv("DEBUG") != "" {
 		services = append(services, debugapi.NewDebugAPI(debugapi.Opts{
-			Log:             l,
-			DB:              ds.Data,
-			Queue:           rq,
-			State:           ds.State,
-			Cron:            croner,
-			ShardRegistry:   shardRegistry,
-			Port:            ds.Opts.DebugAPIPort,
-			PauseManager:    pauseMgr,
-			CapacityManager: cm,
+			Log:              l,
+			DB:               ds.Data,
+			RunReader:        rq,
+			ItemReader:       rq,
+			PartitionReader:  rq,
+			BacklogReader:    rq,
+			State:            ds.State,
+			Cron:             croner,
+			ShardRegistry:    shardRegistry,
+			Port:             ds.Opts.DebugAPIPort,
+			PauseManager:     pauseMgr,
+			CapacityManager:  cm,
+			SemaphoreManager: semaphores,
 			// Dependencies for batching and debounce insights
 			BatchManager: batcher,
 			Debouncer:    debouncer,

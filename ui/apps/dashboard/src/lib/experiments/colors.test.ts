@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { colorForMetric, METRIC_PALETTE } from './colors';
+import { CHART_COLORS } from '@/components/InsightsMetrics/colors';
+
+import { buildMetricColorMap, colorForMetric } from './colors';
 
 describe('colorForMetric', () => {
   it('returns a palette color', () => {
     const c = colorForMetric(0);
-    expect(METRIC_PALETTE).toContain(c);
+    expect(CHART_COLORS).toContain(c);
   });
 
   it('is deterministic for the same index', () => {
@@ -19,6 +21,34 @@ describe('colorForMetric', () => {
   });
 
   it('wraps around the palette', () => {
-    expect(colorForMetric(METRIC_PALETTE.length)).toBe(colorForMetric(0));
+    expect(colorForMetric(CHART_COLORS.length)).toBe(colorForMetric(0));
+  });
+});
+
+describe('buildMetricColorMap', () => {
+  it('colors metrics by their position in the full list', () => {
+    const map = buildMetricColorMap([
+      { key: 'tokens' },
+      { key: 'cost' },
+      { key: 'accuracy' },
+    ]);
+    expect(map.tokens).toBe(colorForMetric(0));
+    expect(map.cost).toBe(colorForMetric(1));
+    expect(map.accuracy).toBe(colorForMetric(2));
+  });
+
+  it('keeps each color stable regardless of enabled state', () => {
+    // A metric's color depends only on its list position, so disabling any
+    // metric never reshuffles the others' colors.
+    const map = buildMetricColorMap([
+      { key: 'tokens' },
+      { key: 'cost' },
+      { key: 'accuracy' },
+    ]);
+    expect(map.accuracy).toBe(colorForMetric(2));
+  });
+
+  it('returns an empty map for no metrics', () => {
+    expect(buildMetricColorMap([])).toEqual({});
   });
 });

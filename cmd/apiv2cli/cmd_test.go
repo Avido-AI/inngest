@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"testing"
 
+	"github.com/inngest/inngest/pkg/api/v2/apiv2endpoint"
+	"github.com/inngest/inngest/pkg/inngest/version"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
@@ -37,12 +42,32 @@ func TestDiscoverEndpointsFromProto(t *testing.T) {
 	require.Equal(t, []string{"app_id", "function_id"}, byName["invoke-function"].pathParams)
 	require.Equal(t, http.MethodGet, byName["get-function-trace"].method)
 	require.Equal(t, "/runs/{run_id}/trace", byName["get-function-trace"].path)
+	require.NotContains(t, byName, "get-runs")
+	require.Equal(t, "/runs", byName["get-function-runs"].path)
+	require.Empty(t, byName["get-function-runs"].pathParams)
+	require.Equal(t, http.MethodPost, byName["send-event"].method)
+	require.Equal(t, "/events", byName["send-event"].path)
+}
+
+func TestCanonicalCommandEndpointsPrefersExplicitNameOwner(t *testing.T) {
+	endpoints := canonicalCommandEndpoints([]apiv2endpoint.Endpoint{
+		{MethodName: "Derived", CommandName: "get-runs"},
+		{MethodName: "Explicit", CommandName: "get-runs", CommandNameExplicit: true},
+		{MethodName: "Other", CommandName: "get-app"},
+	})
+
+	methods := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		methods = append(methods, endpoint.MethodName)
+	}
+	require.ElementsMatch(t, []string{"Explicit", "Other"}, methods)
 }
 
 func TestEndpointCommandNameNormalizesReadVerbs(t *testing.T) {
 	require.Equal(t, "get-account", endpointCommandName("FetchAccount"))
 	require.Equal(t, "get-webhooks", endpointCommandName("ListWebhooks"))
 	require.Equal(t, "get-function-run", endpointCommandName("GetFunctionRun"))
+	require.Equal(t, "get-function-runs", endpointCommandName("ListRuns"))
 	require.Equal(t, "create-env", endpointCommandName("CreateEnv"))
 }
 
@@ -60,6 +85,7 @@ func TestCommandHelpUsesTopLevelAPIAndBetaLabel(t *testing.T) {
 	require.Contains(t, out.String(), "inngest api [target/auth flags] <endpoint> [endpoint flags]")
 	require.Contains(t, out.String(), "Call Inngest REST API v2 endpoints (beta)")
 	require.Contains(t, out.String(), "Beta: this command is under active development and may change.")
+	require.Contains(t, out.String(), "Authentication: https://api-docs.inngest.com/authentication")
 	require.NotContains(t, out.String(), "inngest alpha api [target/auth flags]")
 }
 
@@ -92,6 +118,8 @@ func TestEndpointCommandsIncludeOperationAndInheritedFlagHelp(t *testing.T) {
 	require.Contains(t, invoke.Description, "INNGEST_API_KEY")
 	require.Contains(t, invoke.Description, "INNGEST_ENV")
 	require.Contains(t, invoke.Description, "/v2")
+	require.Contains(t, invoke.Description, "Authentication: https://api-docs.inngest.com/authentication")
+	require.NotContains(t, invoke.Description, "inngest alpha api")
 }
 
 func TestEndpointFlagsUseProtoFieldDescriptions(t *testing.T) {
@@ -113,6 +141,26 @@ func TestEndpointFlagsUseProtoFieldDescriptions(t *testing.T) {
 	require.Contains(t, byName["data"].String(), "JSON object containing the input data for the function")
 	require.Contains(t, byName["function-id"].String(), "The ID of the function to invoke")
 	require.Contains(t, byName["idempotency-key"].String(), "Optional idempotency key")
+}
+
+func TestRerunFromStepFlagsDescribeSimpleShape(t *testing.T) {
+	var rerun endpoint
+	for _, ep := range discoverEndpoints() {
+		if ep.name == "rerun" {
+			rerun = ep
+			break
+		}
+	}
+	require.NotEmpty(t, rerun.name)
+
+	flags := endpointFlags(rerun)
+	byName := map[string]cli.Flag{}
+	for _, flag := range flags {
+		byName[flag.Names()[0]] = flag
+	}
+
+	require.Contains(t, byName["from-step"].String(), "Step name to rerun from")
+	require.Contains(t, byName["input"].String(), "replacement step input as a JSON array")
 }
 
 func TestEndpointDescriptionReferencesValidFlags(t *testing.T) {
@@ -140,10 +188,20 @@ func TestEndpointDescriptionReferencesValidFlags(t *testing.T) {
 }
 
 func TestCommandCallsGeneratedEndpoint(t *testing.T) {
+	previousVersion := version.Version
+	previousHash := version.Hash
+	version.Version = "v1.2.3-rc1"
+	version.Hash = "a1b2c3d"
+	t.Cleanup(func() {
+		version.Version = previousVersion
+		version.Hash = previousHash
+	})
+
 	var gotPath string
 	var gotAuth string
 	var gotEnv string
 	var gotContentType string
+	var gotUserAgent string
 	var gotBody map[string]any
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +209,7 @@ func TestCommandCallsGeneratedEndpoint(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		gotEnv = r.Header.Get("X-Inngest-Env")
 		gotContentType = r.Header.Get("Content-Type")
+		gotUserAgent = r.UserAgent()
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
 
 		w.Header().Set("Content-Type", "application/json")
@@ -179,11 +238,180 @@ func TestCommandCallsGeneratedEndpoint(t *testing.T) {
 	require.Equal(t, "Bearer signkey-test-abc", gotAuth)
 	require.Equal(t, "branch-a", gotEnv)
 	require.Equal(t, "application/json", gotContentType)
+	require.Equal(t, "inngest-cli/v1.2.3-rc1", gotUserAgent)
 	require.Equal(t, map[string]any{
 		"data":           map[string]any{"message": "hi"},
 		"idempotencyKey": "idem-1",
 	}, gotBody)
 	require.Contains(t, out.String(), `"runId": "01J00000000000000000000000"`)
+}
+
+func TestWriteSandboxFileSendsRawBodyAndQueryParameters(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "upload.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("sandbox file"), 0o600))
+
+	var gotBody []byte
+	var gotQuery url.Values
+	var gotContentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		require.NoError(t, err)
+		gotQuery = r.URL.Query()
+		gotContentType = r.Header.Get("Content-Type")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"path":"/tmp/upload.txt","bytesWritten":"12"}}`))
+	}))
+	defer server.Close()
+
+	cmd := Command()
+	cmd.Writer = &bytes.Buffer{}
+	err := cmd.Run(context.Background(), []string{
+		"api",
+		"--api-host", server.URL,
+		"write-sandbox-file",
+		"sandbox-id",
+		"--path", "/tmp/upload.txt",
+		"--mode", "0640",
+		"--body-file", filePath,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []byte("sandbox file"), gotBody)
+	require.Equal(t, "/tmp/upload.txt", gotQuery.Get("path"))
+	require.Equal(t, "0640", gotQuery.Get("mode"))
+	require.Equal(t, "application/octet-stream", gotContentType)
+}
+
+func TestReadSandboxFileStreamsRawResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/tmp/download.txt", r.URL.Query().Get("path"))
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte{'a', 0, 'b'})
+	}))
+	defer server.Close()
+
+	cmd := Command()
+	output := &bytes.Buffer{}
+	cmd.Writer = output
+	err := cmd.Run(context.Background(), []string{
+		"api",
+		"--api-host", server.URL,
+		"read-sandbox-file",
+		"sandbox-id",
+		"--path", "/tmp/download.txt",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []byte{'a', 0, 'b'}, output.Bytes())
+}
+
+func TestWriteSandboxFileFlagsDoNotConflict(t *testing.T) {
+	var writeFile endpoint
+	for _, ep := range discoverEndpoints() {
+		if ep.name == "write-sandbox-file" {
+			writeFile = ep
+			break
+		}
+	}
+	require.NotEmpty(t, writeFile.name)
+
+	counts := map[string]int{}
+	for _, flag := range endpointFlags(writeFile) {
+		counts[flag.Names()[0]]++
+	}
+	require.Equal(t, 1, counts["body"])
+	require.Equal(t, 1, counts["body-file"])
+	require.Equal(t, 1, counts["path"])
+	require.Equal(t, 1, counts["mode"])
+}
+
+func TestCommandSendsEvent(t *testing.T) {
+	var gotBody map[string]any
+	var gotEnv string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/api/v2/events", r.URL.Path)
+		gotEnv = r.Header.Get("X-Inngest-Env")
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"eventId":"01K1QQ3VQ8R3M8QX4D51J8G7XH"}}`))
+	}))
+	defer srv.Close()
+
+	cmd := Command()
+	out := bytes.Buffer{}
+	cmd.Writer = &out
+
+	err := cmd.Run(context.Background(), []string{
+		"api",
+		"--api-host", srv.URL,
+		"--env", "branch-a",
+		"send-event",
+		"--name", "app/user.created",
+		"--data", `{"userId":"user-1"}`,
+		"--user", `{"id":"user-1"}`,
+		"--id", "event-1",
+		"--ts", "1786032000000",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "branch-a", gotEnv)
+	require.Equal(t, map[string]any{
+		"name": "app/user.created",
+		"data": map[string]any{"userId": "user-1"},
+		"user": map[string]any{"id": "user-1"},
+		"id":   "event-1",
+		"ts":   float64(1786032000000),
+	}, gotBody)
+	require.Contains(t, out.String(), `"eventId": "01K1QQ3VQ8R3M8QX4D51J8G7XH"`)
+}
+
+func TestCommandBuildsRerunFromStepBody(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"runId":"01J00000000000000000000000"}}`))
+	}))
+	defer srv.Close()
+
+	cmd := Command()
+	cmd.Writer = &bytes.Buffer{}
+	err := cmd.Run(context.Background(), []string{
+		"api",
+		"--api-host", srv.URL,
+		"rerun",
+		"01J00000000000000000000001",
+		"--from-step", "step 2",
+		"--input", `[{"foo":"bar"}]`,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"fromStep": map[string]any{
+			"stepId": "step 2",
+			"input":  []any{map[string]any{"foo": "bar"}},
+		},
+	}, gotBody)
+
+	cmd = Command()
+	cmd.Writer = &bytes.Buffer{}
+	err = cmd.Run(context.Background(), []string{
+		"api",
+		"--api-host", srv.URL,
+		"rerun",
+		"01J00000000000000000000001",
+		"--body", `{"fromStep":{"stepId":"step 3","input":[1]}}`,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"fromStep": map[string]any{
+			"stepId": "step 3",
+			"input":  []any{float64(1)},
+		},
+	}, gotBody)
 }
 
 func TestCommandUsesQueryParamsForGetEndpoint(t *testing.T) {
@@ -210,6 +438,62 @@ func TestCommandUsesQueryParamsForGetEndpoint(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "includeOutput=true", gotQuery)
+}
+
+func TestCommandAcceptsRFC3339TimestampQueryFlags(t *testing.T) {
+	var gotQuery url.Values
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[],"metadata":{},"page":{}}`))
+	}))
+	defer srv.Close()
+
+	cmd := Command()
+	cmd.Writer = &bytes.Buffer{}
+
+	err := cmd.Run(context.Background(), []string{
+		"api",
+		"--api-host", srv.URL,
+		"get-function-runs",
+		"--status", "FAILED",
+		"--from", "2026-07-20T00:00:00-04:00",
+		"--until", "2026-07-20T23:59:59.999999999-04:00",
+		"--time-field", "queuedAt",
+		"--order", "DESC",
+		"--limit", "20",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"FAILED"}, gotQuery["status"])
+	require.Equal(t, "2026-07-20T00:00:00-04:00", gotQuery.Get("from"))
+	require.Equal(t, "2026-07-20T23:59:59.999999999-04:00", gotQuery.Get("until"))
+	require.Equal(t, "queuedAt", gotQuery.Get("timeField"))
+	require.Equal(t, "DESC", gotQuery.Get("order"))
+	require.Equal(t, "20", gotQuery.Get("limit"))
+}
+
+func TestParseTimestamp(t *testing.T) {
+	t.Run("plain RFC 3339", func(t *testing.T) {
+		value, err := parseTimestamp("2026-07-20T00:00:00-04:00")
+
+		require.NoError(t, err)
+		require.Equal(t, "2026-07-20T00:00:00-04:00", value)
+	})
+
+	t.Run("JSON string", func(t *testing.T) {
+		value, err := parseTimestamp(`"2026-07-20T00:00:00-04:00"`)
+
+		require.NoError(t, err)
+		require.Equal(t, "2026-07-20T00:00:00-04:00", value)
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		_, err := parseTimestamp("yesterday")
+
+		require.Error(t, err)
+	})
 }
 
 func TestCommandAcceptsPositionalPathParams(t *testing.T) {

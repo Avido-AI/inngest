@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -219,12 +220,19 @@ func (q *queueProcessor) BacklogRefillConstraintCheck(
 	items []*QueueItem,
 	operationIdempotencyKey string,
 	now time.Time,
+	keyQueuesEnabled bool,
 ) (*BacklogRefillConstraintCheckResult, error) {
 	itemIDs := make([]string, len(items))
 	itemRunIDs := make(map[string]ulid.ULID)
 	for i, item := range items {
 		itemIDs[i] = item.ID
 		itemRunIDs[item.ID] = item.Data.Identifier.RunID
+	}
+
+	if !keyQueuesEnabled {
+		return &BacklogRefillConstraintCheckResult{
+			ItemsToRefill: itemIDs,
+		}, nil
 	}
 
 	if q.CapacityManager == nil {
@@ -299,6 +307,15 @@ func (q *queueProcessor) BacklogRefillConstraintCheck(
 		},
 	})
 	if err != nil {
+		if errors.Is(err, constraintapi.ErrAccountNotFound) {
+			metrics.IncrBacklogRefillConstraintCheckCounter(ctx, enums.BacklogRefillConstraintCheckReasonAccountMissing.String(), metrics.CounterOpt{
+				PkgName: pkgName,
+			})
+			return &BacklogRefillConstraintCheckResult{
+				ItemsToRefill: nil,
+			}, nil
+		}
+
 		// A canceled context is expected when the pod is shutting down.
 		logger.ErrorOrWarn(logger.StdlibLogger(ctx), err)("acquiring capacity lease failed", "err", err, "method", "backlogRefillConstraintCheck", "functionID", *shadowPart.FunctionID)
 		metrics.IncrBacklogRefillConstraintCheckCounter(ctx, enums.BacklogRefillConstraintCheckReasonConstraintAPIError.String(), metrics.CounterOpt{
@@ -384,7 +401,7 @@ func (q *queueProcessor) ItemLeaseConstraintCheck(
 		return ItemLeaseConstraintCheckResult{}, nil
 	}
 
-	ctx, span := q.Options().ConditionalTracer.NewSpan(ctx, "queue.ItemLeaseConstraintCheck", *shadowPart.AccountID, *shadowPart.EnvID, *shadowPart.FunctionID)
+	ctx, span := q.Options().ConditionalTracer.NewUserSpan(ctx, "queue.ItemLeaseConstraintCheck", *shadowPart.AccountID, *shadowPart.EnvID, *shadowPart.FunctionID)
 	defer span.End()
 
 	idempotencyKey := item.ID
@@ -458,10 +475,10 @@ func (q *queueProcessor) ItemLeaseConstraintCheck(
 		constraintItems = append(constraintItems, constraintapi.ConstraintItem{
 			Kind: constraintapi.ConstraintKindSemaphore,
 			Semaphore: &constraintapi.SemaphoreConstraint{
-				ID:         sem.ID,
-				UsageValue: sem.UsageValue,
-				Weight:     sem.Weight,
-				Release:    sem.Release,
+				ID:               sem.ID,
+				EvaluatedKeyHash: sem.EvaluatedKeyHash,
+				Weight:           sem.Weight,
+				Release:          sem.Release,
 			},
 		})
 		config.Semaphores = append(config.Semaphores, sem)
@@ -499,6 +516,13 @@ func (q *queueProcessor) ItemLeaseConstraintCheck(
 		},
 	})
 	if err != nil {
+		if errors.Is(err, constraintapi.ErrAccountNotFound) {
+			metrics.IncrQueueItemConstraintCheckCounter(ctx, enums.QueueItemConstraintReasonAccountMissing.String(), metrics.CounterOpt{
+				PkgName: pkgName,
+			})
+			return ItemLeaseConstraintCheckResult{}, nil
+		}
+
 		span.RecordError(err)
 		// A canceled context is expected when the pod is shutting down.
 		logger.ErrorOrWarn(l, err)("acquiring capacity lease failed", "err", err, "method", "itemLeaseConstraintCheck", "constraints", constraints, "item", item, "function_id", *shadowPart.FunctionID)

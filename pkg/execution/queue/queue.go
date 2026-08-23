@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -14,8 +14,12 @@ type Queue interface {
 	Producer
 	Consumer
 
-	JobQueueReader
-	Migrator
+	RunQueueReader
+	QueueStatusReader
+	QueuePartitionReader
+	QueueBacklogReader
+	QueueItemReader
+	MigrationLocker
 	Unpauser
 	AttemptResetter
 	RoleStatusReader
@@ -46,10 +50,50 @@ type RunInfo struct {
 // Item's retry policy.
 type RunFunc func(context.Context, RunInfo, Item) (RunResult, error)
 
+type DispatchFunc func(ctx context.Context, item ProcessItem) (DispatchedItem, error)
+
+type QueueItemLeaser interface {
+	LeaseItem(ctx context.Context, req LeaseItemRequest, dispatch DispatchFunc) (LeaseItemResult, error)
+}
+
+type LeaseItemRequest struct {
+	Item                       *QueueItem
+	Priority                   uint
+	ContinueCount              uint
+	EarliestPeekTimeFallbackMS int64
+	StaticTime                 time.Time
+}
+
+type LeaseItemStatus int
+
+const (
+	LeaseItemStatusNone LeaseItemStatus = iota
+	LeaseItemStatusDispatched
+	LeaseItemStatusAlreadyLeased
+	LeaseItemStatusNoWorkerCapacity
+	LeaseItemStatusThrottled
+	LeaseItemStatusConcurrencyLimited
+	LeaseItemStatusCustomConcurrencyLimited
+	LeaseItemStatusSemaphoreLimited
+	LeaseItemStatusNotFound
+	LeaseItemStatusLeaseContention
+	LeaseItemStatusLeaseError
+)
+
+type LeaseItemResult struct {
+	Status     LeaseItemStatus
+	Err        error
+	RetryAfter time.Time
+}
+
 type RunResult struct {
 	// ScheduledImmediateJob indicates whether this run function scheduled another job
 	// in the same partition for immediate consumption.
 	ScheduledImmediateJob bool
+}
+
+type ProcessItemResult struct {
+	RunResult RunResult
 }
 
 type EnqueueOpts struct {
@@ -66,6 +110,13 @@ type EnqueueOpts struct {
 type Producer interface {
 	// Enqueue allows an item to be enqueued ton run at the given time.
 	Enqueue(context.Context, Item, time.Time, EnqueueOpts) error
+
+	Requeue(ctx context.Context, shardName string, i QueueItem, at time.Time, opts ...RequeueOptionFn) error
+
+	// RequeueByJobID reschedules an outstanding, unleased job by ID on the
+	// named shard. scope must identify the job's tenant/function namespace and
+	// must include account, environment, and function IDs.
+	RequeueByJobID(ctx context.Context, scope Scope, shardName string, jobID string, at time.Time) error
 }
 
 // BatchEnqueuer is an optional interface that queue implementations can satisfy
@@ -79,16 +130,7 @@ type BatchEnqueuer interface {
 }
 
 type Consumer interface {
-	// Run is a blocking function which listens to the queue and executes the
-	// given function each time a new Item becomes available.
-	//
-	// If the error from RunFunc is of type QuitError, the Run function will
-	// always requeue the job as a retry and terminate.
-	//
-	// If the error from RunFunc is of type RetryableError, the job will be
-	// re-enqueued if Retryable() returns true.  For all other errors, the
-	// job will automatically be retried.
-	Run(context.Context, RunFunc) error
+	Dequeue(ctx context.Context, shardName string, i QueueItem, opts ...DequeueOptionFn) error
 }
 
 type RoleStatusReader interface {
@@ -96,23 +138,19 @@ type RoleStatusReader interface {
 	ActiveRoles() []QueueRoleStatus
 }
 
-type QueueMigrationHandler func(ctx context.Context, qi *QueueItem) error
-
-type Migrator interface {
+type MigrationLocker interface {
 	// SetFunctionMigrate updates the function metadata to signal it's being migrated to
 	// another queue shard
 	SetFunctionMigrate(ctx context.Context, sourceShard string, scope Scope, migrateLockUntil *time.Time) error
-	// Migration does a peek operation like the normal peek, but ignores leases and other conditions a normal peek cares about.
-	// The sore goal is to grab things and migrate them to somewhere else
-	Migrate(ctx context.Context, shard string, scope Scope, limit int64, concurrency int, handler QueueMigrationHandler) (int64, error)
 }
 
 type Unpauser interface {
 	UnpauseFunction(ctx context.Context, shard string, scope Scope) error
 }
 
-// AttemptResetter resets queue item attempts after a successful checkpoint.
 type AttemptResetter interface {
+	// ResetAttemptsByJobID sets retries to zero given a single job ID. This is
+	// important for checkpointing; a single job becomes shared amongst many steps.
 	ResetAttemptsByJobID(ctx context.Context, shard string, scope Scope, jobID string) error
 }
 
@@ -239,46 +277,62 @@ type JobResponse struct {
 	Raw any
 }
 
-// JobQueueReader
-type JobQueueReader interface {
+// RunQueueReader reads queue state associated with function runs.
+type RunQueueReader interface {
 	// OutstandingJobCount returns the number of jobs in progress
 	// or scheduled for a given run.
 	OutstandingJobCount(ctx context.Context, scope Scope, runID ulid.ULID) (int, error)
 
+	// RunJobs reads items in the queue for a specific run.
+	RunJobs(ctx context.Context, queueShardName string, scope Scope, runID ulid.ULID, limit, offset int64) ([]JobResponse, error)
+
+	// ItemsByRunID retrieves all queue items via runID.
+	ItemsByRunID(ctx context.Context, queueShard QueueShard, scope Scope, runID ulid.ULID) ([]*QueueItem, error)
+}
+
+// QueueStatusReader reads function-level queue status counters.
+type QueueStatusReader interface {
 	// RunningCount returns the number of running (in-progress) jobs for a given function
 	RunningCount(ctx context.Context, scope Scope) (int64, error)
 
 	// StatusCount returns the total number of items in the function
 	// status queue.
 	StatusCount(ctx context.Context, scope Scope, status string) (int64, error)
-
-	// RunJobs reads items in the queue for a specific run.
-	RunJobs(ctx context.Context, queueShardName string, scope Scope, runID ulid.ULID, limit, offset int64) ([]JobResponse, error)
 }
 
-// MigratePayload stores the information to be used when migrating a queue shard to another one
-type MigratePayload struct {
-	AccountID  uuid.UUID
-	EnvID      uuid.UUID
-	FunctionID uuid.UUID
+// QueuePartitionReader reads partition state and items.
+type QueuePartitionReader interface {
+	// PartitionSize returns the point-in-time ready queue size of a partition.
+	PartitionSize(ctx context.Context, scope Scope, partitionID string, until time.Time) (int64, error)
 
-	// Source is the source queue where the migration will occur on
-	Source string
-	// Dest is the target destination the queue will be moved to
-	Dest string
-
-	// DisableFnPause is a flag to disable the function pausing during migration
-	// if it's considered okay to do so
-	DisableFnPause bool
-
-	// Concurrency optionally specifies the concurrency for running the migrate handler over each batch of queue items.
-	Concurrency int
+	// ItemsByPartition returns a queue item iterator for a function within a specific time range
+	ItemsByPartition(ctx context.Context, queueShard QueueShard, scope Scope, partitionID string, from time.Time, until time.Time, opts ...QueueIterOpt) (iter.Seq[*QueueItem], error)
+	// PartitionByID retrieves the partition by the partition ID
+	PartitionByID(ctx context.Context, queueShard QueueShard, scope Scope, partitionID string) (*PartitionInspectionResult, error)
 }
 
-func (p MigratePayload) Scope() Scope {
-	return Scope{
-		AccountID:  p.AccountID,
-		EnvID:      p.EnvID,
-		FunctionID: p.FunctionID,
-	}
+// QueueBacklogReader reads key-queue backlog state. Shards that do not support
+// key queues are not required to implement the corresponding BacklogOperations.
+type QueueBacklogReader interface {
+	// PartitionBacklogSize returns the point-in-time backlog size of a partition
+	// by summing the size of all backlogs in that partition.
+	PartitionBacklogSize(ctx context.Context, scope Scope, partitionID string) (int64, error)
+
+	// ItemsByBacklog returns a queue item iterator for a backlog within a specific time range
+	ItemsByBacklog(ctx context.Context, queueShard QueueShard, backlogID string, from time.Time, until time.Time, opts ...QueueIterOpt) (iter.Seq[*QueueItem], error)
+	// BacklogsByPartition returns an iterator for the partition's backlogs
+	BacklogsByPartition(ctx context.Context, queueShard QueueShard, partitionID string, from time.Time, until time.Time, opts ...QueueIterOpt) (iter.Seq[*QueueBacklog], error)
+	// BacklogSize retrieves the number of items in the specified backlog
+	BacklogSize(ctx context.Context, queueShard QueueShard, backlogID string) (int64, error)
+	// BacklogByID retrieves a single backlog by its ID
+	BacklogByID(ctx context.Context, queueShard QueueShard, backlogID string) (*QueueBacklog, error)
+}
+
+// QueueItemReader reads individual queue items.
+type QueueItemReader interface {
+	// LoadQueueItem retrieves the queue item by the item ID.
+	LoadQueueItem(ctx context.Context, shardName string, itemID string) (*QueueItem, error)
+
+	// ItemExists checks if an item with jobID exists in the queue
+	ItemExists(ctx context.Context, queueShard QueueShard, scope Scope, jobID string) (bool, error)
 }

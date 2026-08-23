@@ -11,7 +11,6 @@ import { bindEditorShortcuts } from '../actions/handleShortcuts';
 import { markTemplateVars } from '../actions/markTemplateVars';
 import { getCanRunQuery } from '../utils';
 import { useLatest, useLatestCallback } from './useLatestCallback';
-import { clickhouse, formatDialect } from 'sql-formatter';
 
 type UseInsightsSQLEditorOnMountCallbackReturn = {
   onMount: SQLEditorMountCallback;
@@ -70,7 +69,6 @@ export function useInsightsSQLEditorOnMountCallback(): UseInsightsSQLEditorOnMou
           ];
         },
       });
-
       const markersDisposable = markTemplateVars(editor, monaco);
 
       // TODO: This code is not currently running. It turns out that actually doing so would

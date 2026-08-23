@@ -39,6 +39,15 @@ func testScope(accountID, workspaceID, functionID uuid.UUID) queue.Scope {
 	}
 }
 
+func requireDebounce(t *testing.T, debouncer Debouncer, ctx context.Context, di DebounceItem, fn inngest.Function) *ulid.ULID {
+	t.Helper()
+
+	debounceID, err := debouncer.Debounce(ctx, di, fn)
+	require.NoError(t, err)
+	require.NotNil(t, debounceID)
+	return debounceID
+}
+
 type setPointerFailingShard struct {
 	queue.QueueShard
 	err                  error
@@ -71,8 +80,8 @@ func (s *removeQueueItemFailingShard) DebounceDeleteMigratingFlag(ctx context.Co
 
 // migrationShardSelector routes system queue items (queueName != nil) to the
 // new system shard and everything else to the default shard.
-func migrationShardSelector(defaultShard, newSystemShard queue.QueueShard) func(ctx context.Context, accountID uuid.UUID, queueName *string) (queue.QueueShard, error) {
-	return func(ctx context.Context, accountID uuid.UUID, queueName *string) (queue.QueueShard, error) {
+func migrationShardSelector(defaultShard, newSystemShard queue.QueueShard) func(ctx context.Context, scope queue.Scope, queueName *string) (queue.QueueShard, error) {
+	return func(ctx context.Context, scope queue.Scope, queueName *string) (queue.QueueShard, error) {
 		if queueName != nil {
 			return newSystemShard, nil
 		}
@@ -151,7 +160,7 @@ func TestDebounce(t *testing.T) {
 			},
 		}
 
-		err := redisDebouncer.Debounce(ctx, expectedDi, fn)
+		resultDebounceID, err := redisDebouncer.Debounce(ctx, expectedDi, fn)
 		require.NoError(t, err)
 
 		expectedDi.Timeout = eventTime.Add(60 * time.Second).UnixMilli()
@@ -164,6 +173,8 @@ func TestDebounce(t *testing.T) {
 		require.Len(t, debounceIds, 1)
 
 		debounceId := ulid.MustParse(debounceIds[0])
+		require.NotNil(t, resultDebounceID)
+		require.Equal(t, debounceId, *resultDebounceID)
 
 		var di DebounceItem
 		err = json.Unmarshal([]byte(unshardedCluster.HGet(debounceClient.KeyGenerator().Debounce(ctx), debounceIds[0])), &di)
@@ -230,9 +241,7 @@ func TestDebounce(t *testing.T) {
 		// Time has passed, so TTL was decreased
 		ttl := unshardedCluster.TTL(debounceClient.KeyGenerator().DebouncePointer(ctx, functionId, functionId.String()))
 		require.Equal(t, 5*time.Second, ttl, "expected ttl to match", unshardedCluster.Keys())
-
-		err := redisDebouncer.Debounce(ctx, expectedDi, fn)
-		require.NoError(t, err)
+		requireDebounce(t, redisDebouncer, ctx, expectedDi, fn)
 
 		expectedDi.Timeout = evt0Time.Add(60 * time.Second).UnixMilli() // Must match initial event, timeout may never change
 
@@ -444,9 +453,7 @@ func TestJITDebounceMigration(t *testing.T) {
 				Timestamp: eventTime.UnixMilli(),
 			},
 		}
-
-		err := oldRedisDebouncer.Debounce(ctx, expectedDi, fn)
-		require.NoError(t, err)
+		requireDebounce(t, oldRedisDebouncer, ctx, expectedDi, fn)
 
 		expectedDi.Timeout = eventTime.Add(60 * time.Second).UnixMilli()
 
@@ -524,9 +531,7 @@ func TestJITDebounceMigration(t *testing.T) {
 		// Time has passed, so TTL was decreased
 		ttl := unshardedCluster.TTL(unshardedDebounceClient.KeyGenerator().DebouncePointer(ctx, functionId, functionId.String()))
 		require.Equal(t, 5*time.Second, ttl, "expected ttl to match", unshardedCluster.Keys())
-
-		err := newRedisDebouncer.Debounce(ctx, expectedDi, fn)
-		require.NoError(t, err)
+		requireDebounce(t, newRedisDebouncer, ctx, expectedDi, fn)
 
 		expectedDi.Timeout = evt0Time.Add(60 * time.Second).UnixMilli() // Must match initial event, timeout may never change
 
@@ -707,9 +712,7 @@ func TestDebounceMigrationWithoutTimeout(t *testing.T) {
 				Timestamp: eventTime.UnixMilli(),
 			},
 		}
-
-		err := oldRedisDebouncer.Debounce(ctx, expectedDi, fn)
-		require.NoError(t, err)
+		requireDebounce(t, oldRedisDebouncer, ctx, expectedDi, fn)
 
 		ttl := unshardedCluster.TTL(unshardedDebounceClient.KeyGenerator().DebouncePointer(ctx, functionId, functionId.String()))
 		require.Equal(t, 10*time.Second, ttl, "expected ttl to match", unshardedCluster.Keys())
@@ -785,9 +788,7 @@ func TestDebounceMigrationWithoutTimeout(t *testing.T) {
 		// Time has passed, so TTL was decreased
 		ttl := unshardedCluster.TTL(unshardedDebounceClient.KeyGenerator().DebouncePointer(ctx, functionId, functionId.String()))
 		require.Equal(t, 5*time.Second, ttl, "expected ttl to match", unshardedCluster.Keys())
-
-		err := newRedisDebouncer.Debounce(ctx, expectedDi, fn)
-		require.NoError(t, err)
+		requireDebounce(t, newRedisDebouncer, ctx, expectedDi, fn)
 
 		// TTL is reset
 		ttl = newSystemCluster.TTL(newSystemDebounceClient.KeyGenerator().DebouncePointer(ctx, functionId, functionId.String()))
@@ -945,8 +946,7 @@ func TestDebounceTimeoutIsPreserved(t *testing.T) {
 		eventTime := evt0Time
 
 		eventId := ulid.MustNew(ulid.Timestamp(eventTime), rand.Reader)
-
-		err := oldRedisDebouncer.Debounce(ctx, DebounceItem{
+		expectedDi := DebounceItem{
 			AccountID:   accountId,
 			WorkspaceID: workspaceId,
 			AppID:       appId,
@@ -957,8 +957,8 @@ func TestDebounceTimeoutIsPreserved(t *testing.T) {
 				ID:        eventId.String(),
 				Timestamp: eventTime.UnixMilli(),
 			},
-		}, fn)
-		require.NoError(t, err)
+		}
+		requireDebounce(t, oldRedisDebouncer, ctx, expectedDi, fn)
 
 		debounceIds, err := unshardedCluster.HKeys(unshardedDebounceClient.KeyGenerator().Debounce(ctx))
 		require.NoError(t, err)
@@ -1000,9 +1000,7 @@ func TestDebounceTimeoutIsPreserved(t *testing.T) {
 		// Time has passed, so TTL was decreased (4s-3s = 1s)
 		ttl := unshardedCluster.TTL(unshardedDebounceClient.KeyGenerator().DebouncePointer(ctx, functionId, functionId.String()))
 		require.Equal(t, 1*time.Second, ttl, "expected ttl to match", unshardedCluster.Keys())
-
-		err := newRedisDebouncer.Debounce(ctx, expectedDi, fn)
-		require.NoError(t, err)
+		requireDebounce(t, newRedisDebouncer, ctx, expectedDi, fn)
 
 		// TTL on new cluster must be adjusted (6s to timeout, 3s already passed, renew by 4s is greater so we set an upper bound to the 6-3=3s remaining seconds)
 		ttl = newSystemCluster.TTL(newSystemDebounceClient.KeyGenerator().DebouncePointer(ctx, functionId, functionId.String()))
@@ -1157,8 +1155,7 @@ func TestDebounceExplicitMigration(t *testing.T) {
 		eventTime := evt0Time
 
 		eventId := ulid.MustNew(ulid.Timestamp(eventTime), rand.Reader)
-
-		err := oldRedisDebouncer.Debounce(ctx, DebounceItem{
+		expectedDi := DebounceItem{
 			AccountID:   accountId,
 			WorkspaceID: workspaceId,
 			AppID:       appId,
@@ -1169,8 +1166,8 @@ func TestDebounceExplicitMigration(t *testing.T) {
 				ID:        eventId.String(),
 				Timestamp: eventTime.UnixMilli(),
 			},
-		}, fn)
-		require.NoError(t, err)
+		}
+		requireDebounce(t, oldRedisDebouncer, ctx, expectedDi, fn)
 
 		debounceIds, err := unshardedCluster.HKeys(unshardedDebounceClient.KeyGenerator().Debounce(ctx))
 		require.NoError(t, err)
@@ -1503,9 +1500,7 @@ func TestDebounceExecutionDuringMigrationWorks(t *testing.T) {
 				Timestamp: eventTime.UnixMilli(),
 			},
 		}
-
-		err := oldRedisDebouncer.Debounce(ctx, expectedDi, fn)
-		require.NoError(t, err)
+		requireDebounce(t, oldRedisDebouncer, ctx, expectedDi, fn)
 
 		expectedDi.Timeout = eventTime.Add(60 * time.Second).UnixMilli()
 
@@ -1709,9 +1704,7 @@ func TestDebounceExecutionShouldNotRaceMigration(t *testing.T) {
 				Timestamp: eventTime.UnixMilli(),
 			},
 		}
-
-		err := oldRedisDebouncer.Debounce(ctx, expectedDi, fn)
-		require.NoError(t, err)
+		requireDebounce(t, oldRedisDebouncer, ctx, expectedDi, fn)
 
 		expectedDi.Timeout = eventTime.Add(60 * time.Second).UnixMilli()
 
@@ -2246,7 +2239,7 @@ func TestDebounceMigrationFailurePreservesExistingDebounce(t *testing.T) {
 	firstEventTime := fakeClock.Now()
 	firstEventID := ulid.MustNew(ulid.Timestamp(firstEventTime), rand.Reader)
 
-	err = oldRedisDebouncer.Debounce(ctx, DebounceItem{
+	firstDi := DebounceItem{
 		AccountID:   accountID,
 		WorkspaceID: workspaceID,
 		AppID:       appID,
@@ -2257,8 +2250,8 @@ func TestDebounceMigrationFailurePreservesExistingDebounce(t *testing.T) {
 			ID:        firstEventID.String(),
 			Timestamp: firstEventTime.UnixMilli(),
 		},
-	}, fn)
-	require.NoError(t, err)
+	}
+	requireDebounce(t, oldRedisDebouncer, ctx, firstDi, fn)
 
 	debounceIDs, err := unshardedCluster.HKeys(unshardedDebounceClient.KeyGenerator().Debounce(ctx))
 	require.NoError(t, err)
@@ -2278,7 +2271,7 @@ func TestDebounceMigrationFailurePreservesExistingDebounce(t *testing.T) {
 	secondEventTime := fakeClock.Now()
 	secondEventID := ulid.MustNew(ulid.Timestamp(secondEventTime), rand.Reader)
 
-	err = newRedisDebouncer.Debounce(ctx, DebounceItem{
+	_, err = newRedisDebouncer.Debounce(ctx, DebounceItem{
 		AccountID:   accountID,
 		WorkspaceID: workspaceID,
 		AppID:       appID,
@@ -2377,9 +2370,7 @@ func TestGetDebounceInfo(t *testing.T) {
 				Data:      map[string]any{"key": "value"},
 			},
 		}
-
-		err := redisDebouncer.Debounce(ctx, di, fn)
-		require.NoError(t, err)
+		requireDebounce(t, redisDebouncer, ctx, di, fn)
 
 		// Query with function ID as debounce key (default)
 		info, err := redisDebouncer.GetDebounceInfo(ctx, testScope(accountId, workspaceId, functionId), functionId.String())
@@ -2420,9 +2411,7 @@ func TestGetDebounceInfo(t *testing.T) {
 				Data:      map[string]any{"debounce_key": customKey},
 			},
 		}
-
-		err := redisDebouncer.Debounce(ctx, di, fn)
-		require.NoError(t, err)
+		requireDebounce(t, redisDebouncer, ctx, di, fn)
 
 		// Query with the custom key
 		info, err := redisDebouncer.GetDebounceInfo(ctx, testScope(accountId, workspaceId, customFnId), customKey)
@@ -2466,8 +2455,7 @@ func TestGetDebounceInfo(t *testing.T) {
 				Data:      map[string]any{"version": 1},
 			},
 		}
-		err := redisDebouncer.Debounce(ctx, di1, fn)
-		require.NoError(t, err)
+		requireDebounce(t, redisDebouncer, ctx, di1, fn)
 
 		// Add second event (update)
 		eventId2 := ulid.MustNew(ulid.Now(), rand.Reader)
@@ -2485,8 +2473,7 @@ func TestGetDebounceInfo(t *testing.T) {
 				Data:      map[string]any{"version": 2},
 			},
 		}
-		err = redisDebouncer.Debounce(ctx, di2, fn)
-		require.NoError(t, err)
+		requireDebounce(t, redisDebouncer, ctx, di2, fn)
 
 		// Query should return the latest event
 		info, err := redisDebouncer.GetDebounceInfo(ctx, testScope(accountId, workspaceId, updateFnId), updateFnId.String())
@@ -2571,9 +2558,7 @@ func TestDeleteDebounce(t *testing.T) {
 				Data:      map[string]any{"key": "value"},
 			},
 		}
-
-		err := redisDebouncer.Debounce(ctx, di, fn)
-		require.NoError(t, err)
+		requireDebounce(t, redisDebouncer, ctx, di, fn)
 
 		// Verify debounce exists
 		info, err := redisDebouncer.GetDebounceInfo(ctx, testScope(accountId, workspaceId, functionId), functionId.String())
@@ -2668,9 +2653,7 @@ func TestRunDebounce(t *testing.T) {
 				Data:      map[string]any{"key": "value"},
 			},
 		}
-
-		err := redisDebouncer.Debounce(ctx, di, fn)
-		require.NoError(t, err)
+		requireDebounce(t, redisDebouncer, ctx, di, fn)
 
 		// Verify debounce exists
 		info, err := redisDebouncer.GetDebounceInfo(ctx, testScope(accountId, workspaceId, functionId), functionId.String())
@@ -2751,9 +2734,7 @@ func TestDeleteDebounceByID(t *testing.T) {
 				Data:      map[string]any{"key": "value"},
 			},
 		}
-
-		err := redisDebouncer.Debounce(ctx, di, fn)
-		require.NoError(t, err)
+		requireDebounce(t, redisDebouncer, ctx, di, fn)
 
 		scope := testScope(accountId, workspaceId, functionId)
 		info, err := redisDebouncer.GetDebounceInfo(ctx, scope, functionId.String())
@@ -2921,6 +2902,14 @@ type stubProducer struct {
 }
 
 func (s *stubProducer) Enqueue(_ context.Context, _ queue.Item, _ time.Time, _ queue.EnqueueOpts) error {
+	return s.enqueueErr
+}
+
+func (s *stubProducer) Requeue(_ context.Context, _ string, _ queue.QueueItem, _ time.Time, _ ...queue.RequeueOptionFn) error {
+	return s.enqueueErr
+}
+
+func (s *stubProducer) RequeueByJobID(_ context.Context, _ queue.Scope, _ string, _ string, _ time.Time) error {
 	return s.enqueueErr
 }
 

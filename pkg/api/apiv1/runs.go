@@ -110,19 +110,21 @@ func (a router) GetFunctionRunJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shard, err := a.opts.QueueShards.Resolve(ctx, auth.AccountID(), nil)
+	scope := queue.Scope{
+		AccountID:  auth.AccountID(),
+		EnvID:      auth.WorkspaceID(),
+		FunctionID: fr.FunctionID,
+	}
+	shard, err := a.opts.QueueShards.Resolve(ctx, scope, nil)
 	if err != nil {
 		_ = publicerr.WriteHTTP(w, publicerr.Wrapf(err, 500, "Internal server error"))
 		return
 	}
 
-	jobs, err := shard.RunJobs(
+	jobs, err := a.opts.RunQueueReader.RunJobs(
 		ctx,
-		queue.Scope{
-			AccountID:  auth.AccountID(),
-			EnvID:      auth.WorkspaceID(),
-			FunctionID: fr.FunctionID,
-		},
+		shard.Name(),
+		scope,
 		runID,
 		10,
 		0,

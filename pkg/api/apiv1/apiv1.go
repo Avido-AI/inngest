@@ -38,12 +38,16 @@ type Opts struct {
 
 	// Executor is required to cancel and manage function executions.
 	Executor execution.Executor
-	// Queue allows the checkppinting API to continue by enqueueing new queue items.
-	Queue queue.Queue
+	// QueueProducer allows checkpointing to continue runs by enqueueing items.
+	QueueProducer queue.Producer
+	// RunQueueReader supports run-job reads.
+	RunQueueReader queue.RunQueueReader
+	// QueueItemReader supports async dispatch validation.
+	QueueItemReader queue.QueueItemReader
+	// AttemptResetter resets attempts after successful async checkpoints.
+	AttemptResetter queue.AttemptResetter
 	// FunctionReader reads functions from a backing store.
 	FunctionReader cqrs.FunctionReader
-	// JobQueueReader reads information around a function run's job queues.
-	JobQueueReader queue.JobQueueReader
 	// CancellationReadWriter reads and writes cancellations to/from a backing store.
 	CancellationReadWriter cqrs.CancellationReadWriter
 	// QueueShards exposes the shard topology and selector for the API.
@@ -54,6 +58,11 @@ type Opts struct {
 	TraceReader cqrs.TraceReader
 	// MetricsMiddleware is used to instrument the APIv1 endpoints.
 	MetricsMiddleware api.MetricsMiddleware
+	// LoggingMiddleware, if set, is applied immediately after the auth
+	// middleware so the request-scoped logger it reads already carries the
+	// authenticated account/user attributes. Callers (e.g. cloud) supply the
+	// implementation; the dev server leaves it nil.
+	LoggingMiddleware api.LoggingMiddleware
 
 	// ExtendedTraceCapCheck is consulted after /v1/traces/userland reads and
 	// parses a valid payload, but before it writes spans. Implementations return
@@ -87,6 +96,12 @@ type Opts struct {
 
 	// MetadataOpts represents the required opts for the metadadata API
 	MetadataOpts MetadataOpts
+}
+
+type checkpointQueue struct {
+	queue.Producer
+	queue.QueueItemReader
+	queue.AttemptResetter
 }
 
 func noopRateChecker(r *http.Request, w http.ResponseWriter, route string) bool {
@@ -170,6 +185,10 @@ func (a *router) setup() {
 
 			if a.opts.MetricsMiddleware != nil {
 				r.Use(a.opts.MetricsMiddleware.Middleware)
+			}
+
+			if a.opts.LoggingMiddleware != nil {
+				r.Use(a.opts.LoggingMiddleware.Middleware)
 			}
 
 			r.Use(headers.ContentTypeJsonResponse())

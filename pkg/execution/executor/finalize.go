@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/inngest/inngest/pkg/constraintapi"
@@ -45,7 +46,15 @@ var (
 	// partition.
 	finalizeQueueName = "finalize"
 )
+const (
+	runStateDeleteStatusSuccess = "success"
+	runStateDeleteStatusFailed  = "failed"
 
+	runStateAccountPlanFree       = "free"
+	runStateAccountPlanSelfServe  = "self_serve"
+	runStateAccountPlanEnterprise = "enterprise"
+	runStateAccountPlanUnknown    = "unknown"
+)
 // Finalize performs run finalization, which involves sending the function
 // finished/failed event and deleting state.
 func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) error {
@@ -144,7 +153,7 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 					ctx,
 					opts.Metadata.ID.Tenant.AccountID,
 					sem.ID,
-					sem.UsageValue,
+					sem.EvaluatedKeyHash,
 					opts.Metadata.ID.RunID.String(),
 					sem.Weight,
 				)
@@ -239,7 +248,9 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 
 	// Delete the function state in every case.
 	err = e.smv2.Delete(ctx, opts.Metadata.ID)
+	deleteStatus := runStateDeleteStatusSuccess
 	if err != nil {
+		deleteStatus = runStateDeleteStatusFailed
 		l.Error(
 			"error deleting state in finalize",
 			"error", err,
@@ -252,16 +263,63 @@ func (e *executor) Finalize(ctx context.Context, opts execution.FinalizeOpts) er
 		)
 	}
 
+	metricTags := e.finalizeMetricTags(ctx, status, opts)
+
+	metrics.HistogramRunStateResidenceDuration(ctx, e.now().Sub(opts.Metadata.ID.RunID.Timestamp()), metrics.HistogramOpt{
+		PkgName: pkgName,
+		Tags:    finalizeDeleteMetricTags(metricTags, deleteStatus),
+	})
+
+	metrics.HistogramRunStateStepCount(ctx, int64(opts.Metadata.Metrics.StepCount), metrics.HistogramOpt{
+		PkgName: pkgName,
+		Tags:    metricTags,
+	})
+
 	metrics.IncrRunFinalizedCounter(ctx, metrics.CounterOpt{
 		PkgName: pkgName,
-		Tags: map[string]any{
-			"reason": opts.Optional.Reason,
-		},
+		Tags:    metricTags,
 	})
 
 	e.finalizeRemoveJobs(ctx, opts)
 
 	return nil
+}
+
+func (e *executor) finalizeMetricTags(ctx context.Context, status enums.StepStatus, opts execution.FinalizeOpts) map[string]any {
+	return map[string]any{
+		"account_plan": e.accountPlanMetricTag(ctx, opts),
+		"reason":       opts.Optional.Reason,
+		"status":       status.String(),
+	}
+}
+
+func finalizeDeleteMetricTags(base map[string]any, deleteStatus string) map[string]any {
+	tags := make(map[string]any, len(base)+1)
+	for key, val := range base {
+		tags[key] = val
+	}
+	tags["delete_status"] = deleteStatus
+	return tags
+}
+
+func (e *executor) accountPlanMetricTag(ctx context.Context, opts execution.FinalizeOpts) string {
+	if e.accountPlanMetricTagResolver == nil {
+		return runStateAccountPlanUnknown
+	}
+	return normalizeAccountPlanMetricTag(e.accountPlanMetricTagResolver(ctx, opts.Metadata.ID.Tenant.AccountID))
+}
+
+func normalizeAccountPlanMetricTag(plan string) string {
+	switch strings.TrimSpace(plan) {
+	case runStateAccountPlanFree:
+		return runStateAccountPlanFree
+	case runStateAccountPlanSelfServe:
+		return runStateAccountPlanSelfServe
+	case runStateAccountPlanEnterprise:
+		return runStateAccountPlanEnterprise
+	default:
+		return runStateAccountPlanUnknown
+	}
 }
 
 func (e *executor) claimFinalization(ctx context.Context, md sv2.Metadata) sv2.FinalizationClaim {
@@ -316,12 +374,20 @@ func (e *executor) buildDeferEvents(
 	now := e.now()
 	var events []event.Event
 
+	l := logger.StdlibLogger(ctx).With(
+		"run_id", util.SanitizeLogField(opts.Metadata.ID.RunID.String()),
+	)
+
 	for _, d := range defers {
+		l := l.With(
+			"fn_slug", util.SanitizeLogField(d.FnSlug),
+			"hashed_id", d.HashedID,
+		)
+
 		if err := d.Validate(); err != nil {
-			logger.StdlibLogger(ctx).Error(
+			l.Error(
 				"invalid defer",
 				"error", err,
-				"run_id", opts.Metadata.ID.RunID,
 			)
 			metrics.IncrDefersFinalizedCounter(ctx, "invalid", metrics.CounterOpt{PkgName: pkgName})
 			continue
@@ -335,11 +401,9 @@ func (e *executor) buildDeferEvents(
 
 		eventID, err := event.DeferEventID(opts.Metadata.ID.RunID, d.HashedID)
 		if err != nil {
-			logger.StdlibLogger(ctx).Error(
+			l.Error(
 				"failed to create defer event ID",
 				"error", err,
-				"hashed_id", d.HashedID,
-				"run_id", opts.Metadata.ID.RunID,
 			)
 			metrics.IncrDefersFinalizedCounter(ctx, "invalid", metrics.CounterOpt{PkgName: pkgName})
 			continue
@@ -348,10 +412,9 @@ func (e *executor) buildDeferEvents(
 		data := map[string]any{}
 		if len(d.Input) > 0 {
 			if err := json.Unmarshal(d.Input, &data); err != nil {
-				logger.StdlibLogger(ctx).Error(
+				l.Error(
 					"deferred input is not a JSON object",
 					"error", err,
-					"run_id", opts.Metadata.ID.RunID,
 				)
 				metrics.IncrDefersFinalizedCounter(ctx, "invalid", metrics.CounterOpt{PkgName: pkgName})
 				continue
@@ -372,21 +435,58 @@ func (e *executor) buildDeferEvents(
 			ParentRunID:     opts.Metadata.ID.RunID,
 		}
 		if err := deferredMeta.Validate(); err != nil {
-			logger.StdlibLogger(ctx).Error(
+			l.Error(
 				"invalid deferred event metadata",
 				"error", err,
-				"run_id", opts.Metadata.ID.RunID,
 			)
 			metrics.IncrDefersFinalizedCounter(ctx, "invalid", metrics.CounterOpt{PkgName: pkgName})
 			continue
 		}
 		data[consts.InngestEventDataPrefix] = deferredMeta
 
+		// Resolve the defer's session layers onto the deferred event.
+		var evtMeta event.EventMeta
+		if len(d.Meta) > 0 {
+			if err := json.Unmarshal(d.Meta, &evtMeta); err != nil {
+				l.Error(
+					"deferred meta is not valid JSON",
+					"error", err,
+				)
+				metrics.IncrDefersFinalizedCounter(ctx, "invalid", metrics.CounterOpt{PkgName: pkgName})
+				continue
+			}
+		}
+		sessionsMetrics := evtMeta.ResolveSessions()
+		metrics.IncrEventSessionsResolvedCounter(
+			ctx,
+			"defer",
+			sessionsMetrics.Manual,
+			sessionsMetrics.Propagated,
+			sessionsMetrics.Nulling,
+			metrics.CounterOpt{PkgName: pkgName},
+		)
+
+		// Validate the sessions after the merge.
+		//
+		// Failure to validate will drop the event, rather than truncate sessions or
+		// fail the parent run.
+		//
+		// Failures are unexpected as we also validate sessions SDK side.
+		if err := evtMeta.Sessions.Validate(); err != nil {
+			l.Error(
+				"deferred sessions failed validation after merge",
+				"error", err,
+			)
+			metrics.IncrDefersFinalizedCounter(ctx, "invalid", metrics.CounterOpt{PkgName: pkgName})
+			continue
+		}
+
 		events = append(events, event.Event{
 			ID:        eventID.String(),
 			Name:      consts.FnDeferScheduleName,
 			Timestamp: now.UnixMilli(),
 			Data:      data,
+			Meta:      evtMeta,
 		})
 		metrics.IncrDefersFinalizedCounter(ctx, "after_run", metrics.CounterOpt{PkgName: pkgName})
 	}
@@ -461,7 +561,11 @@ func (e *executor) enqueueFinalizeBackstop(ctx context.Context, opts execution.F
 func (e *executor) finalizeRemoveJobs(ctx context.Context, opts execution.FinalizeOpts) {
 	l := logger.StdlibLogger(ctx)
 
-	shard, err := e.shards.Resolve(ctx, opts.Metadata.ID.Tenant.AccountID, nil)
+	shard, err := e.shards.Resolve(ctx, queue.Scope{
+		AccountID:  opts.Metadata.ID.Tenant.AccountID,
+		EnvID:      opts.Metadata.ID.Tenant.EnvID,
+		FunctionID: opts.Metadata.ID.FunctionID,
+	}, nil)
 	if err != nil {
 		return
 	}
@@ -484,14 +588,15 @@ func (e *executor) finalizeRemoveJobs(ctx context.Context, opts execution.Finali
 
 // doRemoveRunJobs performs a single pass of removing all queue items for the given run.
 // Returns the number of items successfully dequeued.
-func (e *executor) doRemoveRunJobs(ctx context.Context, l logger.Logger, shard queue.ShardOperations, opts execution.FinalizeOpts) int {
+func (e *executor) doRemoveRunJobs(ctx context.Context, l logger.Logger, shard queue.QueueShard, opts execution.FinalizeOpts) int {
 	// We may be cancelling an in-progress run.  If that's the case, we want to delete any
 	// outstanding jobs from the queue, if possible.
 	//
 	// XXX: Remove this typecast and normalize queue interface to a single package
 	// Find all items for the current function run.
-	jobs, err := shard.RunJobs(
+	jobs, err := e.queue.RunJobs(
 		ctx,
+		shard.Name(),
 		queue.Scope{
 			AccountID:  opts.Metadata.ID.Tenant.AccountID,
 			EnvID:      opts.Metadata.ID.Tenant.EnvID,
@@ -523,7 +628,7 @@ func (e *executor) doRemoveRunJobs(ctx context.Context, l logger.Logger, shard q
 			continue
 		}
 
-		err := shard.Dequeue(ctx, *qi)
+		err := e.queue.Dequeue(ctx, shard.Name(), *qi)
 		if err != nil && !errors.Is(err, queue.ErrQueueItemNotFound) {
 			l.Error(
 				"error dequeueing run job",

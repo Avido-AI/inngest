@@ -1333,7 +1333,7 @@ func TestBacklogRefillConstraintCheckSkipsMissingIDs(t *testing.T) {
 				),
 			}
 
-			res, err := qp.BacklogRefillConstraintCheck(ctx, tt.shadowPart, fixture.backlog, fixture.constraints, items, "op-key", time.Now())
+			res, err := qp.BacklogRefillConstraintCheck(ctx, tt.shadowPart, fixture.backlog, fixture.constraints, items, "op-key", time.Now(), true)
 			assert.NoError(t, err)
 			assert.NotNil(t, res)
 			assert.Equal(t, []string{"item-1"}, res.ItemsToRefill)

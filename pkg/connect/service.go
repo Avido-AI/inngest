@@ -500,6 +500,7 @@ func (c *connectGatewaySvc) Run(ctx context.Context) error {
 		return fmt.Errorf("could not listen on gateway grpc addr %q: %w", grpcAddr, err)
 	}
 
+	c.logger.Info("starting connect gateway grpc server", "addr", grpcAddr)
 	go func() {
 		<-ctx.Done()
 

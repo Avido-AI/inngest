@@ -443,15 +443,22 @@ func (c *connectGatewaySvc) Handler() http.Handler {
 			err := wsproto.Write(closingWriteCtx, ws, &connectpb.ConnectMessage{
 				Kind: connectpb.GatewayMessageType_GATEWAY_CLOSING,
 			})
+
+			// Report the drain to listeners now, while draining is the connection's
+			// most advanced state. Deferring this until the drain ack window closes
+			// lets it race the disconnect cleanup below, which reports DRAINING
+			// after DISCONNECTED and leaves stale draining state in connection
+			// history.
+			for _, l := range c.lifecycles {
+				go l.OnStartDraining(context.Background(), conn)
+			}
+
 			if err != nil {
 				// Can't tell the worker so we mark as DRAINING immediately.
 				if statusErr := ch.updateConnStatus(connectpb.ConnectionStatus_DRAINING, "gateway drain started after failed closing write", "err", err); statusErr != nil {
 					ch.log.ReportError(statusErr, "could not update connection status after context done")
 				}
 				ch.stopForwardingOnce.Do(func() { close(ch.stopForwarding) })
-				for _, l := range c.lifecycles {
-					go l.OnStartDraining(context.Background(), conn)
-				}
 				return
 			}
 
@@ -466,21 +473,22 @@ func (c *connectGatewaySvc) Handler() http.Handler {
 				ch.log.Debug("timed out waiting for drain ack, marking connection as draining")
 			}
 
-			// Only upsert the DRAINING status when the drain-ack timeout
-			// fired. When the worker closed first, the deferred cleanup
-			// is already running DeleteConnection; upserting here would
-			// race with that delete and potentially re-create an
-			// already-removed connection in Redis.
-			if !workerClosed {
-				if statusErr := ch.updateConnStatus(connectpb.ConnectionStatus_DRAINING, "gateway drain completed or timed out", "drain_ack_wait_ms", time.Since(drainStart).Milliseconds()); statusErr != nil {
-					ch.log.ReportError(statusErr, "could not update connection status after drain ack")
-				}
+			// Cleanup may have started while we waited: the worker closing the
+			// socket ends the read loop, which both moves the phase to
+			// Disconnecting and releases workerDrainedCtx. Unlike the phase,
+			// status is not ordered, so marking the connection as DRAINING here
+			// would move it backwards from DISCONNECTING/DISCONNECTED, leaving
+			// stale draining state behind, or even resurrect it after cleanup
+			// deleted the connection from the state store.
+			if !workerClosed && ch.phase() >= gatewayConnPhaseDisconnecting {
+				ch.log.Debug("skipping draining status update because connection is already disconnecting",
+					"phase", ch.phase().String(),
+					"drain_ack_wait_ms", time.Since(drainStart).Milliseconds(),
+				)
+			} else if statusErr := ch.updateConnStatus(connectpb.ConnectionStatus_DRAINING, "gateway drain completed or timed out", "drain_ack_wait_ms", time.Since(drainStart).Milliseconds()); statusErr != nil {
+				ch.log.ReportError(statusErr, "could not update connection status after drain ack")
 			}
 			ch.stopForwardingOnce.Do(func() { close(ch.stopForwarding) })
-
-			for _, l := range c.lifecycles {
-				go l.OnStartDraining(context.Background(), conn)
-			}
 
 			metrics.HistogramConnectGatewayDrainDuration(context.Background(), time.Since(drainStart).Milliseconds(), metrics.HistogramOpt{
 				PkgName: pkgName,
@@ -943,6 +951,8 @@ func (c *connectionHandler) receiveRouterMessagesFromGRPC(ctx context.Context, o
 					logger.WithErrorReportTags(map[string]string{
 						"gateway_id": c.conn.GatewayId.String(),
 						"conn_id":    c.conn.ConnectionId.String(),
+						"req_id":     data.RequestId,
+						"run_id":     data.RunId,
 					}))
 				msg.Result <- err
 				continue
@@ -1031,7 +1041,7 @@ func (c *connectionHandler) receiveRouterMessagesFromGRPC(ctx context.Context, o
 				case <-time.After(consts.ConnectWorkerRequestLeaseDuration + consts.ConnectWorkerRequestGracePeriod):
 					if c.pendingAcks.CompareAndDelete(data.RequestId, ackCh) {
 						msg.Result <- fmt.Errorf("worker did not ACK request %s", data.RequestId)
-						log.Warn("worker did not ACK request in time", "req_id", data.RequestId)
+						log.Warn("worker did not ACK request in time")
 					} else {
 						msg.Result <- <-ackCh
 					}

@@ -16,6 +16,9 @@ const (
 	// AbsoluteMaxEventSize is the absolute maximum size of the event payload we process.
 	AbsoluteMaxEventSize = 3 * 1024 * 1024
 
+	// MaxEventNameLength is the maximum event name accepted by event ingestion.
+	MaxEventNameLength = 512
+
 	// DefaultMaxStepLimit is the maximum number of steps per function allowed.
 	DefaultMaxStepLimit = 1_000
 
@@ -81,6 +84,15 @@ const (
 	// lets users delay functions for up to MaxDebouncePeriod when events are received.
 	MaxDebouncePeriod = time.Hour * 24 * 7
 
+	// MaxSleepDuration is the furthest into the future a step can sleep.
+	// 366 days, so that a one-year sleep spanning a leap day still fits.
+	MaxSleepDuration = time.Hour * 24 * 366
+
+	// MaxWaitForEventTimeout is the furthest into the future a wait-for-event
+	// timeout can expire.  366 days, so that a one-year timeout spanning a
+	// leap day still fits.
+	MaxWaitForEventTimeout = time.Hour * 24 * 366
+
 	// MaxCancellations represents the max automatic cancellation signals per function
 	MaxCancellations = 5
 
@@ -95,6 +107,19 @@ const (
 	// separate budget than DefaultMaxStateSizeLimit, so that defers can't fail
 	// the parent run.
 	MaxDeferInputAggregateSize = 1024 * 1024 * 4 // 4MB
+
+	// MaxEventMetaSize is the maximum size, in bytes, of a raw event-meta blob
+	// carried opaquely on an op that persists it before validation.
+	//
+	// Currently, only DeferAdd validates. Other uses of EventMeta perform other
+	// validation before persistence.
+	//
+	// Sized from the sessions worst case: two full session layers
+	// (MaxEventSessions entries each at MaxEventSessionKeyLength +
+	// MaxEventSessionIDLength ≈ 3.2KB per layer) plus a null tombstone for every
+	// inheritable key (~0.7KB) is ~7KB, so 32KB leaves ~4.5x headroom for real
+	// tombstone use and modest future meta fields.
+	MaxEventMetaSize = 32 * 1024 // 32KB
 
 	// MaxConcurrencyLimits limits the max concurrency constraints for a specific function.
 	MaxConcurrencyLimits = 2
@@ -231,8 +256,8 @@ const (
 )
 
 var (
-	ConnectWorkerRequestToWorkerMappingTTL  = 6 * ConnectWorkerRequestLeaseDuration  // 2 minutes so in case of gateway failure, we don't lose the mapping for too long
-	ConnectWorkerCapacityManagerTTL         = 45 * ConnectWorkerRequestLeaseDuration // 15 minutes
+	ConnectWorkerRequestToWorkerMappingTTL  = 6 * ConnectWorkerRequestLeaseDuration  // 12 minutes so in case of gateway failure, we don't lose the mapping for too long
+	ConnectWorkerCapacityManagerTTL         = 45 * ConnectWorkerRequestLeaseDuration // 90 minutes
 	ConnectWorkerRequestExtendLeaseInterval = ConnectWorkerRequestLeaseDuration / 4
 	QueueShadowContinuationCooldownPeriod   = QueueContinuationCooldownPeriod
 	QueueShadowContinuationMaxPartitions    = QueueContinuationMaxPartitions

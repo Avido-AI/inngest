@@ -22,8 +22,8 @@ export const config = {
     HTTPHeaders: 'Record<string, string|string[]>',
     Int64: 'number',
     Map: 'Record<string, unknown>',
-    SpanMetadataKind: '@inngest/components/RunDetailsV3/types#SpanMetadataKind',
-    SpanMetadataScope: '@inngest/components/RunDetailsV3/types#SpanMetadataScope',
+    SpanMetadataKind: '@inngest/components/RunDetailsShared/types#SpanMetadataKind',
+    SpanMetadataScope: '@inngest/components/RunDetailsShared/types#SpanMetadataScope',
     SpanMetadataValues: 'Record<string, unknown>',
     Time: 'string',
     ULID: 'string',
@@ -65,7 +65,7 @@ const codegenConfig: CodegenConfig = {
     'src/store/generated-types.ts': {
       config: {
         ...config,
-        importSchemaTypesFrom: './src/store/generated-types',
+        importSchemaTypesFrom: './generated-types',
       },
       plugins: ['typescript', 'typescript-operations'],
       hooks: {
@@ -81,7 +81,7 @@ const codegenConfig: CodegenConfig = {
     'src/store/generated.ts': {
       config: {
         ...config,
-        importSchemaTypesFrom: './src/store/generated-types',
+        importSchemaTypesFrom: './generated-types',
       },
       plugins: [
         './codegen-reexport-types-plugin.cjs',

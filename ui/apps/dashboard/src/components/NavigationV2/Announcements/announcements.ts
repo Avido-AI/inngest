@@ -32,27 +32,16 @@ export type Announcement = {
 
 export const announcements: Announcement[] = [
   {
-    id: 'announcing-defer-2026-06',
-    title: 'Introducing defer ( )',
-    body: 'Schedule runs when the parent run finishes.',
-    imageUrl: '/images/announcements/defer-dark.png',
-    imageUrlDark: '/images/announcements/defer-dark.png',
+    id: 'cloud-mcp-2026-08',
+    title: 'New: Cloud MCP',
+    body: 'Connect Claude, Codex, or any of your AI assistants',
+    imageUrl: '/images/announcements/Lt-Cloud MCP.png',
+    imageUrlDark: '/images/announcements/Dk-Cloud MCP.png',
     cta: {
-      label: 'Learn more',
-      href: 'https://www.inngest.com/blog/announcing-defer',
+      label: 'Get started',
+      href: 'https://app.inngest.com/mcp/setup',
     },
-    startDate: '2026-06-01T00:00:00Z',
-    endDate: '2026-07-01T00:00:00Z',
+    startDate: '2026-08-12T17:00:00Z',
+    endDate: '2026-09-12T17:00:00Z',
   },
-
-  // {
-  //   id: 'dashboards-2026-06',
-  //   title: 'Announcing insights',
-  //   body: 'Query runs and step data across your project',
-  //   // imageUrl: '/images/announcements/defer-dark.png',
-  //   // imageUrlDark: '/images/announcements/step-dark.svg',
-  //   cta: { label: 'Explore dashboards', href: 'https://www.inngest.com/docs' },
-  //   startDate: '2026-06-01T00:00:00Z',
-  //   endDate: '2026-07-01T00:00:00Z',
-  // },
 ];
