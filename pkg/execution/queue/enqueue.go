@@ -32,6 +32,7 @@ func (q *queueProducer) buildQueueItem(item Item, at time.Time, opts EnqueueOpts
 	}
 
 	if item.QueueName == nil {
+		// Check if we have a kind => queuename mapping.
 		item.QueueName = q.defaultQueueNameForItemKind(item.Kind)
 	}
 
@@ -49,12 +50,17 @@ func (q *queueProducer) buildQueueItem(item Item, at time.Time, opts EnqueueOpts
 		return QueueItem{}, time.Time{}, fmt.Errorf("queue name or function ID must be set")
 	}
 
+	// Pass optional idempotency period to queue item
 	if opts.IdempotencyPeriod != nil {
 		qi.IdempotencyPeriod = opts.IdempotencyPeriod
 	}
 
+	// Use the queue item's score, ensuring we process older function runs first
+	// (eg. before at)
 	next := time.UnixMilli(qi.Score(q.Clock().Now()))
+
 	if factor := qi.Data.GetPriorityFactor(); factor != 0 {
+		// Ensure we mutate the AtMS time by the given priority factor.
 		qi.AtMS -= factor
 	}
 
@@ -82,8 +88,6 @@ func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, op
 		return err
 	}
 
-	// Use the queue item's score, ensuring we process older function runs first
-	// (eg. before at)
 	ctx, span := q.conditionalTracer.NewSpan(ctx, "queue.Enqueue.select_shard", TraceScopeFromQueueItem(qi, opts.ForceQueueShardName))
 	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, qi)
 	span.End()
@@ -119,6 +123,9 @@ func (q *queueProducer) maybeEnqueuePromotionJob(ctx context.Context, l logger.L
 	if !q.enableJobPromotion || !qi.RequiresPromotionJob(q.Clock().Now()) {
 		return
 	}
+
+	// This is to prevent infinite recursion in case RequiresPromotion is accidentally refactored
+	// to include the below job kind.
 	if qi.Data.Kind == KindJobPromote {
 		return
 	}
@@ -146,6 +153,7 @@ func (q *queueProducer) maybeEnqueuePromotionJob(ctx context.Context, l logger.L
 		},
 	}, promoteAt, EnqueueOpts{})
 	if err != nil && !errors.Is(err, ErrQueueItemExists) {
+		// This is best effort, and shouldn't fail the OG enqueue.
 		l.ReportError(err, "error scheduling promotion job")
 	}
 }
