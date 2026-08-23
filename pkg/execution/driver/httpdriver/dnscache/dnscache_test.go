@@ -21,7 +21,7 @@ func TestDNSCache(t *testing.T) {
 	ctx := context.Background()
 	l := logger.StdlibLogger(ctx)
 
-	ttl := 15 * time.Second
+	ttl := time.Second
 
 	cachedResolver := New(
 		WithCacheTTL(ttl),

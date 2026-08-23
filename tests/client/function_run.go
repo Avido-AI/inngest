@@ -270,22 +270,28 @@ func (c *Client) WaitForRunStatus(
 		timeout = o.Timeout
 	}
 
+	type statusObs struct {
+		at     time.Duration
+		status string
+	}
+
 	start := time.Now()
-	var (
-		run     Run
-		lastErr error
-	)
+	var run Run
+	var observations []statusObs
+	lastStatus := ""
 	for {
-		var err error
-		run, err = c.TryRun(ctx, runID)
+		r, err := c.TryRun(ctx, runID)
 		if err != nil {
 			// Transient GQL errors (e.g. "not found" while the run is
 			// still being created) should be retried, not fatal.
-			lastErr = err
 		} else {
-			lastErr = nil
-			if run.Status == expectedStatus {
-				return run
+			run = r
+			if r.Status != lastStatus {
+				observations = append(observations, statusObs{at: time.Since(start), status: r.Status})
+				lastStatus = r.Status
+			}
+			if r.Status == expectedStatus {
+				return r
 			}
 		}
 
@@ -295,10 +301,13 @@ func (c *Client) WaitForRunStatus(
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	if lastErr != nil {
-		require.Failf(t, "run query failed", "last error querying run %s: %v", runID, lastErr)
+	var hist strings.Builder
+	for _, o := range observations {
+		fmt.Fprintf(&hist, "[%s] %s -> ", o.at.Round(100*time.Millisecond), o.status)
 	}
-	require.Failf(t, "status didn't match", "didn't get expected status: %s, got %s (runID: %s)", expectedStatus, run.Status, runID)
+	hist.WriteString("end")
+
+	require.Failf(t, "status didn't match", "didn't get expected status: %s, got %s (runID: %s); history: %s", expectedStatus, run.Status, runID, hist.String())
 	return run
 }
 
