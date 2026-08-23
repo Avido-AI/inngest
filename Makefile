@@ -65,7 +65,7 @@ queries: ## Generate sqlc queries
 	# `go install ...@version` fail. This version must match the `sqlc vX.Y.Z`
 	# header in the generated files under pkg/cqrs/base_cqrs/sqlc/**.
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
-	"$$(go env GOPATH)/bin/sqlc" generate
+	"$${GOBIN:-$$(go env GOPATH)/bin}/sqlc" generate
 
 .PHONY: schema-dump
 schema-dump: ## Dump SQLite and Postgres schema files from migrations
