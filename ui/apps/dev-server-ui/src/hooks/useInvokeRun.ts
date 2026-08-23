@@ -9,7 +9,7 @@ export const useInvokeRun = () => {
     return await invokeFunction({
       data,
       functionSlug,
-      meta,
+      meta: meta ?? null,
       user,
       debugSessionID,
       debugRunID,

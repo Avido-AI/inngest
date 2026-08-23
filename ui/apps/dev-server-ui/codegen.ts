@@ -36,6 +36,7 @@ export const config = {
   // on plain object types as well (e.g. the `Event` selection in
   // GetEventQuery), so we force it onto every selection.
   nonOptionalTypename: true,
+  namespacedImportName: 'Types',
   skipTypename: false,
   //
   // Use `import type` for cross-file imports so type-only re-exports
@@ -66,6 +67,7 @@ const codegenConfig: CodegenConfig = {
       config: {
         ...config,
         importSchemaTypesFrom: './generated-types',
+        namespacedImportName: undefined,
       },
       plugins: ['typescript', 'typescript-operations'],
       hooks: {

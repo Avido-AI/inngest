@@ -395,7 +395,8 @@ export function FunctionConfiguration({
             infoPopoverContent={PopoverContent.throttle}
           />
         )}
-        {'keyQueuesEnabled' in inngestFunction && inngestFunction.keyQueuesEnabled && (
+        {'keyQueuesEnabled' in inngestFunction &&
+          (inngestFunction as { keyQueuesEnabled?: boolean }).keyQueuesEnabled && (
           <KeyQueuesConfiguration />
         )}
       </ConfigurationCategory>

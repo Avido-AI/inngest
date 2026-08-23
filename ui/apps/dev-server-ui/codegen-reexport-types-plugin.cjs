@@ -9,6 +9,8 @@
 module.exports = {
   plugin() {
     return [
+      "import type * as Types from './generated-types';",
+      "import type { SpanMetadataKind, SpanMetadataScope } from '@inngest/components/RunDetailsShared/types';",
       "export * from './generated-types';",
     ].join('\n');
   },
