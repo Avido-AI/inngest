@@ -80,30 +80,41 @@ export const FailedFunctions = ({
             }
           />
         </div>
-        <Button
-          size="small"
-          kind="secondary"
-          appearance="outlined"
-          icon={<RiArrowRightUpLine />}
-          iconSide="left"
-          label="Open in Insights"
-          // Programmatic client-side navigation rather than a Link `to` with
-          // an embedded query string. Passing `search` as an object lets
-          // TanStack route it through `stringifySearch`, which preserves
-          // newlines (`\n` -> `%0A`). Embedding `?sql=...` inside a string
-          // `to` makes the path resolver treat the query as part of the
-          // pathname, and @tanstack/history's sanitizePath then strips out
-          // all ASCII control chars — including the SQL's newlines.
-          onClick={() =>
-            navigate({
-              to: pathCreator.insights({ envSlug: env.slug }),
-              search: {
-                sql: INSIGHTS_QUERY,
-                name: INSIGHTS_QUERY_NAME,
-              },
-            })
-          }
-        />
+        <div className="flex gap-2">
+          <Button
+            size="small"
+            kind="secondary"
+            appearance="outlined"
+            icon={<RiArrowRightUpLine />}
+            iconSide="left"
+            label="Open in Insights"
+            // Programmatic client-side navigation rather than a Link `to` with
+            // an embedded query string. Passing `search` as an object lets
+            // TanStack route it through `stringifySearch`, which preserves
+            // newlines (`\n` -> `%0A`). Embedding `?sql=...` inside a string
+            // `to` makes the path resolver treat the query as part of the
+            // pathname, and @tanstack/history's sanitizePath then strips out
+            // all ASCII control chars — including the SQL's newlines.
+            onClick={() =>
+              navigate({
+                to: pathCreator.insights({ envSlug: env.slug }),
+                search: {
+                  sql: INSIGHTS_QUERY,
+                  name: INSIGHTS_QUERY_NAME,
+                },
+              })
+            }
+          />
+          <Button
+            size="small"
+            kind="secondary"
+            appearance="outlined"
+            label="View all"
+            to={`${pathCreator.runs({
+              envSlug: env.slug,
+            })}?filterStatus=%5B"FAILED"%5D`}
+          />
+        </div>
       </div>
       <div className="flex h-full flex-row items-center">
         <Chart
