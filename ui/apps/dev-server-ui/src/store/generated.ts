@@ -1,6 +1,8 @@
+import type { SpanMetadataKind, SpanMetadataScope } from '@inngest/components/RunDetailsShared/types';
+
 import { api } from './baseApi';
 import type * as Types from './generated-types';
-import type { SpanMetadataKind, SpanMetadataScope } from '@inngest/components/RunDetailsShared/types';
+
 export * from './generated-types';
 export type RunDeferSummaryFieldsFragment = { __typename: 'RunDefer', hashedDeferID: string, userlandDeferID: string, fnSlug: string, status: Types.RunDeferStatus, function: { __typename: 'Function', name: string, slug: string } | null, run: { __typename: 'FunctionRunV2', id: string, status: Types.FunctionRunStatus } | null };
 
