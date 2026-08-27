@@ -11,10 +11,15 @@
   },
   "pnpm": {
     "overrides": {
-      "h3@<1.15.6": ">=1.15.6 <2",
+      "@opentelemetry/exporter-logs-otlp-grpc@0": "0.221.0",
+      "@opentelemetry/exporter-metrics-otlp-grpc@0": "0.221.0",
+      "@opentelemetry/exporter-trace-otlp-grpc@0": "0.221.0",
+      "@opentelemetry/propagator-jaeger@2": "2.9.0",
+      "@opentelemetry/sdk-node@0": "0.221.0",
       "cjs-module-lexer@<=2.2.0": "2.2.0",
-      "next@<16.2.6": "16.2.6",
-      "protobufjs@<=8.6.0": "8.6.0"
+      "h3@<1.15.6": ">=1.15.6 <2",
+      "protobufjs@<=8.6.4": "8.6.5",
+      "yargs@17": "18.1.0"
     }
   },
   "dependencies": {
@@ -23,7 +28,7 @@
     "@types/react-dom": "19.2.3",
     "inngest": "4.2.6",
     "inngest-v4": "npm:inngest@4.3.0",
-    "next": "16.2.6",
+    "next": "16.3.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "typescript": "5.9.3",
