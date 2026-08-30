@@ -1,12 +1,22 @@
 import { Fragment } from 'react';
 
 import { useSystemStatus } from '../Support/SystemStatus';
+import FeedbackPopover from '../Feedback/FeedbackPopover';
 import SystemStatusIcon from '../Navigation/SystemStatusIcon';
 
 const links = [
-  { label: 'Support', href: 'https://support.inngest.com' },
-  { label: 'Docs', href: 'https://www.inngest.com/docs?ref=app-bottom-bar' },
-  { label: 'Changelog', href: 'https://www.inngest.com/changelog' },
+  {
+    label: 'Docs',
+    href: 'https://www.inngest.com/docs?ref=app-bottom-bar',
+    external: true,
+  },
+  { label: 'MCP', href: '/mcp/setup', external: false },
+  {
+    label: 'Changelog',
+    href: 'https://www.inngest.com/changelog',
+    external: true,
+  },
+  { label: 'Support', href: 'https://support.inngest.com', external: true },
 ];
 
 export default function BottomBar() {
@@ -20,14 +30,22 @@ export default function BottomBar() {
             {i > 0 && <span className="text-disabled">|</span>}
             <a
               href={item.href}
-              target="_blank"
-              rel="noreferrer"
+              target={item.external ? '_blank' : undefined}
+              rel={item.external ? 'noreferrer' : undefined}
               className="hover:text-basis"
             >
               {item.label}
             </a>
           </Fragment>
         ))}
+        <FeedbackPopover
+          leadingDivider
+          trigger={
+            <button type="button" className="hover:text-basis">
+              Feedback
+            </button>
+          }
+        />
         <span className="text-disabled">|</span>
         <a
           href="https://status.inngest.com"

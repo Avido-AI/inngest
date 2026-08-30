@@ -310,3 +310,9 @@ func (w wrapper) getTraceRunsCountSQL(ctx context.Context, opt cqrs.GetTraceRunO
 	}
 	return count, nil
 }
+
+// GetRuns retrieves span-based runs. The fork serves all run listings from the
+// spans table, so this shares GetSpanRuns' implementation.
+func (w wrapper) GetRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
+	return w.GetSpanRuns(ctx, opt)
+}

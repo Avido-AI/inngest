@@ -23,7 +23,7 @@ const (
 )
 
 // buildQueueItem converts an Item to a QueueItem, validates it, and computes its effective enqueue time.
-func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpts) (QueueItem, time.Time, error) {
+func (q *queueProducer) buildQueueItem(item Item, at time.Time, opts EnqueueOpts) (QueueItem, time.Time, error) {
 	if item.Metadata == nil {
 		item.Metadata = map[string]any{}
 	}
@@ -67,7 +67,7 @@ func (q *queueProcessor) buildQueueItem(item Item, at time.Time, opts EnqueueOpt
 // Enqueue adds an item to the queue to be processed at the given time.
 // TODO: Lift this function and the queue interface to a higher level, so that it's disconnected from the
 // concrete Redis implementation.
-func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, opts EnqueueOpts) error {
+func (q *queueProducer) Enqueue(ctx context.Context, item Item, at time.Time, opts EnqueueOpts) error {
 	l := logger.StdlibLogger(ctx)
 
 	qi, next, err := q.buildQueueItem(item, at, opts)
@@ -76,7 +76,7 @@ func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, o
 		return err
 	}
 
-	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.Enqueue.select_shard", item.Identifier.AccountID, item.Identifier.WorkspaceID, item.Identifier.WorkflowID)
+	ctx, span := q.conditionalTracer.NewSpan(ctx, "queue.Enqueue.select_shard", TraceScopeFromQueueItem(qi, opts.ForceQueueShardName))
 	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, qi)
 	span.End()
 	if err != nil {
@@ -101,7 +101,7 @@ func (q *queueProcessor) Enqueue(ctx context.Context, item Item, at time.Time, o
 }
 
 // maybeEnqueuePromotionJob schedules a promotion/rebalance job for future queue items.
-func (q *queueProcessor) maybeEnqueuePromotionJob(ctx context.Context, l logger.Logger, qi QueueItem) {
+func (q *queueProducer) maybeEnqueuePromotionJob(ctx context.Context, l logger.Logger, qi QueueItem) {
 	if !q.enableJobPromotion || !qi.RequiresPromotionJob(q.Clock().Now()) {
 		return
 	}
@@ -134,7 +134,7 @@ func (q *queueProcessor) maybeEnqueuePromotionJob(ctx context.Context, l logger.
 // EnqueueBatch enqueues multiple items in a single Redis pipeline roundtrip.
 // Returns a per-item error slice (nil = success). This satisfies the BatchEnqueuer
 // optional interface.
-func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
+func (q *queueProducer) EnqueueBatch(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -162,7 +162,7 @@ func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []t
 
 // maybeEnqueueBatchPromotionJobs schedules promotion jobs for successfully batch-enqueued
 // items that require them, matching the single-item Enqueue path behavior.
-func (q *queueProcessor) maybeEnqueueBatchPromotionJobs(ctx context.Context, qis []QueueItem, errs []error) {
+func (q *queueProducer) maybeEnqueueBatchPromotionJobs(ctx context.Context, qis []QueueItem, errs []error) {
 	l := logger.StdlibLogger(ctx)
 	for idx := range qis {
 		if errs[idx] != nil {
@@ -173,7 +173,7 @@ func (q *queueProcessor) maybeEnqueueBatchPromotionJobs(ctx context.Context, qis
 }
 
 // prepareQueueItems converts Items to QueueItems using the shared buildQueueItem helper.
-func (q *queueProcessor) prepareQueueItems(items []Item, ats []time.Time, opts EnqueueOpts) ([]QueueItem, []time.Time, []error) {
+func (q *queueProducer) prepareQueueItems(items []Item, ats []time.Time, opts EnqueueOpts) ([]QueueItem, []time.Time, []error) {
 	qis := make([]QueueItem, len(items))
 	effectiveAts := make([]time.Time, len(items))
 
@@ -194,7 +194,7 @@ func (q *queueProcessor) prepareQueueItems(items []Item, ats []time.Time, opts E
 
 // selectBatchShard selects a shard for the batch. Non-batch shards are handled
 // by the type assertion in EnqueueBatch, which falls back to enqueueFallback.
-func (q *queueProcessor) selectBatchShard(ctx context.Context, opts EnqueueOpts, firstItem QueueItem, count int) (QueueShard, []error) {
+func (q *queueProducer) selectBatchShard(ctx context.Context, opts EnqueueOpts, firstItem QueueItem, count int) (QueueShard, []error) {
 	shard, err := q.selectShard(ctx, opts.ForceQueueShardName, firstItem)
 	if err != nil {
 		errs := make([]error, count)
@@ -208,7 +208,7 @@ func (q *queueProcessor) selectBatchShard(ctx context.Context, opts EnqueueOpts,
 }
 
 // enqueueFallback enqueues items sequentially when batch is not supported.
-func (q *queueProcessor) enqueueFallback(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
+func (q *queueProducer) enqueueFallback(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
 	errs := make([]error, len(items))
 	for idx := range items {
 		errs[idx] = q.Enqueue(ctx, items[idx], ats[idx], opts)
@@ -217,7 +217,7 @@ func (q *queueProcessor) enqueueFallback(ctx context.Context, items []Item, ats 
 }
 
 // emitBatchMetrics emits per-item enqueue metrics after a batch operation.
-func (q *queueProcessor) emitBatchMetrics(ctx context.Context, items []Item, errs []error, shard QueueShard) {
+func (q *queueProducer) emitBatchMetrics(ctx context.Context, items []Item, errs []error, shard QueueShard) {
 	for idx := range items {
 		status := "enqueued"
 		if errs[idx] != nil {
@@ -236,4 +236,19 @@ func (q *queueProcessor) emitBatchMetrics(ctx context.Context, items []Item, err
 			},
 		})
 	}
+}
+
+// EnqueueBatch forwards to the underlying producer when it supports batching,
+// falling back to sequential enqueues otherwise. This keeps the processor
+// satisfying BatchEnqueuer while the batching logic lives on the producer.
+func (q *queueProcessor) EnqueueBatch(ctx context.Context, items []Item, ats []time.Time, opts EnqueueOpts) []error {
+	if be, ok := q.Producer.(BatchEnqueuer); ok {
+		return be.EnqueueBatch(ctx, items, ats, opts)
+	}
+
+	errs := make([]error, len(items))
+	for idx := range items {
+		errs[idx] = q.Enqueue(ctx, items[idx], ats[idx], opts)
+	}
+	return errs
 }

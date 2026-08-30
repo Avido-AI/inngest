@@ -11,8 +11,6 @@ import (
 	"github.com/inngest/inngest/pkg/db"
 	sqlc "github.com/inngest/inngest/pkg/db/postgres/sqlc"
 	"github.com/inngest/inngest/pkg/db/postgres/sqltypes"
-	"github.com/inngest/inngest/pkg/enums"
-	"github.com/inngest/inngest/pkg/tracing/meta"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -77,12 +75,34 @@ func (pq *pgQuerier) GetAppByURL(ctx context.Context, url string) (*db.App, erro
 	return appFromPG(r), nil
 }
 
-func (pq *pgQuerier) GetApps(ctx context.Context) ([]*db.App, error) {
-	rows, err := pq.q.GetApps(ctx)
+func (pq *pgQuerier) GetApps(ctx context.Context, arg db.GetAppsParams) ([]*db.App, error) {
+	//
+	// Compare character(36) app IDs as text so Postgres can use the ID index.
+	rows, err := pq.q.GetApps(ctx, sqlc.GetAppsParams{
+		Cursor:    arg.Cursor,
+		LimitRows: int32(arg.Limit),
+		Archived:  arg.Archived,
+		Method:    arg.Method,
+	})
 	if err != nil {
 		return nil, err
 	}
 	return convertSlice(rows, appFromPG), nil
+}
+
+func (pq *pgQuerier) GetAppFunctionCounts(ctx context.Context, appIDs []uuid.UUID) ([]db.AppFunctionCount, error) {
+	rows, err := pq.q.GetAppFunctionCounts(ctx, appIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]db.AppFunctionCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, db.AppFunctionCount{
+			AppID:         row.AppID,
+			FunctionCount: int(row.FunctionCount),
+		})
+	}
+	return result, nil
 }
 
 func (pq *pgQuerier) UpsertApp(ctx context.Context, arg db.UpsertAppParams) (*db.App, error) {
@@ -411,97 +431,6 @@ func (pq *pgQuerier) GetFunctionRunsFromEvents(ctx context.Context, eventIds []u
 		}
 	}
 	return out, nil
-}
-
-func (pq *pgQuerier) GetRuns(ctx context.Context, arg db.GetRunsParams) ([]*db.RunListItemRow, error) {
-	rows, err := pq.q.GetRuns(ctx, sqlc.GetRunsParams{
-		Name:        meta.SpanNameRun,
-		CursorRunID: arg.Cursor.String(),
-		EventID:     arg.EventID.String(),
-		LimitRows:   int32(arg.Limit),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return scanSpanRunListRows(rows, arg)
-}
-
-func scanSpanRunListRows(rows []*sqlc.GetRunsRow, arg db.GetRunsParams) ([]*db.RunListItemRow, error) {
-	out := make([]*db.RunListItemRow, 0, len(rows))
-	for _, r := range rows {
-		parsedRunID, err := ulid.Parse(r.RunID)
-		if err != nil {
-			return nil, err
-		}
-		parsedFunctionID, err := uuid.Parse(r.FunctionID)
-		if err != nil {
-			return nil, err
-		}
-		parsedAppID, err := uuid.Parse(r.AppID)
-		if err != nil {
-			return nil, err
-		}
-
-		statusText := r.Status
-		status := db.RunStatusFromSpanStatus(statusText)
-
-		batchIDText := valueString(r.BatchID)
-		var batchID ulid.ULID
-		if batchIDText != "" {
-			batchID, _ = ulid.Parse(batchIDText)
-		}
-
-		cronSchedule := valueString(r.CronSchedule)
-		triggerType := "event"
-		if cronSchedule != "" {
-			triggerType = "cron"
-		}
-		var output []byte
-		outputText := valueString(r.Output)
-		if arg.IncludeOutput && outputText != "" {
-			output = []byte(outputText)
-		}
-
-		out = append(out, &db.RunListItemRow{
-			FunctionRun: db.FunctionRun{
-				RunID:        parsedRunID,
-				RunStartedAt: r.StartTime,
-				FunctionID:   parsedFunctionID,
-				TriggerType:  triggerType,
-				EventID:      arg.EventID,
-				BatchID:      batchID,
-				Cron:         sql.NullString{String: cronSchedule, Valid: cronSchedule != ""},
-			},
-			FunctionFinish: db.FunctionFinish{
-				RunID:              parsedRunID,
-				Status:             sql.NullString{String: status.String(), Valid: statusText != ""},
-				CompletedStepCount: sql.NullInt64{Int64: 1, Valid: true},
-				CreatedAt:          sql.NullTime{Time: r.EndTime, Valid: enums.RunStatusEnded(status)},
-			},
-			Output:         output,
-			FunctionSlug:   valueString(r.FunctionSlug),
-			FunctionName:   valueString(r.FunctionName),
-			FunctionConfig: "{}",
-			FunctionAppID:  parsedAppID,
-			AppName:        r.AppName,
-		})
-	}
-
-	return out, nil
-}
-
-func valueString(v any) string {
-	switch val := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return val
-	case []byte:
-		return string(val)
-	default:
-		return fmt.Sprint(val)
-	}
 }
 
 func (pq *pgQuerier) GetFunctionRunsTimebound(ctx context.Context, arg db.GetFunctionRunsTimeboundParams) ([]*db.FunctionRunRow, error) {
