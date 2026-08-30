@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -89,13 +90,10 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 		qi, err := shard.EnqueueItem(ctx, item, start, osqueue.EnqueueOpts{})
 		require.NoError(t, err)
 
-		p := osqueue.ItemPartition(ctx, qi)
-
 		var counter int64
 
-		err = q.ProcessItem(ctx, osqueue.ProcessItem{
+		_, err = q.ProcessItem(ctx, osqueue.ProcessItem{
 			I:             qi,
-			P:             p,
 			CapacityLease: nil,
 		}, func(ctx context.Context, ri osqueue.RunInfo, i osqueue.Item) (osqueue.RunResult, error) {
 			atomic.AddInt64(&counter, 1)
@@ -124,13 +122,10 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 		qi, err := shard.EnqueueItem(ctx, item, start, osqueue.EnqueueOpts{})
 		require.NoError(t, err)
 
-		p := osqueue.ItemPartition(ctx, qi)
-
 		var counter int64
 
-		err = q.ProcessItem(ctx, osqueue.ProcessItem{
+		_, err = q.ProcessItem(ctx, osqueue.ProcessItem{
 			I:             qi,
-			P:             p,
 			CapacityLease: nil,
 		}, func(ctx context.Context, ri osqueue.RunInfo, i osqueue.Item) (osqueue.RunResult, error) {
 			<-time.After(3 * time.Second)
@@ -162,8 +157,6 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 
 		qi, err := shard.EnqueueItem(ctx, item, start, osqueue.EnqueueOpts{})
 		require.NoError(t, err)
-
-		p := osqueue.ItemPartition(ctx, qi)
 
 		// Acquire a lease
 		resp, err := cm.Acquire(ctx, &constraintapi.CapacityAcquireRequest{
@@ -210,9 +203,8 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 
 		var counter int64
 
-		err = q.ProcessItem(ctx, osqueue.ProcessItem{
+		_, err = q.ProcessItem(ctx, osqueue.ProcessItem{
 			I: qi,
-			P: p,
 			CapacityLease: &osqueue.CapacityLease{
 				LeaseID:    resp.Leases[0].LeaseID,
 				IssuedAtMS: clock.Now().UnixMilli(),
@@ -271,8 +263,6 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 		qi, err := shard.EnqueueItem(ctx, item, start, osqueue.EnqueueOpts{})
 		require.NoError(t, err)
 
-		p := osqueue.ItemPartition(ctx, qi)
-
 		// Acquire a lease (same pattern as existing test)
 		resp, err := cm.Acquire(ctx, &constraintapi.CapacityAcquireRequest{
 			AccountID:            accountID,
@@ -323,9 +313,8 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 
 		var counter int64
 
-		err = q.ProcessItem(ctx, osqueue.ProcessItem{
+		_, err = q.ProcessItem(ctx, osqueue.ProcessItem{
 			I: qi,
-			P: p,
 			CapacityLease: &osqueue.CapacityLease{
 				LeaseID:    resp.Leases[0].LeaseID,
 				IssuedAtMS: clock.Now().UnixMilli(),
@@ -387,8 +376,6 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 		qi, err := shard.EnqueueItem(ctx, item, start, osqueue.EnqueueOpts{})
 		require.NoError(t, err)
 
-		p := osqueue.ItemPartition(ctx, qi)
-
 		// Acquire a lease
 		resp, err := cm.Acquire(ctx, &constraintapi.CapacityAcquireRequest{
 			AccountID:            accountID,
@@ -434,16 +421,16 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 
 		var counter int64
 
-		err = q.ProcessItem(ctx, osqueue.ProcessItem{
+		_, err = q.ProcessItem(ctx, osqueue.ProcessItem{
 			I: qi,
-			P: p,
 			CapacityLease: &osqueue.CapacityLease{
 				LeaseID:    resp.Leases[0].LeaseID,
 				IssuedAtMS: clock.Now().UnixMilli(),
 			},
 		}, func(ctx context.Context, ri osqueue.RunInfo, i osqueue.Item) (osqueue.RunResult, error) {
 			released := make(chan struct{})
-			go func() {
+			var advancerDone sync.WaitGroup
+			advancerDone.Go(func() {
 				for {
 					select {
 					case <-released:
@@ -458,17 +445,22 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 						r.SetTime(clock.Now())
 					}
 				}
-			}()
+			})
 
 			<-time.After(3 * time.Second)
 
 			// Release the capacity early
 			require.NotNil(t, ri.CapacityLease)
 
-			// Stop clock advances before releasing the lease. This prevents
-			// advancing after the lease is released, which would cause the
-			// extend goroutine to see a stale/released lease.
+			// Stop clock advances and wait for the advancer goroutine to exit
+			// before releasing the lease. This prevents advancing after the
+			// lease is released, which would cause the extend goroutine to see
+			// a stale/released lease. Note that a tick fired by the final
+			// advance may still be buffered in the extend ticker's channel;
+			// ProcessItem handles that race by discarding extend failures once
+			// the lease has been released.
 			close(released)
+			advancerDone.Wait()
 
 			err := ri.CapacityLease.Release()
 			require.NoError(t, err)
@@ -489,6 +481,103 @@ func TestQueueItemProcessWithConstraintChecks(t *testing.T) {
 
 		// Expect exactly 2 release calls
 		require.Equal(t, 2, len(cmLifecycles.ReleaseCalls))
+	})
+
+	t.Run("with constraint api and early release racing extend tick", func(t *testing.T) {
+		reset()
+
+		q, shard := newQueue(
+			t, rc,
+			osqueue.WithClock(clock),
+			osqueue.WithAllowKeyQueues(func(ctx context.Context, acctID uuid.UUID, envID, fnID uuid.UUID) bool {
+				return true
+			}),
+			osqueue.WithAcquireCapacityLeaseOnBacklogRefill(true),
+			osqueue.WithCapacityManager(cm),
+			// make lease extensions more frequent
+			osqueue.WithCapacityLeaseExtendInterval(time.Second),
+			osqueue.WithLogger(l),
+		)
+
+		qi, err := shard.EnqueueItem(ctx, item, start, osqueue.EnqueueOpts{})
+		require.NoError(t, err)
+
+		// Acquire a lease
+		resp, err := cm.Acquire(ctx, &constraintapi.CapacityAcquireRequest{
+			AccountID:            accountID,
+			EnvID:                envID,
+			IdempotencyKey:       qi.ID,
+			FunctionID:           fnID,
+			LeaseIdempotencyKeys: []string{qi.ID},
+			Amount:               1,
+			Configuration: constraintapi.ConstraintConfig{
+				FunctionVersion: 1,
+				Concurrency: constraintapi.ConcurrencyConfig{
+					AccountConcurrency:  5,
+					FunctionConcurrency: 2,
+				},
+			},
+			Constraints: []constraintapi.ConstraintItem{
+				{
+					Kind: constraintapi.ConstraintKindConcurrency,
+					Concurrency: &constraintapi.ConcurrencyConstraint{
+						Scope: enums.ConcurrencyScopeAccount,
+					},
+				},
+				{
+					Kind: constraintapi.ConstraintKindConcurrency,
+					Concurrency: &constraintapi.ConcurrencyConstraint{
+						Scope: enums.ConcurrencyScopeFn,
+					},
+				},
+			},
+			CurrentTime:     clock.Now(),
+			Duration:        10 * time.Second,
+			MaximumLifetime: time.Minute,
+			Source: constraintapi.LeaseSource{
+				Service:           constraintapi.ServiceExecutor,
+				Location:          constraintapi.CallerLocationItemLease,
+				RunProcessingMode: constraintapi.RunProcessingModeBackground,
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Leases, 1)
+
+		var counter int64
+
+		_, err = q.ProcessItem(ctx, osqueue.ProcessItem{
+			I: qi,
+			CapacityLease: &osqueue.CapacityLease{
+				LeaseID:    resp.Leases[0].LeaseID,
+				IssuedAtMS: clock.Now().UnixMilli(),
+			},
+		}, func(ctx context.Context, ri osqueue.RunInfo, i osqueue.Item) (osqueue.RunResult, error) {
+			require.NotNil(t, ri.CapacityLease)
+
+			// Fire the capacity-lease extend ticker, then release the lease
+			// immediately, before the extend goroutine has necessarily
+			// consumed the tick. The tick stays buffered in the ticker
+			// channel, so the extend goroutine can observe it after Release()
+			// cancelled the extend context and released the lease.
+			// ProcessItem must treat the resulting stale tick (or in-flight
+			// extension failure) as benign instead of requeueing the item and
+			// aborting the handler.
+			clock.BlockUntil(2)
+			clock.Advance(time.Second)
+
+			err := ri.CapacityLease.Release()
+			require.NoError(t, err)
+
+			// And do some more processing before returning
+			<-time.After(100 * time.Millisecond)
+			atomic.AddInt64(&counter, 1)
+			return osqueue.RunResult{}, nil
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, 1, int(counter))
+
+		service.Wait()
 	})
 }
 
@@ -560,8 +649,7 @@ func TestQueueItemProcessCleanupUsesRenewedLease(t *testing.T) {
 			started := make(chan struct{})
 			done := make(chan error, 1)
 			go func() {
-				done <- q.ProcessItem(ctx, osqueue.ProcessItem{
-					P: osqueue.ItemPartition(ctx, item),
+				_, err := q.ProcessItem(ctx, osqueue.ProcessItem{
 					I: item,
 				}, func(ctx context.Context, ri osqueue.RunInfo, i osqueue.Item) (osqueue.RunResult, error) {
 					close(started)
@@ -584,6 +672,7 @@ func TestQueueItemProcessCleanupUsesRenewedLease(t *testing.T) {
 						}
 					}
 				})
+				done <- err
 			}()
 
 			require.Eventually(t, func() bool {
@@ -704,11 +793,15 @@ func TestQueueProcessorPreLeaseWithConstraintAPI(t *testing.T) {
 			Items:                []*osqueue.QueueItem{&qi},
 			PartitionContinueCtr: 0,
 			Queue:                q,
-			StaticTime:           clock.Now(),
-			Parallel:             false,
+			Dispatch: func(_ context.Context, item osqueue.ProcessItem) (osqueue.DispatchedItem, error) {
+				q.Workers() <- item
+				return osqueue.NewCompletedDispatchedItem(osqueue.DispatchedItemResult{}), nil
+			},
+			StaticTime: clock.Now(),
+			Parallel:   false,
 		}
 
-		err = iter.Process(ctx, &qi)
+		err = iter.LeaseItem(ctx, &qi)
 		require.NoError(t, err)
 
 		require.Equal(t, 1, len(cmLifecycles.AcquireCalls))
@@ -751,11 +844,15 @@ func TestQueueProcessorPreLeaseWithConstraintAPI(t *testing.T) {
 			Items:                []*osqueue.QueueItem{&qi},
 			PartitionContinueCtr: 0,
 			Queue:                q,
-			StaticTime:           clock.Now(),
-			Parallel:             false,
+			Dispatch: func(_ context.Context, item osqueue.ProcessItem) (osqueue.DispatchedItem, error) {
+				q.Workers() <- item
+				return osqueue.NewCompletedDispatchedItem(osqueue.DispatchedItemResult{}), nil
+			},
+			StaticTime: clock.Now(),
+			Parallel:   false,
 		}
 
-		err = iter.Process(ctx, &qi)
+		err = iter.LeaseItem(ctx, &qi)
 		require.NoError(t, err)
 
 		require.Equal(t, 1, len(cmLifecycles.AcquireCalls))
@@ -840,11 +937,15 @@ func TestQueueProcessorPreLeaseWithConstraintAPI(t *testing.T) {
 			Items:                []*osqueue.QueueItem{&qi},
 			PartitionContinueCtr: 0,
 			Queue:                q,
-			StaticTime:           clock.Now(),
-			Parallel:             false,
+			Dispatch: func(_ context.Context, item osqueue.ProcessItem) (osqueue.DispatchedItem, error) {
+				q.Workers() <- item
+				return osqueue.NewCompletedDispatchedItem(osqueue.DispatchedItemResult{}), nil
+			},
+			StaticTime: clock.Now(),
+			Parallel:   false,
 		}
 
-		err = iter.Process(ctx, &qi)
+		err = iter.LeaseItem(ctx, &qi)
 		require.NoError(t, err)
 
 		// No further Constraint API calls should be made
@@ -958,8 +1059,12 @@ func TestPartitionProcessRequeueAfterLimitedWithConstraintAPI(t *testing.T) {
 			Items:                items,
 			PartitionContinueCtr: 0,
 			Queue:                q,
-			StaticTime:           clock.Now(),
-			Parallel:             false,
+			Dispatch: func(_ context.Context, item osqueue.ProcessItem) (osqueue.DispatchedItem, error) {
+				q.Workers() <- item
+				return osqueue.NewCompletedDispatchedItem(osqueue.DispatchedItemResult{}), nil
+			},
+			StaticTime: clock.Now(),
+			Parallel:   false,
 		}
 
 		require.False(t, iter.IsRequeuable())
@@ -1026,7 +1131,10 @@ func TestPartitionProcessRequeueAfterLimitedWithConstraintAPI(t *testing.T) {
 		// score in global set is at earliest item
 		require.Equal(t, start.Unix(), int64(score(t, r, kg.GlobalPartitionIndex(), p.ID)))
 
-		err = q.ProcessPartition(ctx, &p, 0, false)
+		err = q.ProcessPartition(ctx, &p, 0, false, func(_ context.Context, item osqueue.ProcessItem) (osqueue.DispatchedItem, error) {
+			q.Workers() <- item
+			return osqueue.NewCompletedDispatchedItem(osqueue.DispatchedItemResult{}), nil
+		})
 		require.NoError(t, err)
 
 		require.Equal(t, 0, zcard(t, rc, partitionConcurrencyKey(p, kg)))
@@ -1091,8 +1199,12 @@ func TestPartitionProcessRequeueAfterLimitedWithConstraintAPI(t *testing.T) {
 			Items:                items,
 			PartitionContinueCtr: 0,
 			Queue:                q,
-			StaticTime:           clock.Now(),
-			Parallel:             false,
+			Dispatch: func(_ context.Context, item osqueue.ProcessItem) (osqueue.DispatchedItem, error) {
+				q.Workers() <- item
+				return osqueue.NewCompletedDispatchedItem(osqueue.DispatchedItemResult{}), nil
+			},
+			StaticTime: clock.Now(),
+			Parallel:   false,
 		}
 
 		require.False(t, iter.IsRequeuable())
@@ -1162,7 +1274,10 @@ func TestPartitionProcessRequeueAfterLimitedWithConstraintAPI(t *testing.T) {
 		// score in global set is at earliest item
 		require.Equal(t, start.Unix(), int64(score(t, r, kg.GlobalPartitionIndex(), p.ID)))
 
-		err = q.ProcessPartition(ctx, &p, 0, false)
+		err = q.ProcessPartition(ctx, &p, 0, false, func(_ context.Context, item osqueue.ProcessItem) (osqueue.DispatchedItem, error) {
+			q.Workers() <- item
+			return osqueue.NewCompletedDispatchedItem(osqueue.DispatchedItemResult{}), nil
+		})
 		require.NoError(t, err)
 
 		// first two items were successfully leased
@@ -1299,7 +1414,10 @@ func TestPartitionProcessRequeueAfterLimitedWithConstraintAPI(t *testing.T) {
 		// score in global set is at earliest item
 		require.Equal(t, start.Unix(), int64(score(t, r, kg.GlobalPartitionIndex(), p.ID)))
 
-		err = q.ProcessPartition(logger.WithStdlib(ctx, l), &p, 0, false)
+		err = q.ProcessPartition(logger.WithStdlib(ctx, l), &p, 0, false, func(_ context.Context, item osqueue.ProcessItem) (osqueue.DispatchedItem, error) {
+			q.Workers() <- item
+			return osqueue.NewCompletedDispatchedItem(osqueue.DispatchedItemResult{}), nil
+		})
 		require.NoError(t, err)
 
 		// first two items were successfully leased
