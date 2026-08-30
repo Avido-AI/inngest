@@ -6,18 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	apiv2 "github.com/inngest/inngest/pkg/api/v2"
 	"github.com/inngest/inngest/pkg/consts"
 	loader "github.com/inngest/inngest/pkg/coreapi/graph/loaders"
 	"github.com/inngest/inngest/pkg/cqrs"
-	"github.com/inngest/inngest/pkg/db"
 	"github.com/inngest/inngest/pkg/enums"
 	"github.com/inngest/inngest/pkg/event"
 	"github.com/inngest/inngest/pkg/execution"
-	"github.com/inngest/inngest/pkg/inngest"
+	"github.com/inngest/inngest/pkg/execution/executor"
+	state "github.com/inngest/inngest/pkg/execution/state/v2"
 	"github.com/inngest/inngest/pkg/tracing/meta"
 	"github.com/inngest/inngest/pkg/util"
 	"github.com/oklog/ulid/v2"
@@ -25,23 +25,56 @@ import (
 
 type runProvider struct {
 	data      runProviderDataReader
-	q         db.Querier
-	scheduler apiv2.FunctionScheduler
+	scheduler runProviderExecutor
 }
+
+type runProviderExecutor interface {
+	apiv2.FunctionScheduler
+	Cancel(ctx context.Context, id state.ID, req execution.CancelRequest) error
+}
+
+// Run filters use an exclusive upper bound, so this represents no requested bound.
+var maxRunListTime = time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC)
 
 type runProviderDataReader interface {
 	runSpanReader
 	GetFunctionRun(ctx context.Context, accountID uuid.UUID, workspaceID uuid.UUID, runID ulid.ULID) (*cqrs.FunctionRun, error)
 	GetFunctionByInternalUUID(ctx context.Context, fnID uuid.UUID) (*cqrs.Function, error)
 	GetEventByInternalID(ctx context.Context, internalID ulid.ULID) (*cqrs.Event, error)
+	GetRuns(ctx context.Context, opts cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error)
 }
 
 type runSpanReader interface {
 	GetSpansByRunID(ctx context.Context, runID ulid.ULID) (*cqrs.OtelSpan, error)
 }
 
-func NewRunProvider(data runProviderDataReader, q db.Querier, scheduler apiv2.FunctionScheduler) apiv2.RunProvider {
-	return &runProvider{data: data, q: q, scheduler: scheduler}
+func NewRunProvider(data runProviderDataReader, scheduler runProviderExecutor) apiv2.RunProvider {
+	return &runProvider{data: data, scheduler: scheduler}
+}
+
+func (p *runProvider) Cancel(ctx context.Context, runID ulid.ULID) error {
+	fnrun, err := p.data.GetFunctionRun(ctx, consts.DevServerAccountID, consts.DevServerEnvID, runID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return apiv2.ErrRunNotFound
+		}
+		return err
+	}
+
+	if err := apiv2.RunCancellability(fnrun.Status); err != nil {
+		return err
+	}
+
+	return p.scheduler.Cancel(ctx, state.ID{
+		RunID:      runID,
+		FunctionID: fnrun.FunctionID,
+		Tenant: state.Tenant{
+			EnvID:     consts.DevServerEnvID,
+			AccountID: consts.DevServerAccountID,
+		},
+	}, execution.CancelRequest{
+		ForceLifecycleHook: true,
+	})
 }
 
 func (p *runProvider) GetRun(ctx context.Context, runID ulid.ULID, _ apiv2.GetRunOpts) (*cqrs.FunctionRun, error) {
@@ -49,30 +82,83 @@ func (p *runProvider) GetRun(ctx context.Context, runID ulid.ULID, _ apiv2.GetRu
 }
 
 func (p *runProvider) GetRuns(ctx context.Context, opts apiv2.GetRunsOpts) (*apiv2.GetRunsResult, error) {
-	rows, err := p.q.GetRuns(ctx, db.GetRunsParams{
-		EventID:       opts.EventID,
+	timeField, err := cqrsRunTimeField(opts.TimeField)
+	if err != nil {
+		return nil, err
+	}
+
+	from := time.Time{}
+	if opts.From != nil {
+		from = *opts.From
+	}
+	until := maxRunListTime
+	if opts.Until != nil {
+		until = *opts.Until
+	}
+	eventIDs := []ulid.ULID{}
+	if opts.EventID != ulid.Zero {
+		eventIDs = append(eventIDs, opts.EventID)
+	}
+
+	rows, err := p.data.GetRuns(ctx, cqrs.GetTraceRunOpt{
+		Filter: cqrs.GetTraceRunFilter{
+			AccountID:    consts.DevServerAccountID,
+			WorkspaceID:  consts.DevServerEnvID,
+			AppName:      opts.AppIDs,
+			FunctionSlug: opts.FunctionIDs,
+			EventID:      eventIDs,
+			TimeField:    timeField,
+			From:         from,
+			Until:        until,
+			Status:       opts.Status,
+			IsDeferred:   opts.IsDeferred,
+		},
+		Order: []cqrs.GetTraceRunOrder{{
+			Field:     timeField,
+			Direction: cqrsRunOrder(opts.Order),
+		}},
 		Cursor:        opts.Cursor,
-		Limit:         int64(opts.Limit + 1),
+		Items:         uint(opts.Limit + 1),
 		IncludeOutput: opts.IncludeOutput,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	hasMore := len(rows) > opts.Limit
-	if hasMore {
-		rows = rows[:opts.Limit]
-	}
-
 	runs := make([]*apiv2.RunListItem, 0, len(rows))
 	for _, row := range rows {
-		runs = append(runs, runListItemFromRow(row, opts.IncludeOutput))
+		runs = append(runs, runListItemFromCQRS(row, opts.IncludeOutput))
+	}
+
+	hasMore := len(runs) > opts.Limit
+	if hasMore {
+		runs = runs[:opts.Limit]
 	}
 
 	return &apiv2.GetRunsResult{
 		Runs:    runs,
 		HasMore: hasMore,
 	}, nil
+}
+
+func cqrsRunTimeField(field apiv2.RunTimeField) (enums.TraceRunTime, error) {
+	switch field {
+	case apiv2.RunTimeFieldQueuedAt:
+		return enums.TraceRunTimeQueuedAt, nil
+	case apiv2.RunTimeFieldStartedAt:
+		return enums.TraceRunTimeStartedAt, nil
+	case apiv2.RunTimeFieldEndedAt:
+		return enums.TraceRunTimeEndedAt, nil
+	default:
+		return enums.TraceRunTimeQueuedAt, fmt.Errorf("unsupported run time field: %d", field)
+	}
+}
+
+func cqrsRunOrder(order apiv2.OrderDirection) enums.TraceRunOrder {
+	if order == apiv2.OrderDirectionAsc {
+		return enums.TraceRunOrderAsc
+	}
+	return enums.TraceRunOrderDesc
 }
 
 func (p *runProvider) Rerun(ctx context.Context, runID ulid.ULID, opts apiv2.RerunOpts) (ulid.ULID, error) {
@@ -131,6 +217,12 @@ func (p *runProvider) Rerun(ctx context.Context, runID ulid.ULID, opts apiv2.Rer
 		PreventRateLimit: true,
 	})
 	if err != nil {
+		switch {
+		case errors.Is(err, executor.ErrRerunStepNotFound):
+			return ulid.ULID{}, apiv2.ErrRerunStepNotFound
+		case errors.Is(err, executor.ErrRerunStepAmbiguous):
+			return ulid.ULID{}, apiv2.ErrRerunStepAmbiguous
+		}
 		return ulid.ULID{}, err
 	}
 	if newRunID == nil {
@@ -204,61 +296,42 @@ func runEventID(root *cqrs.OtelSpan) (ulid.ULID, error) {
 	return eventID, nil
 }
 
-func runListItemFromRow(row *db.RunListItemRow, includeOutput bool) *apiv2.RunListItem {
-	fn := inngest.Function{}
-	_ = json.Unmarshal([]byte(row.FunctionConfig), &fn)
-
-	functionName := fn.Name
-	if functionName == "" {
-		functionName = row.FunctionName
-	}
-
-	appID := row.AppName
-	if appID == "" {
-		appID = row.FunctionAppID.String()
-	}
-
+func runListItemFromCQRS(row *cqrs.TraceRun, includeOutput bool) *apiv2.RunListItem {
+	runID, _ := ulid.Parse(row.RunID)
 	run := &apiv2.RunListItem{
-		RunID:        row.FunctionRun.RunID,
-		RunStartedAt: row.FunctionRun.RunStartedAt,
-		EventID:      row.FunctionRun.EventID,
-		FunctionID:   publicRunListFunctionID(row.AppName, row.FunctionSlug, fn.Slug),
-		FunctionName: functionName,
-		AppID:        appID,
+		RunID:        runID,
+		Cursor:       row.Cursor,
+		RunStartedAt: row.StartedAt,
+		FunctionID:   row.FunctionID.String(),
+		AppID:        row.AppID.String(),
+		Status:       row.Status,
 	}
-
-	if !row.FunctionRun.BatchID.IsZero() {
-		run.BatchID = &row.FunctionRun.BatchID
+	if len(row.TriggerIDs) > 0 {
+		run.EventID, _ = ulid.Parse(row.TriggerIDs[0])
 	}
-	if row.FunctionRun.Cron.Valid {
-		run.Cron = &row.FunctionRun.Cron.String
+	if row.FunctionSlug != "" {
+		run.FunctionID = row.FunctionSlug
 	}
-	if row.FunctionFinish.Status.Valid {
-		run.Status, _ = enums.RunStatusString(row.FunctionFinish.Status.String)
-		if row.FunctionFinish.CreatedAt.Valid {
-			run.EndedAt = &row.FunctionFinish.CreatedAt.Time
-		}
-		if includeOutput && len(row.Output) > 0 {
-			run.Output = publicRunOutput(row.Output)
-		}
+	if row.FunctionName != "" {
+		run.FunctionName = row.FunctionName
+	}
+	if row.AppName != "" {
+		run.AppID = row.AppName
+	}
+	if row.BatchID != nil {
+		run.BatchID = row.BatchID
+	}
+	if row.CronSchedule != nil {
+		run.Cron = row.CronSchedule
+	}
+	if enums.RunStatusEnded(row.Status) && !row.EndedAt.IsZero() {
+		run.EndedAt = &row.EndedAt
+	}
+	if includeOutput && len(row.Output) > 0 {
+		run.Output = publicRunOutput(row.Output)
 	}
 
 	return run
-}
-
-func publicRunListFunctionID(appID string, storedFunctionID string, configFunctionID string) string {
-	if configFunctionID != "" && configFunctionID != storedFunctionID {
-		return configFunctionID
-	}
-
-	functionID := configFunctionID
-	if functionID == "" {
-		functionID = storedFunctionID
-	}
-	if appID != "" {
-		return strings.TrimPrefix(functionID, appID+"-")
-	}
-	return functionID
 }
 
 func publicRunOutput(raw []byte) json.RawMessage {

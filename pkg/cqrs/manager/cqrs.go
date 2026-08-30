@@ -590,6 +590,54 @@ func mapRootSpansFromRows[T normalizedSpan](ctx context.Context, spans []T) (*cq
 		dynamicToOtelIDs[dynID] = append(dynamicToOtelIDs[dynID], otelID)
 	}
 
+	// Reparent userland (extended trace) spans by (stepID, attempt).
+	//
+	// The SDK parents userland spans via OTel context, whose parent_span_id
+	// linkage is unreliable across step attempts — e.g. an attempt-0 LLM span
+	// can point at the attempt-1 step span, which resolves fine and would
+	// otherwise leave the span on the wrong attempt. The trustworthy signal is
+	// the (stepID, attempt) attribute pair, so override the parent of each
+	// userland subtree ROOT to its matching step span (preferred) or execution
+	// span (fallback).
+	//
+	// Interior nodes of a userland subtree (whose parent is itself a userland
+	// span) are left untouched. The resolve-then-reparent loop below then
+	// attaches each span to the corrected parent.
+	parentIsUserland := func(parentID string) bool {
+		if parentID == "" {
+			return false
+		}
+		if _, ok := userlandDynIDs[parentID]; ok {
+			return true
+		}
+		if dynID, ok := otelToDynamic[parentID]; ok {
+			_, ok := userlandDynIDs[dynID]
+			return ok
+		}
+		return false
+	}
+	for _, span := range spanMap.AllFromFront() {
+		if span.Attributes == nil ||
+			(span.Attributes.IsUserland == nil || !*span.Attributes.IsUserland) ||
+			(span.Attributes.StepID == nil || *span.Attributes.StepID == "") ||
+			span.Attributes.StepAttempt == nil {
+			continue
+		}
+		// Only reparent roots of userland subtrees; interior nodes keep their parent.
+		if span.ParentSpanID != nil && parentIsUserland(*span.ParentSpanID) {
+			continue
+		}
+		key := newExtendedTraceKey(*span.Attributes.StepID, *span.Attributes.StepAttempt)
+		target, found := stepSpanByKey[key]
+		if !found {
+			target, found = execSpanByKey[key]
+		}
+		if found {
+			tid := target
+			span.ParentSpanID = &tid
+		}
+	}
+
 	for _, span := range spanMap.AllFromFront() {
 		// If we have an output reference for this span, set the appropriate
 		// target span ID here
@@ -1099,25 +1147,38 @@ func (w wrapper) InsertQueueSnapshotChunk(ctx context.Context, params cqrs.Inser
 // Apps
 //
 
-// GetApps returns apps that have not been deleted.
+// GetApps returns active apps unless the filter requests archived apps.
 func (w wrapper) GetApps(ctx context.Context, envID uuid.UUID, filter *cqrs.FilterAppParam) ([]*cqrs.App, error) {
-	data, err := w.q.GetApps(ctx)
+	params := dbpkg.GetAppsParams{}
+	if filter != nil {
+		params.Cursor = filter.Cursor
+		params.Limit = filter.Limit
+		params.Archived = filter.Archived
+		if filter.Method != nil {
+			params.Method = filter.Method.String()
+		}
+	}
+
+	data, err := w.q.GetApps(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("could not get apps: %w", err)
 	}
-	if filter == nil {
-		return domainToCQRSList(data, domainApp), nil
-	}
+	return domainToCQRSList(data, domainApp), nil
+}
 
-	filtered := []*cqrs.App{}
-	for _, app := range data {
-		if filter.Method != nil && filter.Method.String() != app.Method {
-			continue
-		}
-		filtered = append(filtered, domainToCQRS(app, domainApp))
+func (w wrapper) GetAppFunctionCounts(ctx context.Context, appIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	result := make(map[uuid.UUID]int, len(appIDs))
+	if len(appIDs) == 0 {
+		return result, nil
 	}
-
-	return filtered, nil
+	counts, err := w.q.GetAppFunctionCounts(ctx, appIDs)
+	if err != nil {
+		return nil, fmt.Errorf("could not get function counts: %w", err)
+	}
+	for _, count := range counts {
+		result[count.AppID] = count.FunctionCount
+	}
+	return result, nil
 }
 
 func (w wrapper) GetAppByChecksum(ctx context.Context, envID uuid.UUID, checksum string) (*cqrs.App, error) {
@@ -2256,6 +2317,8 @@ type runsQueryBuilder struct {
 	order        []sqexp.OrderedExpression
 	cursor       *cqrs.TracePageCursor
 	cursorLayout *cqrs.TracePageCursor
+	// Split out so root-page scans can paginate without duplicating root filters.
+	cursorPred []sq.Expression
 }
 
 func newRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runsQueryBuilder {
@@ -2388,7 +2451,7 @@ func newRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runsQuer
 
 func (w wrapper) GetTraceRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
 	if opt.Preview {
-		return w.GetSpanRuns(ctx, opt)
+		return w.GetRuns(ctx, opt)
 	}
 
 	l := logger.StdlibLogger(ctx)
@@ -3082,338 +3145,6 @@ func (w wrapper) GetWorkerConnections(ctx context.Context, opt cqrs.GetWorkerCon
 	}
 
 	return res, nil
-}
-
-// convertSpanRunRows converts database rows to TraceRun structs
-func (w wrapper) convertSpanRunRows(
-	ctx context.Context,
-	rows *sql.Rows,
-	cursorLayout *cqrs.TracePageCursor,
-	h driverhelp.DialectHelpers,
-	itemLimit uint,
-) ([]*cqrs.TraceRun, error) {
-	l := logger.StdlibLogger(ctx)
-
-	type runRow struct {
-		RunID         string
-		DynamicSpanID string
-		AccountID     string
-		EnvID         string
-		AppID         string
-		FunctionID    string
-		TraceID       string
-		StartTime     string
-		EndTime       *string
-		Status        *string
-		IsDeferred    sql.NullBool
-		EventIDs      *string
-	}
-
-	res := []*cqrs.TraceRun{}
-	var count uint
-
-	for rows.Next() {
-		var row runRow
-		err := rows.Scan(
-			&row.RunID,
-			&row.DynamicSpanID,
-			&row.AccountID,
-			&row.EnvID,
-			&row.AppID,
-			&row.FunctionID,
-			&row.TraceID,
-			&row.StartTime,
-			&row.EndTime,
-			&row.Status,
-			&row.IsDeferred,
-			&row.EventIDs,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// Parse times using adapter, times are stored differently across SQLite and Postgres
-		startTime, err := h.ParseTime(row.StartTime)
-		if err != nil {
-			l.Debug("invalid start_time", "start_time", row.StartTime, "error", err)
-			continue
-		}
-		var endTime *time.Time
-		if row.EndTime != nil && *row.EndTime != "" {
-			if t, err := h.ParseTime(*row.EndTime); err == nil {
-				endTime = &t
-			}
-		}
-
-		// Parse UUIDs
-		accountUUID, err := uuid.Parse(row.AccountID)
-		if err != nil {
-			l.Debug("invalid account ID", "account_id", row.AccountID, "error", err)
-			continue
-		}
-		workspaceUUID, err := uuid.Parse(row.EnvID)
-		if err != nil {
-			l.Debug("invalid workspace ID", "env_id", row.EnvID, "error", err)
-			continue
-		}
-		appUUID, err := uuid.Parse(row.AppID)
-		if err != nil {
-			l.Debug("invalid app ID", "app_id", row.AppID, "error", err)
-			continue
-		}
-		functionUUID, err := uuid.Parse(row.FunctionID)
-		if err != nil {
-			l.Debug("invalid function ID", "function_id", row.FunctionID, "error", err)
-			continue
-		}
-
-		// Parse status
-		status := enums.RunStatusRunning
-		if row.Status != nil && *row.Status != "" {
-			if stepStatus, err := enums.StepStatusString(*row.Status); err == nil && stepStatus != enums.StepStatusUnknown {
-				status = enums.StepStatusToRunStatus(stepStatus)
-			}
-		}
-
-		// Parse event IDs using adapter due to differences in column type and serialization
-		triggerIDs := h.ParseEventIDs(row.EventIDs)
-
-		// Calculate duration
-		var duration time.Duration
-		if endTime != nil {
-			duration = endTime.Sub(startTime)
-		}
-
-		// Build cursor for pagination
-		var cursor string
-		if cursorLayout != nil {
-			c := &cqrs.TracePageCursor{
-				ID:      row.RunID,
-				Cursors: map[string]cqrs.TraceCursor{},
-			}
-			for field := range cursorLayout.Cursors {
-				switch field {
-				case "start_time":
-					c.Cursors[field] = cqrs.TraceCursor{Field: field, Value: startTime.UnixMicro()}
-				case "end_time":
-					if endTime != nil {
-						c.Cursors[field] = cqrs.TraceCursor{Field: field, Value: endTime.UnixMicro()}
-					}
-				}
-			}
-			if encoded, err := c.Encode(); err == nil {
-				cursor = encoded
-			}
-		}
-
-		traceRun := &cqrs.TraceRun{
-			AccountID:   accountUUID,
-			WorkspaceID: workspaceUUID,
-			AppID:       appUUID,
-			FunctionID:  functionUUID,
-			TraceID:     row.TraceID,
-			RunID:       row.RunID,
-			QueuedAt:    startTime,
-			StartedAt:   startTime,
-			Duration:    duration,
-			Status:      status,
-			IsDeferred:  row.IsDeferred.Valid && row.IsDeferred.Bool,
-			Cursor:      cursor,
-			TriggerIDs:  triggerIDs,
-		}
-
-		if endTime != nil {
-			traceRun.EndedAt = *endTime
-		}
-
-		res = append(res, traceRun)
-		count++
-
-		// We have filled a page's worth of requests, so break
-		if itemLimit > 0 && count >= itemLimit {
-			break
-		}
-	}
-
-	return res, nil
-}
-
-// newSpanRunsQueryBuilder creates a query builder for span-based runs Similar
-// to newRunsQueryBuilder but adapted for spans table structure
-func newSpanRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runsQueryBuilder {
-	l := logger.StdlibLogger(ctx)
-
-	// filters
-	filter := []sq.Expression{}
-	//
-	// debug runs are a special kind of run that should not be included in the main runs list
-	filter = append(filter, sq.C("debug_run_id").IsNull())
-	if opt.Filter.AccountID != uuid.Nil {
-		// Qualify with the spans table: the CEL event-filter path inner-joins the
-		// events table, which also has an account_id column, so an unqualified
-		// reference is ambiguous on Postgres.
-		filter = append(filter, sq.I("spans.account_id").Eq(opt.Filter.AccountID))
-	}
-	if opt.Filter.WorkspaceID != uuid.Nil {
-		filter = append(filter, sq.C("env_id").Eq(opt.Filter.WorkspaceID))
-	}
-	if len(opt.Filter.AppID) > 0 {
-		filter = append(filter, sq.C("app_id").In(opt.Filter.AppID))
-	}
-	if len(opt.Filter.FunctionID) > 0 {
-		filter = append(filter, sq.C("function_id").In(opt.Filter.FunctionID))
-	}
-	if len(opt.Filter.Status) > 0 {
-		statusStrings := make([]string, 0, len(opt.Filter.Status))
-		for _, s := range opt.Filter.Status {
-			statusStrings = append(statusStrings, s.String())
-		}
-		filter = append(filter, sq.C("status").In(statusStrings))
-	}
-	// Skipped runs should only be visible in event-scoped queries, not the runs list.
-	// status is nullable in spans, so we must also accept NULL.
-	filter = append(filter, sq.Or(
-		sq.C("status").IsNull(),
-		sq.C("status").Neq(enums.RunStatusSkipped.String()),
-	))
-
-	// Map time fields - spans use start_time/end_time instead of
-	// queued_at/started_at/ended_at
-	var tsfield string
-	switch opt.Filter.TimeField {
-	case enums.TraceRunTimeQueuedAt, enums.TraceRunTimeStartedAt:
-		tsfield = "start_time"
-	case enums.TraceRunTimeEndedAt:
-		tsfield = "end_time"
-	default:
-		tsfield = "start_time"
-	}
-
-	// Convert times to UTC to match spans storage format in SQLite
-	// We currently store SQLite timestamps as Go's time.Time string: "2025-07-13 19:32:24.939517 +0000 UTC m=+..."
-	// SQLite compares these as strings, so filter times must also serialize with "+0000 UTC" suffix to correctly use
-	// lexicographic comparisons.
-	// The UTC conversion was not strictly necessary for Postgres because the timestamp columns are timestamptz, so
-	// type and timezone conversion were handled for us
-	filter = append(filter, sq.C(tsfield).Gte(opt.Filter.From.UTC()))
-	filter = append(filter, sq.C(tsfield).Lt(opt.Filter.Until.UTC()))
-
-	// cursor
-	resCursorLayout := &cqrs.TracePageCursor{
-		Cursors: map[string]cqrs.TraceCursor{},
-	}
-
-	// decode request cursor if there's one
-	var reqCursor *cqrs.TracePageCursor
-	if len(opt.Cursor) > 0 {
-		reqCursor = &cqrs.TracePageCursor{Cursors: map[string]cqrs.TraceCursor{}}
-		if err := reqCursor.Decode(opt.Cursor); err != nil {
-			l.Debug("cursor decode failed", "error", err)
-			reqCursor = nil
-		}
-	}
-
-	// orders
-	order := []sqexp.OrderedExpression{}
-	for _, o := range opt.Order {
-		// Map enum field names to column names
-		var field string
-		switch o.Field {
-		case enums.TraceRunTimeQueuedAt, enums.TraceRunTimeStartedAt:
-			field = "start_time"
-		case enums.TraceRunTimeEndedAt:
-			field = "end_time"
-		default:
-			field = "start_time"
-		}
-
-		resCursorLayout.Add(field)
-
-		switch o.Direction {
-		case enums.TraceRunOrderAsc:
-			order = append(order, sq.C(field).Asc())
-		case enums.TraceRunOrderDesc:
-			order = append(order, sq.C(field).Desc())
-		}
-	}
-
-	// Always add run_id as final sort field for stable pagination
-	order = append(order, sq.C("run_id").Asc())
-	resCursorLayout.Add("run_id")
-
-	// cursor-based pagination filter
-	if reqCursor != nil {
-		cursorFilters := []sq.Expression{}
-		for i, o := range opt.Order {
-			// Map field names same as above
-			var field string
-			switch o.Field {
-			case enums.TraceRunTimeQueuedAt, enums.TraceRunTimeStartedAt:
-				field = "start_time"
-			case enums.TraceRunTimeEndedAt:
-				field = "end_time"
-			default:
-				field = "start_time"
-			}
-
-			if cursor := reqCursor.Find(field); cursor != nil {
-				// Build cursor condition for this field
-				// Convert int64 microseconds to time.Time in UTC for spans table comparison
-				cursorTime := time.UnixMicro(cursor.Value).UTC()
-				var baseCondition sq.Expression
-				if o.Direction == enums.TraceRunOrderAsc {
-					baseCondition = sq.C(field).Gt(cursorTime)
-				} else {
-					baseCondition = sq.C(field).Lt(cursorTime)
-				}
-
-				// Build compound condition for tie-breaking
-				equalityConditions := []sq.Expression{sq.C(field).Eq(cursorTime)}
-
-				// Add conditions for all subsequent fields in sort order
-				for j := i + 1; j < len(opt.Order); j++ {
-					var nextField string
-					switch opt.Order[j].Field {
-					case enums.TraceRunTimeQueuedAt, enums.TraceRunTimeStartedAt:
-						nextField = "start_time"
-					case enums.TraceRunTimeEndedAt:
-						nextField = "end_time"
-					default:
-						nextField = "start_time"
-					}
-
-					if nextCursor := reqCursor.Find(nextField); nextCursor != nil {
-						nextCursorTime := time.UnixMicro(nextCursor.Value).UTC()
-						if opt.Order[j].Direction == enums.TraceRunOrderAsc {
-							equalityConditions = append(equalityConditions, sq.C(nextField).Gt(nextCursorTime))
-						} else {
-							equalityConditions = append(equalityConditions, sq.C(nextField).Lt(nextCursorTime))
-						}
-					}
-				}
-
-				// Add run_id tie-breaker
-				if reqCursor.ID != "" {
-					equalityConditions = append(equalityConditions, sq.C("run_id").Gt(reqCursor.ID))
-				}
-
-				// Combine: (field > cursor_value) OR (field = cursor_value AND next_conditions)
-				tieBreakingCondition := sq.And(equalityConditions...)
-				cursorFilters = append(cursorFilters, sq.Or(baseCondition, tieBreakingCondition))
-			}
-		}
-
-		if len(cursorFilters) > 0 {
-			filter = append(filter, sq.Or(cursorFilters...))
-		}
-	}
-
-	return &runsQueryBuilder{
-		filter:       filter,
-		order:        order,
-		cursor:       reqCursor,
-		cursorLayout: resCursorLayout,
-	}
 }
 
 // needsEventJoin checks if CEL expression references event.* fields

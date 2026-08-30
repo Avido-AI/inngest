@@ -195,6 +195,35 @@ func WithBacklogNormalizationConcurrency(limit int64) QueueOpt {
 	}
 }
 
+func WithPartitionBacklogSizeConcurrency(limit int64) QueueOpt {
+	return func(q *QueueOptions) {
+		q.partitionBacklogSizeConcurrency = limit
+	}
+}
+
+func (o QueueOptions) PartitionBacklogSizeConcurrency() int64 {
+	if o.partitionBacklogSizeConcurrency <= 0 {
+		return defaultPartitionBacklogSizeConcurrency
+	}
+	return o.partitionBacklogSizeConcurrency
+}
+
+// WithPausedRequeueExtension overrides how far into the future a paused
+// partition is requeued once it is confirmed paused in the database. When not
+// set (or non-positive), PartitionPausedRequeueExtension is used.
+func WithPausedRequeueExtension(d time.Duration) QueueOpt {
+	return func(q *QueueOptions) {
+		q.pausedRequeueExtension = d
+	}
+}
+
+func (o QueueOptions) PausedRequeueExtension() time.Duration {
+	if o.pausedRequeueExtension <= 0 {
+		return PartitionPausedRequeueExtension
+	}
+	return o.pausedRequeueExtension
+}
+
 func WithPeekConcurrencyMultiplier(m int64) QueueOpt {
 	return func(q *QueueOptions) {
 		q.peekCurrMultiplier = m
@@ -446,6 +475,8 @@ type QueueOptions struct {
 	PeekEWMALen int
 	// queueKindMapping stores a map of job kind => queue names
 	queueKindMapping        map[string]string
+	queueProducer           Producer
+	queueConsumer           Consumer
 	disableFifoForFunctions map[string]struct{}
 	disableFifoForAccounts  map[string]struct{}
 	peekSizeForFunctions    map[string]int64
@@ -481,10 +512,16 @@ type QueueOptions struct {
 
 	shadowContinuationLimit uint
 
-	shadowPeekMin               int64
-	shadowPeekMax               int64
-	backlogRefillLimit          int64
-	backlogNormalizeConcurrency int64
+	shadowPeekMin                   int64
+	shadowPeekMax                   int64
+	backlogRefillLimit              int64
+	backlogNormalizeConcurrency     int64
+	partitionBacklogSizeConcurrency int64
+
+	// pausedRequeueExtension is how far into the future a paused partition is
+	// requeued when it is confirmed paused in the database. Falls back to
+	// PartitionPausedRequeueExtension when unset.
+	pausedRequeueExtension time.Duration
 
 	NormalizeRefreshItemCustomConcurrencyKeys NormalizeRefreshItemCustomConcurrencyKeysFn
 	RefreshItemThrottle                       RefreshItemThrottleFn
@@ -602,6 +639,18 @@ func WithEnableJobPromotion(enable bool) QueueOpt {
 	}
 }
 
+func WithQueueProducer(producer Producer) QueueOpt {
+	return func(q *QueueOptions) {
+		q.queueProducer = producer
+	}
+}
+
+func WithQueueConsumer(consumer Consumer) QueueOpt {
+	return func(q *QueueOptions) {
+		q.queueConsumer = consumer
+	}
+}
+
 func WithCapacityManager(capacityManager constraintapi.CapacityManager) QueueOpt {
 	return func(q *QueueOptions) {
 		q.CapacityManager = capacityManager
@@ -685,19 +734,17 @@ type ShadowContinuation struct {
 	Count      uint
 }
 
-// ProcessItem references the queue partition and queue item to be processed by a worker.
-// both items need to be passed to a worker as both items are needed to generate concurrency
-// keys to extend leases and dequeue.
+// ProcessItem references the queue item and scanner-provided metadata to be processed by a worker.
 type ProcessItem struct {
-	P QueuePartition
 	I QueueItem
 
-	// PCtr represents the number of times the partition has been continued.
-	PCtr uint
+	Priority      uint
+	ContinueCount uint
 
 	CapacityLease *CapacityLease
 
 	ConditionalTraceCtx context.Context
+	result              *dispatchedItemHandle
 }
 
 type capacityLease struct {
@@ -782,13 +829,14 @@ func NewQueueOptions(
 		PartitionPausedGetter: func(ctx context.Context, fnID uuid.UUID) PartitionPausedInfo {
 			return PartitionPausedInfo{}
 		},
-		PeekMin:                     DefaultQueuePeekMin,
-		PeekMax:                     DefaultQueuePeekMax,
-		PeekSizeExponent:            7,
-		shadowPeekMin:               ShadowPartitionPeekMinBacklogs,
-		shadowPeekMax:               ShadowPartitionPeekMaxBacklogs,
-		backlogRefillLimit:          BacklogRefillHardLimit,
-		backlogNormalizeConcurrency: defaultBacklogNormalizeConcurrency,
+		PeekMin:                         DefaultQueuePeekMin,
+		PeekMax:                         DefaultQueuePeekMax,
+		PeekSizeExponent:                7,
+		shadowPeekMin:                   ShadowPartitionPeekMinBacklogs,
+		shadowPeekMax:                   ShadowPartitionPeekMaxBacklogs,
+		backlogRefillLimit:              BacklogRefillHardLimit,
+		backlogNormalizeConcurrency:     defaultBacklogNormalizeConcurrency,
+		partitionBacklogSizeConcurrency: defaultPartitionBacklogSizeConcurrency,
 		runMode: QueueRunMode{
 			Sequential:                        true,
 			Scavenger:                         true,
