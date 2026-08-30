@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inngest/inngest/tests/testutil"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
-	"github.com/inngest/inngest/tests/testutil"
 	"github.com/redis/rueidis"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"

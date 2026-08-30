@@ -11,6 +11,7 @@ import (
 	"github.com/inngest/inngest/cmd/version"
 	inncli "github.com/inngest/inngest/pkg/cli"
 	inngestversion "github.com/inngest/inngest/pkg/inngest/version"
+	"github.com/inngest/inngest/pkg/update"
 	isatty "github.com/mattn/go-isatty"
 	"github.com/urfave/cli/v3"
 )
@@ -61,6 +62,10 @@ func execute() {
 				}
 			}
 
+			// Best-effort background refresh of the cached "latest version"
+			// record. Dedup'd by the cache TTL, so cheap on every invocation.
+			// Check honors the same opt-out gates as Notify.
+			go update.Check(context.Background(), inngestversion.Version)
 
 			return ctx, nil
 		},

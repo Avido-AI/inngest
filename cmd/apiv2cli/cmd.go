@@ -42,6 +42,11 @@ var pathParamPattern = regexp.MustCompile(`\{([^}=]+)(=[^}]*)?}`)
 var hiddenEndpointMethods = map[string]struct{}{
 	"CreatePartnerAccount": {},
 	"FetchPartnerAccounts": {},
+	"ListFunctionRuns":     {},
+}
+
+var endpointCommandNames = map[string]string{
+	"ListRuns": "get-function-runs",
 }
 
 type endpoint struct {
@@ -102,6 +107,22 @@ func endpointCommands() []*cli.Command {
 	}
 
 	return cmds
+}
+
+func commandTelemetryContext(cmd *cli.Command, ep endpoint) map[string]any {
+	flags := []string{}
+	for _, flag := range append(commonFlags(), endpointFlags(ep)...) {
+		name := flag.Names()[0]
+		if cmd.IsSet(name) {
+			flags = append(flags, name)
+		}
+	}
+	slices.Sort(flags)
+
+	return map[string]any{
+		"endpoint": ep.name,
+		"flags":    flags,
+	}
 }
 
 func commonFlags() []cli.Flag {
@@ -338,6 +359,10 @@ func methodHelp(method protoreflect.MethodDescriptor) (string, string) {
 }
 
 func endpointCommandName(methodName string) string {
+	if name, ok := endpointCommandNames[methodName]; ok {
+		return name
+	}
+
 	name := kebab(methodName)
 	for _, prefix := range []string{"fetch-", "list-"} {
 		if strings.HasPrefix(name, prefix) {

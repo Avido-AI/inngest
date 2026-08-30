@@ -37,12 +37,16 @@ func TestDiscoverEndpointsFromProto(t *testing.T) {
 	require.Equal(t, []string{"app_id", "function_id"}, byName["invoke-function"].pathParams)
 	require.Equal(t, http.MethodGet, byName["get-function-trace"].method)
 	require.Equal(t, "/runs/{run_id}/trace", byName["get-function-trace"].path)
+	require.NotContains(t, byName, "get-runs")
+	require.Equal(t, "/runs", byName["get-function-runs"].path)
+	require.Empty(t, byName["get-function-runs"].pathParams)
 }
 
 func TestEndpointCommandNameNormalizesReadVerbs(t *testing.T) {
 	require.Equal(t, "get-account", endpointCommandName("FetchAccount"))
 	require.Equal(t, "get-webhooks", endpointCommandName("ListWebhooks"))
 	require.Equal(t, "get-function-run", endpointCommandName("GetFunctionRun"))
+	require.Equal(t, "get-function-runs", endpointCommandName("ListRuns"))
 	require.Equal(t, "create-env", endpointCommandName("CreateEnv"))
 }
 
@@ -92,6 +96,47 @@ func TestEndpointCommandsIncludeOperationAndInheritedFlagHelp(t *testing.T) {
 	require.Contains(t, invoke.Description, "INNGEST_API_KEY")
 	require.Contains(t, invoke.Description, "INNGEST_ENV")
 	require.Contains(t, invoke.Description, "/v2")
+}
+
+func TestCommandTelemetryContextIncludesEndpointAndFlagNamesOnly(t *testing.T) {
+	var getEventRuns endpoint
+	for _, ep := range discoverEndpoints() {
+		if ep.name == "get-event-runs" {
+			getEventRuns = ep
+			break
+		}
+	}
+	require.NotEmpty(t, getEventRuns.name)
+
+	var endpointCommand *cli.Command
+	for _, command := range endpointCommands() {
+		if command.Name == getEventRuns.name {
+			endpointCommand = command
+			break
+		}
+	}
+	require.NotNil(t, endpointCommand)
+
+	app := Command()
+	endpointCommand.Action = func(_ context.Context, cmd *cli.Command) error {
+		require.Equal(t, map[string]any{
+			"endpoint": "get-event-runs",
+			"flags":    []string{"include-output", "limit", "prod"},
+		}, commandTelemetryContext(cmd, getEventRuns))
+		return nil
+	}
+	app.Commands = []*cli.Command{endpointCommand}
+
+	err := app.Run(context.Background(), []string{
+		"api",
+		"--prod",
+		"get-event-runs",
+		"01KTCTWSZJEKAFEDA4F9GYHFQW",
+		"--include-output",
+		"--limit", "5",
+	})
+
+	require.NoError(t, err)
 }
 
 func TestEndpointFlagsUseProtoFieldDescriptions(t *testing.T) {
