@@ -66,7 +66,7 @@ func NewAPI(o Options) (chi.Router, error) {
 		AllowOriginFunc:  func(r *http.Request, origin string) bool { return true },
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
-		ExposedHeaders:   []string{"Link"},
+		ExposedHeaders:   []string{"Link", "Mcp-Session-Id"},
 		AllowCredentials: false,
 		MaxAge:           60 * 60, // 1 hour
 	})
@@ -259,6 +259,9 @@ func (a API) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
 				evt.User = map[string]any{}
 			}
 
+			// Merge propagated sessions into the manual layer before validation
+			evt.Meta.ResolveSessions()
+
 			if err := evt.Validate(ctx); err != nil {
 				return err
 			}
@@ -343,6 +346,15 @@ func (a API) Invoke(w http.ResponseWriter, r *http.Request) {
 		FnID:  slug,
 	}
 	evt := event.NewInvocationEvent(newInvOpts)
+
+	// Merge the two session layers before the event is handled
+	evt.Event.Meta.ResolveSessions()
+
+	// Validate after the merge
+	if err := evt.Event.Validate(r.Context()); err != nil {
+		_ = publicerr.WriteHTTP(w, publicerr.Wrap(err, 400, "Invalid invocation event"))
+		return
+	}
 
 	seed := event.SeededIDFromString(
 		r.Header.Get(headers.HeaderEventIDSeed),

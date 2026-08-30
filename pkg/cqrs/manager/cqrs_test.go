@@ -102,6 +102,75 @@ func TestCQRSGetApps(t *testing.T) {
 	})
 }
 
+func TestCQRSGetAppsPagination(t *testing.T) {
+	ctx := context.Background()
+	cm, cleanup := initCQRS(t)
+	defer cleanup()
+
+	firstID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	secondID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	archivedID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	for _, app := range []cqrs.UpsertAppParams{
+		{ID: firstID, Name: "first", Checksum: "first", Url: "http://first", Method: enums.AppMethodServe.String()},
+		{ID: secondID, Name: "second", Checksum: "second", Url: "http://second", Method: enums.AppMethodConnect.String()},
+		{ID: archivedID, Name: "archived", Checksum: "archived", Url: "http://archived", Method: enums.AppMethodAPI.String()},
+	} {
+		_, err := cm.UpsertApp(ctx, app)
+		require.NoError(t, err)
+	}
+	require.NoError(t, cm.DeleteApp(ctx, archivedID))
+
+	for i := 0; i < 2; i++ {
+		_, err := cm.UpsertFunction(ctx, cqrs.UpsertFunctionParams{
+			ID:        uuid.New(),
+			AppID:     secondID,
+			Name:      fmt.Sprintf("function-%d", i),
+			Slug:      fmt.Sprintf("function-%d", i),
+			Config:    "{}",
+			CreatedAt: time.Now(),
+		})
+		require.NoError(t, err)
+	}
+
+	t.Run("returns an active page after the cursor with function counts", func(t *testing.T) {
+		result, err := cm.GetApps(ctx, uuid.New(), &cqrs.FilterAppParam{
+			Cursor: firstID,
+			Limit:  1,
+		})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		require.Equal(t, secondID, result[0].ID)
+
+		counts, err := cm.GetAppFunctionCounts(ctx, []uuid.UUID{secondID})
+		require.NoError(t, err)
+		require.Equal(t, 2, counts[secondID])
+	})
+
+	t.Run("returns archived apps only", func(t *testing.T) {
+		result, err := cm.GetApps(ctx, uuid.New(), &cqrs.FilterAppParam{
+			Limit:    10,
+			Archived: true,
+		})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		require.Equal(t, archivedID, result[0].ID)
+		require.False(t, result[0].DeletedAt.IsZero())
+	})
+
+	t.Run("preserves method filtering", func(t *testing.T) {
+		method := enums.AppMethodConnect
+		result, err := cm.GetApps(ctx, uuid.New(), &cqrs.FilterAppParam{
+			Method: &method,
+		})
+
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		require.Equal(t, secondID, result[0].ID)
+	})
+}
+
 func TestCQRSGetAppByChecksum(t *testing.T) {
 	ctx := context.Background()
 	envID := uuid.New()
@@ -2103,7 +2172,7 @@ func TestCQRSGetTraceRunsCount(t *testing.T) {
 			DynamicSpanID: fmt.Sprintf("dyn-%d", i),
 			Name:          "executor.run",
 			Status:        enums.RunStatusCompleted.String(),
-			IsDeferred:    i == 0, // exactly one deferred run
+			IsDeferred:    deferredForIndex(i), // exactly one deferred run
 			StartTime:     baseTime.Add(time.Duration(i) * time.Second),
 			AccountID:     accountID.String(),
 			AppID:         appID.String(),
@@ -2231,10 +2300,6 @@ func TestCQRSGetTraceRunsCountNonPreview(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, len(runs), count, "non-preview count should match the listed runs")
 }
-
-//
-// Span Tests
-//
 
 func TestCQRSGetSpan(t *testing.T) {
 	// These tests insert a root and child span with different dynamic_span_ids.
@@ -2444,7 +2509,7 @@ func TestSpanReadPathToleratesBothAttributeShapes(t *testing.T) {
 				fields.Status = "Completed"
 				fields.DebugRunID = debugRunID.String()
 				fields.DebugSessionID = debugSessionID.String()
-				fields.EventIds = []byte(`["evt-1"]`)
+				fields.EventIDs = []byte(`["evt-1"]`)
 			}
 			insertTestSpan(t, cm, fields)
 
@@ -2611,18 +2676,18 @@ func TestExtendedTraceReparenting(t *testing.T) {
 
 		for _, attempt := range []int{0, 1} {
 			insertTestSpan(t, cm, testSpanFields{
-				RunID:        runIDStr,
+				RunID:         runIDStr,
 				DynamicSpanID: fmt.Sprintf("dyn-step-%d", attempt),
-				Name:         meta.SpanNameStep,
-				ParentSpanID: "dyn-run",
-				Attributes:   stepAttrs("step-retry", attempt),
+				Name:          meta.SpanNameStep,
+				ParentSpanID:  "dyn-run",
+				Attributes:    stepAttrs("step-retry", attempt),
 			})
 			insertTestSpan(t, cm, testSpanFields{
-				RunID:        runIDStr,
+				RunID:         runIDStr,
 				DynamicSpanID: fmt.Sprintf("dyn-userland-%d", attempt),
-				Name:         "userland",
-				ParentSpanID: "stale-otel-id",
-				Attributes:   userlandAttrs("step-retry", attempt),
+				Name:          "userland",
+				ParentSpanID:  "stale-otel-id",
+				Attributes:    userlandAttrs("step-retry", attempt),
 			})
 		}
 
@@ -2764,14 +2829,15 @@ func TestExtendedTraceReparenting(t *testing.T) {
 //
 
 type testSpanFields struct {
-	RunID          string    // required
+	RunID          string // required
+	TraceID        string
 	DynamicSpanID  string    // required for GROUP BY tests
 	ParentSpanID   string    // for child spans (references parent's DynamicSpanID)
 	DebugRunID     string    // for debug run tests
 	DebugSessionID string    // for debug session tests
 	Name           string    // default: "test-span"
 	Status         string    // default: "" (NULL)
-	IsDeferred     bool      // sets is_deferred TRUE; false leaves it NULL (non-deferred)
+	IsDeferred     *bool     // non-nil sets is_deferred; nil leaves it NULL
 	StartTime      time.Time // default: time.Now()
 	AccountID      string    // default: "acct"
 	AppID          string    // default: "app"
@@ -2779,7 +2845,7 @@ type testSpanFields struct {
 	EnvID          string    // default: "env"
 	Attributes     []byte    // JSON attributes (optional)
 	Output         []byte    // JSON output (optional)
-	EventIds       []byte    // JSON event ID array (optional)
+	EventIDs       []byte    // JSON array of event IDs (optional)
 }
 
 // There aren't any functions exposed on cqrs.Manager that write to the new spans table
@@ -2788,7 +2854,10 @@ func insertTestSpan(t *testing.T, cm cqrs.Manager, spanFields testSpanFields) {
 	t.Helper()
 
 	spanID := ulid.MustNew(ulid.Now(), rand.Reader).String()
-	traceID := ulid.MustNew(ulid.Now(), rand.Reader).String()
+	traceID := spanFields.TraceID
+	if traceID == "" {
+		traceID = ulid.MustNew(ulid.Now(), rand.Reader).String()
+	}
 
 	// Apply defaults
 	if spanFields.Name == "" {
@@ -2813,25 +2882,28 @@ func insertTestSpan(t *testing.T, cm cqrs.Manager, spanFields testSpanFields) {
 	// TODO: ideally we should not have to do this type assertion to wrapper to write a span
 	q := cm.(wrapper).q
 	err := q.InsertSpan(t.Context(), dbpkg.InsertSpanParams{
-		SpanID:         spanID,
-		TraceID:        traceID,
-		ParentSpanID:   sql.NullString{String: spanFields.ParentSpanID, Valid: spanFields.ParentSpanID != ""},
-		Name:           spanFields.Name,
-		Status:         sql.NullString{String: spanFields.Status, Valid: spanFields.Status != ""},
-		StartTime:      spanFields.StartTime,
-		EndTime:        spanFields.StartTime.Add(100 * time.Millisecond),
-		RunID:          spanFields.RunID,
-		AccountID:      spanFields.AccountID,
-		AppID:          spanFields.AppID,
-		FunctionID:     spanFields.FunctionID,
-		EnvID:          spanFields.EnvID,
-		DynamicSpanID:  sql.NullString{String: spanFields.DynamicSpanID, Valid: spanFields.DynamicSpanID != ""},
-		IsDeferred:     sql.NullBool{Bool: true, Valid: spanFields.IsDeferred},
+		SpanID:        spanID,
+		TraceID:       traceID,
+		ParentSpanID:  sql.NullString{String: spanFields.ParentSpanID, Valid: spanFields.ParentSpanID != ""},
+		Name:          spanFields.Name,
+		Status:        sql.NullString{String: spanFields.Status, Valid: spanFields.Status != ""},
+		StartTime:     spanFields.StartTime,
+		EndTime:       spanFields.StartTime.Add(100 * time.Millisecond),
+		RunID:         spanFields.RunID,
+		AccountID:     spanFields.AccountID,
+		AppID:         spanFields.AppID,
+		FunctionID:    spanFields.FunctionID,
+		EnvID:         spanFields.EnvID,
+		DynamicSpanID: sql.NullString{String: spanFields.DynamicSpanID, Valid: spanFields.DynamicSpanID != ""},
+		IsDeferred: sql.NullBool{
+			Bool:  spanFields.IsDeferred != nil && *spanFields.IsDeferred,
+			Valid: spanFields.IsDeferred != nil,
+		},
 		DebugRunID:     sql.NullString{String: spanFields.DebugRunID, Valid: spanFields.DebugRunID != ""},
 		DebugSessionID: sql.NullString{String: spanFields.DebugSessionID, Valid: spanFields.DebugSessionID != ""},
 		Attributes:     spanFields.Attributes,
 		Output:         spanFields.Output,
-		EventIds:       spanFields.EventIds,
+		EventIds:       spanFields.EventIDs,
 	})
 	require.NoError(t, err)
 }
@@ -3010,4 +3082,142 @@ func TestCQRSGetFunctionByInternalUUIDCopyIsolation(t *testing.T) {
 	var cfg map[string]any
 	require.NoError(t, json.Unmarshal(fn.Config, &cfg))
 	assert.NotEmpty(t, cfg["triggers"])
+}
+
+// TestCQRSGetSpanReparentsUserland covers userland (extended trace) span
+// reparenting in mapRootSpansFromRows.
+//
+// The SDK parents userland spans via OTel context, whose parent_span_id is
+// unreliable across step attempts — e.g. an attempt-0 LLM span can be
+// physically parented under the attempt-1 step span, which resolves fine and
+// would otherwise leave the span on the wrong attempt.
+//
+// The reader must reparent each userland subtree ROOT to the span matching its
+// (stepID, attempt) attributes, preferring executor.step and falling back to
+// executor.execution.
+func TestCQRSGetSpanReparentsUserland(t *testing.T) {
+	const stepID = "step1"
+	runAttr := []byte(`{"_inngest.dynamic.status":"Running"}`)
+	stepAttrs := func(id string, attempt int) []byte {
+		return fmt.Appendf(nil, `{"_inngest.step.id":%q,"_inngest.step.attempt":%d}`, id, attempt)
+	}
+	userlandAttrs := func(id string, attempt int) []byte {
+		return fmt.Appendf(nil, `{"_inngest.userland":true,"_inngest.step.id":%q,"_inngest.step.attempt":%d}`, id, attempt)
+	}
+	userlandNoAttempt := func(id string) []byte {
+		return fmt.Appendf(nil, `{"_inngest.userland":true,"_inngest.step.id":%q}`, id)
+	}
+
+	// span dynamic-id -> expected parent dynamic-id after the tree is built.
+	type expect struct{ span, parent string }
+
+	cases := []struct {
+		name    string
+		spans   []testSpanFields
+		expects []expect
+	}{
+		{
+			// Both LLM spans land under the attempt-1 step in
+			// the raw data; each must move to the step matching its own attempt.
+			name: "cross-attempt: each userland span moves to its own attempt's step",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step0", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "step1", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 1)},
+				{DynamicSpanID: "chat0", ParentSpanID: "step1", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+				{DynamicSpanID: "chat1", ParentSpanID: "step1", Name: "chat", Attributes: userlandAttrs(stepID, 1)},
+			},
+			expects: []expect{{"chat0", "step0"}, {"chat1", "step1"}},
+		},
+		{
+			name: "prefers executor.step over executor.execution",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "exec", ParentSpanID: "root", Name: meta.SpanNameExecution, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "ul", ParentSpanID: "root", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+			},
+			expects: []expect{{"ul", "step"}},
+		},
+		{
+			name: "falls back to executor.execution when no step matches",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "exec", ParentSpanID: "root", Name: meta.SpanNameExecution, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "ul", ParentSpanID: "root", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+			},
+			expects: []expect{{"ul", "exec"}},
+		},
+		{
+			name: "no reparent when attempt attribute missing",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "ul", ParentSpanID: "root", Name: "chat", Attributes: userlandNoAttempt(stepID)},
+			},
+			expects: []expect{{"ul", "root"}},
+		},
+		{
+			name: "no reparent when no step or execution matches the key",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs("other", 0)},
+				{DynamicSpanID: "ul", ParentSpanID: "root", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+			},
+			expects: []expect{{"ul", "root"}},
+		},
+		{
+			// Only the root of a userland subtree is reparented; an interior node
+			// whose parent is itself userland must keep its original parent.
+			name: "only subtree root reparented; interior userland node kept",
+			spans: []testSpanFields{
+				{DynamicSpanID: "root", Name: meta.SpanNameRun, Attributes: runAttr},
+				{DynamicSpanID: "step", ParentSpanID: "root", Name: meta.SpanNameStep, Attributes: stepAttrs(stepID, 0)},
+				{DynamicSpanID: "ulroot", ParentSpanID: "root", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+				{DynamicSpanID: "ulchild", ParentSpanID: "ulroot", Name: "chat", Attributes: userlandAttrs(stepID, 0)},
+			},
+			expects: []expect{{"ulroot", "step"}, {"ulchild", "ulroot"}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cm, cleanup := initCQRS(t)
+			defer cleanup()
+
+			runID := ulid.MustNew(ulid.Now(), rand.Reader).String()
+			for _, s := range tc.spans {
+				s.RunID = runID
+				insertTestSpan(t, cm, s)
+			}
+
+			root, err := cm.GetSpansByRunID(t.Context(), ulid.MustParse(runID))
+			require.NoError(t, err)
+			require.NotNil(t, root)
+
+			// Build a child -> parent map keyed by dynamic span ID.
+			parentOf := map[string]string{}
+			var walk func(s *cqrs.OtelSpan)
+			walk = func(s *cqrs.OtelSpan) {
+				for _, c := range s.Children {
+					parentOf[c.SpanID] = s.SpanID
+					walk(c)
+				}
+			}
+			walk(root)
+
+			for _, e := range tc.expects {
+				assert.Equal(t, e.parent, parentOf[e.span],
+					"span %q should be parented under %q", e.span, e.parent)
+			}
+		})
+	}
+}
+
+func deferredForIndex(i int) *bool {
+	deferred := i == 0
+	if !deferred {
+		return nil
+	}
+	return &deferred
 }

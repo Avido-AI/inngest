@@ -5,11 +5,11 @@ import {
   FunctionTriggerTypes,
 } from '@/gql/graphql';
 import { useEnvironment } from '@/components/Environments/environment-context';
+import { useBooleanFlag } from '@/components/FeatureFlags/hooks';
 import { useFunction } from '@/queries/functions';
 import { Header } from '@inngest/components/Header/Header';
 import { InvokeModal } from '@inngest/components/InvokeButton';
 import { Pill } from '@inngest/components/Pill';
-import { useBooleanFlag } from '@/components/FeatureFlags/hooks';
 import { RiPauseCircleLine } from '@remixicon/react';
 import { createFileRoute, Outlet } from '@tanstack/react-router';
 import { useCallback, useState } from 'react';
@@ -31,11 +31,10 @@ function FunctionComponent() {
   const [replayOpen, setReplayOpen] = useState(false);
 
   const functionSlug = decodeURIComponent(slug);
+  const isAIOverviewEnabled = useBooleanFlag('ai-overview-dashboard', false);
   const [{ data, error, fetching }] = useFunction({ functionSlug });
   const [, invokeFunction] = useMutation(InvokeFunctionOnboardingDocument);
   const env = useEnvironment();
-
-  const isBulkCancellationEnabled = useBooleanFlag('bulk-cancellation-ui');
 
   const fn = data?.workspace.workflow;
   const { isArchived = false, isPaused } = fn ?? {};
@@ -48,14 +47,17 @@ function FunctionComponent() {
   const invokeAction = useCallback(
     ({
       data,
+      meta,
       user,
     }: {
       data: Record<string, unknown>;
+      meta: { sessions: Record<string, string> } | null;
       user: Record<string, unknown> | null;
     }) => {
       invokeFunction({
         envID: env.id,
         data,
+        meta,
         user,
         functionSlug,
       });
@@ -151,14 +153,19 @@ function FunctionComponent() {
               slug,
             )}/replays`,
           },
-          ...(isBulkCancellationEnabled.isReady &&
-          isBulkCancellationEnabled.value
+          {
+            children: 'Cancellations',
+            href: `/env/${envSlug}/functions/${encodeURIComponent(
+              slug,
+            )}/cancellations`,
+          },
+          ...(isAIOverviewEnabled.value
             ? [
                 {
-                  children: 'Cancellations',
+                  children: 'AI Overview',
                   href: `/env/${envSlug}/functions/${encodeURIComponent(
                     slug,
-                  )}/cancellations`,
+                  )}/ai`,
                 },
               ]
             : []),

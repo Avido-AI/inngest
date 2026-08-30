@@ -81,6 +81,15 @@ const (
 	// lets users delay functions for up to MaxDebouncePeriod when events are received.
 	MaxDebouncePeriod = time.Hour * 24 * 7
 
+	// MaxSleepDuration is the furthest into the future a step can sleep.
+	// 366 days, so that a one-year sleep spanning a leap day still fits.
+	MaxSleepDuration = time.Hour * 24 * 366
+
+	// MaxWaitForEventTimeout is the furthest into the future a wait-for-event
+	// timeout can expire.  366 days, so that a one-year timeout spanning a
+	// leap day still fits.
+	MaxWaitForEventTimeout = time.Hour * 24 * 366
+
 	// MaxCancellations represents the max automatic cancellation signals per function
 	MaxCancellations = 5
 
@@ -231,8 +240,8 @@ const (
 )
 
 var (
-	ConnectWorkerRequestToWorkerMappingTTL  = 6 * ConnectWorkerRequestLeaseDuration  // 2 minutes so in case of gateway failure, we don't lose the mapping for too long
-	ConnectWorkerCapacityManagerTTL         = 45 * ConnectWorkerRequestLeaseDuration // 15 minutes
+	ConnectWorkerRequestToWorkerMappingTTL  = 6 * ConnectWorkerRequestLeaseDuration  // 12 minutes so in case of gateway failure, we don't lose the mapping for too long
+	ConnectWorkerCapacityManagerTTL         = 45 * ConnectWorkerRequestLeaseDuration // 90 minutes
 	ConnectWorkerRequestExtendLeaseInterval = ConnectWorkerRequestLeaseDuration / 4
 	QueueShadowContinuationCooldownPeriod   = QueueContinuationCooldownPeriod
 	QueueShadowContinuationMaxPartitions    = QueueContinuationMaxPartitions

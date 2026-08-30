@@ -28,6 +28,12 @@ func spanRunGroupByCols() []interface{} {
 	}
 }
 
+// GetRuns retrieves runs reconstructed from the spans table. It satisfies the
+// cqrs.Manager interface and delegates to the fork's span-based implementation.
+func (w wrapper) GetRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
+	return w.GetSpanRuns(ctx, opt)
+}
+
 // GetSpanRuns retrieves a list of span-based runs using the same filtering
 // logic as GetTraceRuns but working against the spans table with executor.run +
 // EXTEND span grouping.

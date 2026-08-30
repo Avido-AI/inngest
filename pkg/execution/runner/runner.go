@@ -86,12 +86,6 @@ func WithStateManager(sm state.Manager) func(s *svc) {
 	}
 }
 
-func WithRunnerQueue(q queue.Queue) func(s *svc) {
-	return func(s *svc) {
-		s.queue = q
-	}
-}
-
 func WithBatchManager(b batch.BatchManager) func(s *svc) {
 	return func(s *svc) {
 		s.batcher = b
@@ -146,8 +140,6 @@ type svc struct {
 	state state.Manager
 	// pauses allows management of pauses, used to resume function runs on matching events.
 	pm pauses.Manager
-	// queue allows the scheduling of new functions.
-	queue queue.Queue
 	// batcher handles batch operations
 	batcher batch.BatchManager
 	// croner handles cron operations
@@ -179,13 +171,6 @@ func (s *svc) Pre(ctx context.Context) error {
 
 	if s.state == nil {
 		s.state, err = s.config.State.Service.Concrete.SingleClusterManager(ctx, nil)
-		if err != nil {
-			return err
-		}
-	}
-
-	if s.queue == nil {
-		s.queue, err = s.config.Queue.Service.Concrete.Queue()
 		if err != nil {
 			return err
 		}
@@ -708,6 +693,10 @@ type InitOpts struct {
 	exec  execution.Executor
 }
 
+type functionMatchLifecycleRecorder interface {
+	RunFunctionMatchLifecycle(context.Context, execution.ScheduleRequest)
+}
+
 // Initialize creates a new funciton run identifier for the given workflow and
 // event, stores this in our state store, then enqueues a new function run
 // within the given queue for execution.
@@ -741,8 +730,7 @@ func Initialize(ctx context.Context, opts InitOpts) (*sv2.Metadata, error) {
 		}
 	}
 
-	// If this is a debounced function, run this through a debouncer.
-	_, md, err := opts.exec.Schedule(ctx, execution.ScheduleRequest{
+	req := execution.ScheduleRequest{
 		WorkspaceID:    wsID,
 		AppID:          opts.appID,
 		Function:       fn,
@@ -751,7 +739,14 @@ func Initialize(ctx context.Context, opts InitOpts) (*sv2.Metadata, error) {
 		AccountID:      consts.DevServerAccountID,
 		DebugSessionID: debugSessionID,
 		DebugRunID:     debugRunID,
-	})
+	}
+
+	if recorder, ok := opts.exec.(functionMatchLifecycleRecorder); ok {
+		recorder.RunFunctionMatchLifecycle(ctx, req)
+	}
+
+	// If this is a debounced function, run this through a debouncer.
+	_, md, err := opts.exec.Schedule(ctx, req)
 
 	metrics.IncrExecutorScheduleCount(ctx, metrics.CounterOpt{
 		PkgName: pkgName,
