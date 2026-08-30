@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.33.0] - 2026-06-23
+
+### 🚀 Features
+
+- *(debugapi)* Add semaphore routes to the debug API (#4488)
+- *(sessions)* Allow sessions in invoke button (#4489)
+- Insights ai experiments updates (#4492)
+
+### 🚜 Refactor
+
+- *(queue)* Make Producer configurable in Queue (#4078)
+
+## [v1.32.0] - 2026-06-22
+
+### 🚀 Features
+
+- *(tracing)* Allow system queue tracing (#4442)
+- *(score)* Make score kind constant (#4482)
+- *(sessions)* Sessions page optimization (#4480)
+
+### 🐛 Bug Fixes
+
+- *(support)* Fix local dev deps misalignment (#4472)
+- Update experiments docs links (#4481)
+- *(dashboard)* Drop vite back down until we can test thoroughly (#4486)
+
+### ⚙️ Miscellaneous Tasks
+
+- Dedup parallel fan-in discovery via coalesce key (#4452)
+- *(insights)* Add "Open in Insights" button on Failed Functions chart on the Metrics page (#4046)
+- *(metrics)* Add counter to checkpoint ops (#4478)
+- *(release)* V1.32.0 (#4469)
+
 ## [v1.31.0] - 2026-06-18
 
 ### 🚀 Features
@@ -22,6 +55,10 @@ All notable changes to this project will be documented in this file.
 ### 🚜 Refactor
 
 - *(devServer)* New Information Architecture (#4395)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V1.31.0 (#4451)
 
 ## [v1.30.0] - 2026-06-17
 
