@@ -2,6 +2,7 @@ package golang
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/inngest/inngest/pkg/execution/state"
 	"github.com/inngest/inngest/tests/client"
 	"github.com/inngest/inngestgo"
 )
@@ -98,6 +100,15 @@ func TestNonJSONOutput(t *testing.T) {
 		run := c.WaitForRunStatus(ctx, t, "FAILED", runID, client.WaitForRunStatusOpts{
 			Timeout: 30 * time.Second,
 		})
-		r.Equal("<html>502 Bad Gateway</html>", run.Output)
+
+		// The upstream (proxy) returned a non-2xx without SDK headers, so the
+		// executor synthesizes a structured error instead of surfacing the raw
+		// HTML body. The raw body is preserved (content-type labelled) inside
+		// the stack so the user can still see what the upstream returned.
+		var se state.StandardError
+		r.NoError(json.Unmarshal([]byte(run.Output), &se))
+		r.Equal(state.FatalServerErrorName, se.Name)
+		r.Contains(se.Message, "HTTP 504")
+		r.Contains(se.Stack, "<html>502 Bad Gateway</html>")
 	})
 }

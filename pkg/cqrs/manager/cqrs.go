@@ -590,6 +590,54 @@ func mapRootSpansFromRows[T normalizedSpan](ctx context.Context, spans []T) (*cq
 		dynamicToOtelIDs[dynID] = append(dynamicToOtelIDs[dynID], otelID)
 	}
 
+	// Reparent userland (extended trace) spans by (stepID, attempt).
+	//
+	// The SDK parents userland spans via OTel context, whose parent_span_id
+	// linkage is unreliable across step attempts — e.g. an attempt-0 LLM span
+	// can point at the attempt-1 step span, which resolves fine and would
+	// otherwise leave the span on the wrong attempt. The trustworthy signal is
+	// the (stepID, attempt) attribute pair, so override the parent of each
+	// userland subtree ROOT to its matching step span (preferred) or execution
+	// span (fallback).
+	//
+	// Interior nodes of a userland subtree (whose parent is itself a userland
+	// span) are left untouched. The resolve-then-reparent loop below then
+	// attaches each span to the corrected parent.
+	parentIsUserland := func(parentID string) bool {
+		if parentID == "" {
+			return false
+		}
+		if _, ok := userlandDynIDs[parentID]; ok {
+			return true
+		}
+		if dynID, ok := otelToDynamic[parentID]; ok {
+			_, ok := userlandDynIDs[dynID]
+			return ok
+		}
+		return false
+	}
+	for _, span := range spanMap.AllFromFront() {
+		if span.Attributes == nil ||
+			(span.Attributes.IsUserland == nil || !*span.Attributes.IsUserland) ||
+			(span.Attributes.StepID == nil || *span.Attributes.StepID == "") ||
+			span.Attributes.StepAttempt == nil {
+			continue
+		}
+		// Only reparent roots of userland subtrees; interior nodes keep their parent.
+		if span.ParentSpanID != nil && parentIsUserland(*span.ParentSpanID) {
+			continue
+		}
+		key := newExtendedTraceKey(*span.Attributes.StepID, *span.Attributes.StepAttempt)
+		target, found := stepSpanByKey[key]
+		if !found {
+			target, found = execSpanByKey[key]
+		}
+		if found {
+			tid := target
+			span.ParentSpanID = &tid
+		}
+	}
+
 	for _, span := range spanMap.AllFromFront() {
 		// If we have an output reference for this span, set the appropriate
 		// target span ID here
@@ -2386,6 +2434,12 @@ func newRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runsQuer
 	}
 }
 
+// GetRuns returns trace runs sourced from span data. The fork resolves this
+// through GetSpanRuns, which is its span-based run query implementation.
+func (w wrapper) GetRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
+	return w.GetSpanRuns(ctx, opt)
+}
+
 func (w wrapper) GetTraceRuns(ctx context.Context, opt cqrs.GetTraceRunOpt) ([]*cqrs.TraceRun, error) {
 	if opt.Preview {
 		return w.GetSpanRuns(ctx, opt)
@@ -3247,7 +3301,7 @@ func newSpanRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runs
 	filter := []sq.Expression{}
 	//
 	// debug runs are a special kind of run that should not be included in the main runs list
-	filter = append(filter, sq.C("debug_run_id").IsNull())
+	filter = append(filter, sq.I("spans.debug_run_id").IsNull())
 	if opt.Filter.AccountID != uuid.Nil {
 		// Qualify with the spans table: the CEL event-filter path inner-joins the
 		// events table, which also has an account_id column, so an unqualified
@@ -3258,10 +3312,10 @@ func newSpanRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runs
 		filter = append(filter, sq.C("env_id").Eq(opt.Filter.WorkspaceID))
 	}
 	if len(opt.Filter.AppID) > 0 {
-		filter = append(filter, sq.C("app_id").In(opt.Filter.AppID))
+		filter = append(filter, sq.I("spans.app_id").In(opt.Filter.AppID))
 	}
 	if len(opt.Filter.FunctionID) > 0 {
-		filter = append(filter, sq.C("function_id").In(opt.Filter.FunctionID))
+		filter = append(filter, sq.I("spans.function_id").In(opt.Filter.FunctionID))
 	}
 	if len(opt.Filter.Status) > 0 {
 		statusStrings := make([]string, 0, len(opt.Filter.Status))
@@ -3273,30 +3327,9 @@ func newSpanRunsQueryBuilder(ctx context.Context, opt cqrs.GetTraceRunOpt) *runs
 	// Skipped runs should only be visible in event-scoped queries, not the runs list.
 	// status is nullable in spans, so we must also accept NULL.
 	filter = append(filter, sq.Or(
-		sq.C("status").IsNull(),
-		sq.C("status").Neq(enums.RunStatusSkipped.String()),
+		sq.I("spans.status").IsNull(),
+		sq.I("spans.status").Neq(enums.RunStatusSkipped.String()),
 	))
-
-	// Map time fields - spans use start_time/end_time instead of
-	// queued_at/started_at/ended_at
-	var tsfield string
-	switch opt.Filter.TimeField {
-	case enums.TraceRunTimeQueuedAt, enums.TraceRunTimeStartedAt:
-		tsfield = "start_time"
-	case enums.TraceRunTimeEndedAt:
-		tsfield = "end_time"
-	default:
-		tsfield = "start_time"
-	}
-
-	// Convert times to UTC to match spans storage format in SQLite
-	// We currently store SQLite timestamps as Go's time.Time string: "2025-07-13 19:32:24.939517 +0000 UTC m=+..."
-	// SQLite compares these as strings, so filter times must also serialize with "+0000 UTC" suffix to correctly use
-	// lexicographic comparisons.
-	// The UTC conversion was not strictly necessary for Postgres because the timestamp columns are timestamptz, so
-	// type and timezone conversion were handled for us
-	filter = append(filter, sq.C(tsfield).Gte(opt.Filter.From.UTC()))
-	filter = append(filter, sq.C(tsfield).Lt(opt.Filter.Until.UTC()))
 
 	// cursor
 	resCursorLayout := &cqrs.TracePageCursor{

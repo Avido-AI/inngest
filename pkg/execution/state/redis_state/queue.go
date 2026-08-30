@@ -20,6 +20,7 @@ import (
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/telemetry/metrics"
 	"github.com/inngest/inngest/pkg/telemetry/redis_telemetry"
+	itrace "github.com/inngest/inngest/pkg/telemetry/trace"
 	"github.com/inngest/inngest/pkg/util"
 	"github.com/oklog/ulid/v2"
 	"github.com/redis/rueidis"
@@ -170,8 +171,7 @@ func (q *queue) traceEnqueueItem(ctx context.Context, l logger.Logger, i *osqueu
 		shadowPartition = osqueue.ItemShadowPartition(ctx, *i)
 	}
 
-	partitionID := defaultPartition.Identifier()
-	_, span := q.ConditionalTracer.NewSpan(ctx, "queue.EnqueueItem", partitionID.AccountID, partitionID.EnvID, partitionID.FunctionID)
+	_, span := q.ConditionalTracer.NewSpan(ctx, "queue.EnqueueItem", osqueue.TraceScopeFromQueueItem(*i, q.Name()))
 	span.SetAttributes(attribute.String("partition_id", shadowPartition.PartitionID))
 	span.SetAttributes(attribute.String("item_id", i.ID))
 	span.SetAttributes(attribute.String("run_id", i.Data.Identifier.RunID.String()))
@@ -866,6 +866,9 @@ func (q *queue) RequeueByJobID(ctx context.Context, jobID string, at time.Time) 
 	// Find the queue item so that we can fetch the shard info.
 	i := osqueue.QueueItem{}
 	if err := q.RedisClient.unshardedRc.Do(ctx, q.RedisClient.unshardedRc.B().Hget().Key(q.RedisClient.kg.QueueItem()).Field(jobID).Build()).DecodeJSON(&i); err != nil {
+		if err == rueidis.Nil {
+			return osqueue.ErrQueueItemNotFound
+		}
 		return err
 	}
 
@@ -960,8 +963,7 @@ func (q *queue) Lease(
 		o.Constraints = q.PartitionConstraintConfigGetter(ctx, o.ShadowPartition.Identifier())
 	}
 
-	partitionID := o.ShadowPartition.Identifier()
-	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.Lease", partitionID.AccountID, partitionID.EnvID, partitionID.FunctionID)
+	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.Lease", osqueue.TraceScopeFromQueueItem(item, q.Name()))
 	defer span.End()
 	span.SetAttributes(attribute.String("partition_id", o.ShadowPartition.PartitionID))
 	span.SetAttributes(attribute.String("item_id", item.ID))
@@ -1102,8 +1104,7 @@ func (q *queue) ExtendLease(ctx context.Context, i osqueue.QueueItem, leaseID ul
 
 	partition := osqueue.ItemShadowPartition(ctx, i)
 
-	partitionID := partition.Identifier()
-	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.ExtendLease", partitionID.AccountID, partitionID.EnvID, partitionID.FunctionID)
+	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.ExtendLease", osqueue.TraceScopeFromQueueItem(i, q.Name()))
 	defer span.End()
 	span.SetAttributes(attribute.String("partition_id", partition.PartitionID))
 	span.SetAttributes(attribute.String("item_id", i.ID))
@@ -1177,7 +1178,19 @@ func (q *queue) PartitionLease(
 ) (*ulid.ULID, error) {
 	l := logger.StdlibLogger(ctx)
 
-	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.partitionLease", p.AccountID, p.Identifier().EnvID, p.Identifier().FunctionID)
+	partitionID := p.Identifier()
+	scope := itrace.Scope(itrace.UserScope{
+		AccountID: partitionID.AccountID,
+		EnvID:     partitionID.EnvID,
+		FnID:      partitionID.FunctionID,
+	})
+	if partitionID.SystemQueueName != nil {
+		scope = itrace.SystemScope{
+			QueueName:      partitionID.SystemQueueName,
+			QueueShardName: q.Name(),
+		}
+	}
+	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.partitionLease", scope)
 	defer span.End()
 	span.SetAttributes(attribute.String("partition_id", p.ID))
 
@@ -1616,7 +1629,7 @@ func (q *queue) partitionPeek(ctx context.Context, partitionKey string, sequenti
 				// in case the function was unpaused in the last 60s.
 				if !info.Stale {
 					// Function is pulled up when it is unpaused, so we can push it back for a long time (see SetFunctionPaused)
-					err := q.PartitionRequeue(ctx, item, q.Clock.Now().Truncate(time.Second).Add(osqueue.PartitionPausedRequeueExtension), true)
+					err := q.PartitionRequeue(ctx, item, q.Clock.Now().Truncate(time.Second).Add(q.PausedRequeueExtension()), true)
 					if err != nil && !errors.Is(err, osqueue.ErrPartitionGarbageCollected) {
 						l.Error("failed to push back paused partition", "error", err, "partition", item)
 					} else {
@@ -1805,7 +1818,19 @@ func checkList(check string, exact, prefixes map[string]*struct{}) bool {
 func (q *queue) PartitionRequeue(ctx context.Context, p *osqueue.QueuePartition, at time.Time, forceAt bool) error {
 	l := logger.StdlibLogger(ctx)
 
-	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.partitionRequeue", p.AccountID, p.Identifier().EnvID, p.Identifier().FunctionID)
+	partitionID := p.Identifier()
+	scope := itrace.Scope(itrace.UserScope{
+		AccountID: partitionID.AccountID,
+		EnvID:     partitionID.EnvID,
+		FnID:      partitionID.FunctionID,
+	})
+	if partitionID.SystemQueueName != nil {
+		scope = itrace.SystemScope{
+			QueueName:      partitionID.SystemQueueName,
+			QueueShardName: q.Name(),
+		}
+	}
+	ctx, span := q.ConditionalTracer.NewSpan(ctx, "queue.partitionRequeue", scope)
 	defer span.End()
 	span.SetAttributes(attribute.String("partition_id", p.ID))
 
