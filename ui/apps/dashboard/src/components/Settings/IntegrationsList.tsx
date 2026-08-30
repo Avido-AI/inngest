@@ -10,6 +10,7 @@ import { IconVercel } from '@inngest/components/icons/platforms/Vercel';
 import { RiExternalLinkLine } from '@remixicon/react';
 
 import { useBooleanFlag } from '@/components/FeatureFlags/hooks';
+import { pathCreator } from '@/utils/urls';
 
 type Integration = {
   title: string;
@@ -225,7 +226,7 @@ export const IntegrationsList = ({ integrations }: Props) => {
                 size="medium"
                 label="Request integration"
                 className="border-muted bg-subtle mt-5"
-                href="https://roadmap.inngest.com/roadmap"
+                href={pathCreator.support({ ref: 'app-integrations-list' })}
                 target="_blank"
               />
             </div>

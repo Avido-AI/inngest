@@ -2,9 +2,13 @@ package dnscache
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -24,14 +28,37 @@ func TestDNSCache(t *testing.T) {
 		WithLogger(l),
 	)
 
+	// Use a local TLS server so the test doesn't depend on external DNS or
+	// third-party sites; requests still go through the caching resolver's
+	// dialer and perform a real TLS handshake.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	certpool := x509.NewCertPool()
+	certpool.AddCert(srv.Certificate())
+
 	c := http.Client{
 		Transport: &http.Transport{
 			DialContext: cachedResolver.Dialer(),
+			// The httptest certificate is valid for "example.com" but not
+			// "localhost", so pin the verification/SNI name while dialing the
+			// hosts under test.
+			TLSClientConfig: &tls.Config{
+				RootCAs:    certpool,
+				ServerName: "example.com",
+			},
 		},
 	}
 
-	// inngest and vercel use SNI
-	hosts := []string{"www.example.com", "www.inngest.com", "vercel.com"}
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	port := u.Port()
+
+	// localhost exercises a name lookup (via the hosts file, no external
+	// DNS); the IP literal exercises the resolver's literal fast path.
+	hosts := []string{"localhost", "127.0.0.1"}
 
 	for _, host := range hosts {
 		t.Run(host, func(t *testing.T) {
@@ -40,8 +67,9 @@ func TestDNSCache(t *testing.T) {
 			})
 
 			t.Run("request", func(t *testing.T) {
-				resp, err := c.Get(fmt.Sprintf("https://%s", host))
+				resp, err := c.Get(fmt.Sprintf("https://%s", net.JoinHostPort(host, port)))
 				require.NoError(t, err)
+				defer resp.Body.Close()
 				require.EqualValues(t, 200, resp.StatusCode)
 			})
 
@@ -72,7 +100,7 @@ func TestHappyEyeballs(t *testing.T) {
 
 			host, _, _ := net.SplitHostPort(addr)
 			ip := net.ParseIP(host)
-			
+
 			// Simulate successful IPv4 connection, failed IPv6
 			if ip.To4() != nil {
 				// IPv4 - return a mock connection
@@ -83,7 +111,7 @@ func TestHappyEyeballs(t *testing.T) {
 		}
 
 		resolver := New(WithDialer(mockDialer))
-		
+
 		// Create test IPs (IPv6 first, IPv4 second to test preference)
 		testIPs := []net.IP{
 			net.ParseIP("2001:db8::1"), // IPv6
@@ -92,7 +120,7 @@ func TestHappyEyeballs(t *testing.T) {
 
 		six, four := sixfour(testIPs)
 		conn, err := resolver.dialParallel(ctx, "tcp", "80", four, six)
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		conn.Close()
@@ -116,7 +144,7 @@ func TestHappyEyeballs(t *testing.T) {
 
 			host, _, _ := net.SplitHostPort(addr)
 			ip := net.ParseIP(host)
-			
+
 			// Simulate IPv4 failure, IPv6 success
 			if ip.To4() != nil {
 				// IPv4 - simulate failure
@@ -133,7 +161,7 @@ func TestHappyEyeballs(t *testing.T) {
 		}
 
 		resolver := New(WithDialer(mockDialer))
-		
+
 		testIPs := []net.IP{
 			net.ParseIP("2001:db8::1"), // IPv6
 			net.ParseIP("192.0.2.1"),   // IPv4
@@ -141,7 +169,7 @@ func TestHappyEyeballs(t *testing.T) {
 
 		six, four := sixfour(testIPs)
 		conn, err := resolver.dialParallel(ctx, "tcp", "80", four, six)
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		conn.Close()
@@ -152,13 +180,13 @@ func TestHappyEyeballs(t *testing.T) {
 		// Should have tried both IPv4 (failed) and IPv6 (succeeded)
 		require.Equal(t, 2, len(dialOrder))
 		require.Equal(t, 2, len(dialResults))
-		
+
 		// First attempt should be IPv4 (primary), should fail
 		host1, _, _ := net.SplitHostPort(dialOrder[0])
 		firstIP := net.ParseIP(host1)
 		require.NotNil(t, firstIP.To4(), "First dial should be IPv4")
 		require.False(t, dialResults[0], "IPv4 should fail")
-		
+
 		// Second attempt should be IPv6 (fallback), should succeed
 		host2, _, _ := net.SplitHostPort(dialOrder[1])
 		secondIP := net.ParseIP(host2)
@@ -172,7 +200,7 @@ func TestHappyEyeballs(t *testing.T) {
 		}
 
 		resolver := New(WithDialer(mockDialer))
-		
+
 		// Only IPv4 addresses
 		testIPs := []net.IP{
 			net.ParseIP("192.0.2.1"),
@@ -184,7 +212,7 @@ func TestHappyEyeballs(t *testing.T) {
 		require.Len(t, four, 2, "Should have 2 IPv4 addresses")
 
 		conn, err := resolver.dialParallel(ctx, "tcp", "80", four, six)
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		conn.Close()
@@ -196,7 +224,7 @@ func TestHappyEyeballs(t *testing.T) {
 		}
 
 		resolver := New(WithDialer(mockDialer))
-		
+
 		// Only IPv6 addresses
 		testIPs := []net.IP{
 			net.ParseIP("2001:db8::1"),
@@ -208,7 +236,7 @@ func TestHappyEyeballs(t *testing.T) {
 		require.Empty(t, four, "Should have no IPv4 addresses")
 
 		conn, err := resolver.dialParallel(ctx, "tcp", "80", four, six)
-		
+
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		conn.Close()
@@ -220,7 +248,7 @@ func TestHappyEyeballs(t *testing.T) {
 		}
 
 		resolver := New(WithDialer(mockDialer))
-		
+
 		testIPs := []net.IP{
 			net.ParseIP("2001:db8::1"), // IPv6
 			net.ParseIP("192.0.2.1"),   // IPv4
@@ -228,7 +256,7 @@ func TestHappyEyeballs(t *testing.T) {
 
 		six, four := sixfour(testIPs)
 		conn, err := resolver.dialParallel(ctx, "tcp", "80", four, six)
-		
+
 		require.Error(t, err)
 		require.Nil(t, conn)
 		require.Contains(t, err.Error(), "connection refused")
@@ -237,22 +265,22 @@ func TestHappyEyeballs(t *testing.T) {
 
 func TestSixFour(t *testing.T) {
 	testIPs := []net.IP{
-		net.ParseIP("192.0.2.1"),     // IPv4
-		net.ParseIP("2001:db8::1"),   // IPv6
-		net.ParseIP("203.0.113.1"),   // IPv4
-		net.ParseIP("2001:db8::2"),   // IPv6
+		net.ParseIP("192.0.2.1"),   // IPv4
+		net.ParseIP("2001:db8::1"), // IPv6
+		net.ParseIP("203.0.113.1"), // IPv4
+		net.ParseIP("2001:db8::2"), // IPv6
 	}
 
 	six, four := sixfour(testIPs)
-	
+
 	require.Len(t, four, 2, "Should have 2 IPv4 addresses")
 	require.Len(t, six, 2, "Should have 2 IPv6 addresses")
-	
+
 	// Verify IPv4 addresses
 	for _, ip := range four {
 		require.NotNil(t, ip.To4(), "Should be IPv4")
 	}
-	
+
 	// Verify IPv6 addresses
 	for _, ip := range six {
 		require.Nil(t, ip.To4(), "Should be IPv6")
@@ -265,8 +293,8 @@ type mockConn struct{}
 func (m *mockConn) Read(b []byte) (n int, err error)   { return 0, nil }
 func (m *mockConn) Write(b []byte) (n int, err error)  { return len(b), nil }
 func (m *mockConn) Close() error                       { return nil }
-func (m *mockConn) LocalAddr() net.Addr               { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0} }
-func (m *mockConn) RemoteAddr() net.Addr              { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80} }
-func (m *mockConn) SetDeadline(t time.Time) error     { return nil }
-func (m *mockConn) SetReadDeadline(t time.Time) error { return nil }
+func (m *mockConn) LocalAddr() net.Addr                { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0} }
+func (m *mockConn) RemoteAddr() net.Addr               { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80} }
+func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
+func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
 func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
