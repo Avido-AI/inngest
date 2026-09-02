@@ -5,13 +5,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
 type retryableError struct {
 	error
 	retry bool
+}
+
+func TestPartitionBacklogSizeConcurrencyOption(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		opts := NewQueueOptions()
+		require.Equal(t, defaultPartitionBacklogSizeConcurrency, opts.PartitionBacklogSizeConcurrency())
+	})
+
+	t.Run("custom", func(t *testing.T) {
+		opts := NewQueueOptions(WithPartitionBacklogSizeConcurrency(7))
+		require.Equal(t, int64(7), opts.PartitionBacklogSizeConcurrency())
+	})
+
+	t.Run("invalid falls back to default", func(t *testing.T) {
+		opts := NewQueueOptions(WithPartitionBacklogSizeConcurrency(0))
+		require.Equal(t, defaultPartitionBacklogSizeConcurrency, opts.PartitionBacklogSizeConcurrency())
+
+		opts = NewQueueOptions(WithPartitionBacklogSizeConcurrency(-1))
+		require.Equal(t, defaultPartitionBacklogSizeConcurrency, opts.PartitionBacklogSizeConcurrency())
+	})
 }
 
 func (r retryableError) Retryable() bool {
@@ -77,19 +96,4 @@ func TestAsRetryAt(t *testing.T) {
 	require.NotNil(t, AsRetryAtError(base))
 	require.NotNil(t, AsRetryAtError(wrapped))
 	require.Nil(t, AsRetryAtError(fmt.Errorf("no")))
-}
-
-func TestMigratePayloadScope(t *testing.T) {
-	payload := MigratePayload{
-		AccountID:  uuid.New(),
-		EnvID:      uuid.New(),
-		FunctionID: uuid.New(),
-	}
-
-	require.Equal(t, Scope{
-		AccountID:  payload.AccountID,
-		EnvID:      payload.EnvID,
-		FunctionID: payload.FunctionID,
-	}, payload.Scope())
-	require.NoError(t, payload.Scope().Validate())
 }

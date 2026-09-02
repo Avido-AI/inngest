@@ -7,12 +7,19 @@ import { getHumanReadableCron } from '@inngest/components/hooks/useCron';
 import { type Function } from '@inngest/components/types/function';
 import { TriggerTypes } from '@inngest/components/types/trigger';
 import { cn } from '@inngest/components/utils/classNames';
+import { RiInformationLine } from '@remixicon/react';
 import { createColumnHelper, type Row } from '@tanstack/react-table';
 
 import { FunctionsTable } from './FunctionsTable';
 import { useFunctionVolume } from './useFunctionVolume';
 
 const columnHelper = createColumnHelper<Function>();
+
+const volumeLegend = [
+  ['Completed runs', 'bg-primary-xSubtle'],
+  ['Concurrency limit hit', 'bg-accent-xSubtle dark:bg-accent-xIntense'],
+  ['Failed runs', 'bg-tertiary-subtle'],
+] as const;
 
 const columnsIDs = ['name', 'functions', 'usage'] as const;
 export type ColumnID = (typeof columnsIDs)[number];
@@ -73,9 +80,22 @@ function UsageCell({
           term={data.usage.totalVolume === 1 ? 'run' : 'runs'}
         />
       </div>
-      <div className="[&_*]:cursor-pointer">
-        <MiniStackedBarChart data={data.usage.dailyVolumeSlots} />
-      </div>
+      <Tooltip delayDuration={1000}>
+        <TooltipTrigger asChild>
+          <div className="[&_*]:cursor-pointer">
+            <MiniStackedBarChart data={data.usage.dailyVolumeSlots} />
+          </div>
+        </TooltipTrigger>
+        <TooltipContent className="space-y-2 p-3 text-xs" side="bottom">
+          <div className="font-medium">Runs volume over 24h</div>
+          {volumeLegend.map(([label, color]) => (
+            <div className="flex items-center gap-2" key={label}>
+              <span className={cn('h-2 w-2 rounded-full', color)} />
+              <span>{label}</span>
+            </div>
+          ))}
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }
@@ -188,7 +208,19 @@ export function useColumns({
         const functionID = info.row.original.id;
         return <UsageCell functionID={functionID} getFunctionVolume={getFunctionVolume} />;
       },
-      header: 'Volume (24h)',
+      header: () => (
+        <div className="flex items-center gap-1">
+          <span>Volume (24h)</span>
+          <Tooltip>
+            <TooltipTrigger>
+              <RiInformationLine className="text-subtle h-3.5 w-3.5" />
+            </TooltipTrigger>
+            <TooltipContent>
+              Highlighted bars show when this function reached its concurrency limit.
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      ),
       enableSorting: false,
       id: ensureColumnID('usage'),
     }),

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"runtime/debug"
 	"slices"
@@ -170,6 +171,16 @@ func WithHTTPClient(c exechttp.RequestExecutor) ExecutorOpt {
 func WithCancellationChecker(c cancellation.Checker) ExecutorOpt {
 	return func(e execution.Executor) error {
 		e.(*executor).cancellationChecker = c
+		return nil
+	}
+}
+
+// WithCancellationCheckDeadline bounds how long checkCancellation waits
+// synchronously for the cancellation lookup before proceeding. A zero or
+// negative value keeps the default of 100ms.
+func WithCancellationCheckDeadline(d time.Duration) ExecutorOpt {
+	return func(e execution.Executor) error {
+		e.(*executor).cancellationCheckDeadline = d
 		return nil
 	}
 }
@@ -390,6 +401,15 @@ func WithShardRegistry(shards queue.ShardRegistry) ExecutorOpt {
 	}
 }
 
+func WithEventLifecycleListeners(l ...execution.EventLifecycleListener) ExecutorOpt {
+	return func(e execution.Executor) error {
+		for _, item := range l {
+			e.AddEventLifecycleListener(item)
+		}
+		return nil
+	}
+}
+
 func WithTraceReader(m cqrs.TraceReader) ExecutorOpt {
 	return func(e execution.Executor) error {
 		e.(*executor).traceReader = m
@@ -466,6 +486,15 @@ type BacklogSizeLimit struct {
 
 type BacklogSizeLimitFn func(ctx context.Context, accountID, envID, fnID uuid.UUID) BacklogSizeLimit
 
+type AccountPlanMetricTagResolver func(ctx context.Context, accountID uuid.UUID) string
+
+func WithAccountPlanMetricTagResolver(resolver AccountPlanMetricTagResolver) ExecutorOpt {
+	return func(e execution.Executor) error {
+		e.(*executor).accountPlanMetricTagResolver = resolver
+		return nil
+	}
+}
+
 func WithConditionalTracer(tracer itrace.ConditionalTracer) ExecutorOpt {
 	return func(e execution.Executor) error {
 		e.(*executor).conditionalTracer = tracer
@@ -495,14 +524,15 @@ type executor struct {
 	useConstraintAPI              constraintapi.UseConstraintAPIFn
 	enableBatchingInstrumentation func(ctx context.Context, accountID, envID uuid.UUID) (enable bool)
 
-	fl                      state.FunctionLoader
-	evalFactory             func(ctx context.Context, expr string) (expressions.Evaluator, error)
-	finishHandler           execution.FinalizePublisher
-	invokeFailHandler       execution.InvokeFailHandler
-	handleInvokeEvent       execution.HandleInvokeEvent
-	handleInvokeEventsBatch execution.HandleInvokeEventsBatch
-	cancellationChecker     cancellation.Checker
-	httpClient              exechttp.RequestExecutor
+	fl                        state.FunctionLoader
+	evalFactory               func(ctx context.Context, expr string) (expressions.Evaluator, error)
+	finishHandler             execution.FinalizePublisher
+	invokeFailHandler         execution.InvokeFailHandler
+	handleInvokeEvent         execution.HandleInvokeEvent
+	handleInvokeEventsBatch   execution.HandleInvokeEventsBatch
+	cancellationChecker       cancellation.Checker
+	cancellationCheckDeadline time.Duration
+	httpClient                exechttp.RequestExecutor
 	// signingKeyLoader is used to load signing keys for an env.  This is required for the
 	// HTTPv2 driver.
 	signingKeyLoader func(ctx context.Context, envID uuid.UUID) ([]byte, error)
@@ -510,7 +540,8 @@ type executor struct {
 	driverv1 map[string]driver.DriverV1
 	driverv2 map[string]driver.DriverV2
 
-	lifecycles []execution.LifecycleListener
+	lifecycles    []execution.LifecycleListener
+	evtLifecycles []execution.EventLifecycleListener
 
 	// rtpub represents teh realtime publisher used to broadcast notifications
 	// on run execution.
@@ -524,6 +555,8 @@ type executor struct {
 	stateSizeLimit func(sv2.ID) int
 
 	functionBacklogSizeLimit BacklogSizeLimitFn
+
+	accountPlanMetricTagResolver AccountPlanMetricTagResolver
 
 	shards queue.ShardRegistry
 
@@ -556,6 +589,43 @@ func (e *executor) InvokeFailHandler(ctx context.Context, opts execution.InvokeF
 
 func (e *executor) AddLifecycleListener(l execution.LifecycleListener) {
 	e.lifecycles = append(e.lifecycles, l)
+}
+
+func (e *executor) AddEventLifecycleListener(l execution.EventLifecycleListener) {
+	e.evtLifecycles = append(e.evtLifecycles, l)
+}
+
+func (e *executor) RunFunctionMatchLifecycle(ctx context.Context, req execution.ScheduleRequest) {
+	reqSnapshot := cloneScheduleRequest(req)
+	e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+		l.OnFunctionMatch(ctx, reqSnapshot)
+	})
+}
+
+func (e *executor) runEventLifecycles(ctx context.Context, fn func(context.Context, execution.EventLifecycleListener)) {
+	ctx = context.WithoutCancel(ctx)
+	for _, l := range e.evtLifecycles {
+		l := l
+		service.Go(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					e.log.Error("panic in event lifecycle listener", "error", r, "stack", string(debug.Stack()))
+				}
+			}()
+			fn(ctx, l)
+		})
+	}
+}
+
+func cloneScheduleRequest(req execution.ScheduleRequest) execution.ScheduleRequest {
+	req.Context = maps.Clone(req.Context)
+	req.Events = slices.Clone(req.Events)
+	return req
+}
+
+func cloneMetadata(md sv2.Metadata) sv2.Metadata {
+	md.Config.Context = maps.Clone(md.Config.Context)
+	return md
 }
 
 func (e *executor) RunFunctionFinishedLifecycle(
@@ -608,6 +678,24 @@ func idempotencyKey(req execution.ScheduleRequest, runID ulid.ULID) string {
 
 	// The idempotency key is always prefixed by the function ID.
 	return fmt.Sprintf("%s-%s", util.XXHash(req.Function.ID.String()), util.XXHash(key))
+}
+
+func rerunFromStepEdge(req execution.ScheduleRequest, memoizedSteps []state.MemoizedStep, result *reconstructResult) inngest.Edge {
+	if req.FromStep == nil || req.FromStep.StepID == "" {
+		return inngest.SourceEdge
+	}
+	if result == nil || result.fromStepID == "" {
+		panic("rerun from step reconstruction result is required")
+	}
+
+	edge := inngest.Edge{Incoming: inngest.TriggerName}
+	if result.fromStepOp == nil || *result.fromStepOp == enums.OpcodeStep || *result.fromStepOp == enums.OpcodeStepRun {
+		edge.IncomingGeneratorStep = result.fromStepID
+	}
+	if len(memoizedSteps) > 0 {
+		edge.Outgoing = memoizedSteps[len(memoizedSteps)-1].ID
+	}
+	return edge
 }
 
 func (e *executor) createCancellationPauses(ctx context.Context, l logger.Logger, idempontenceKey string, evtMap map[string]any, id sv2.ID, req execution.ScheduleRequest) error {
@@ -817,7 +905,7 @@ func (e *executor) checkBacklogSizeLimit(ctx context.Context, req execution.Sche
 // metadata will be nil.  This will return the original run ID if runs were skipped due
 // to idemptoency.
 func (e *executor) Schedule(ctx context.Context, req execution.ScheduleRequest) (*ulid.ULID, *sv2.Metadata, error) {
-	ctx, span := e.conditionalTracer.NewSpan(ctx, "executor.Schedule", req.AccountID, req.WorkspaceID, req.Function.ID)
+	ctx, span := e.conditionalTracer.NewUserSpan(ctx, "executor.Schedule", req.AccountID, req.WorkspaceID, req.Function.ID)
 	defer span.End()
 
 	// Run IDs are created embedding the timestamp now, when the function is being scheduled.
@@ -830,6 +918,10 @@ func (e *executor) Schedule(ctx context.Context, req execution.ScheduleRequest) 
 		runID = &id
 	} else {
 		runID = req.RunID
+	}
+	var attemptedRunID ulid.ULID
+	if runID != nil {
+		attemptedRunID = *runID
 	}
 
 	key := idempotencyKey(req, *runID)
@@ -863,7 +955,7 @@ func (e *executor) Schedule(ctx context.Context, req execution.ScheduleRequest) 
 		requestTime = req.Events[0].GetReceivedAt()
 	}
 
-	// Check constraints and acquire lease
+	callbackReq := cloneScheduleRequest(req)
 	md, err := WithConstraints(
 		ctx,
 		e.now(),
@@ -879,10 +971,32 @@ func (e *executor) Schedule(ctx context.Context, req execution.ScheduleRequest) 
 					md  *sv2.Metadata
 					err error
 				)
-				runID, md, err = e.schedule(ctx, req, *runID, key, performChecks)
+				runID, md, err = e.schedule(ctx, req, *runID, key, performChecks, &callbackReq)
 				return md, err
 			}, util.WithBoundaries(2*time.Second))
 		})
+
+	switch {
+	case errors.Is(err, ErrFunctionRateLimited):
+		e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+			l.OnRateLimited(ctx, callbackReq)
+		})
+	case errors.Is(err, ErrFunctionSkippedIdempotency),
+		errors.Is(err, state.ErrIdentifierExists),
+		errors.Is(err, queue.ErrQueueItemExists):
+		skip := execution.IdempotencySkip{AttemptedRunID: attemptedRunID}
+		if errors.Is(err, ErrFunctionSkippedIdempotency) {
+			skip.ExistingRunID = runID
+		}
+		e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+			l.OnFunctionSkippedIdempotency(ctx, callbackReq, skip)
+		})
+	case errors.Is(err, ErrFunctionDebounced), errors.Is(err, ErrFunctionSkipped), err == nil:
+	default:
+		e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+			l.OnFunctionScheduleFailed(ctx, callbackReq, err)
+		})
+	}
 
 	return runID, md, err
 }
@@ -908,12 +1022,18 @@ func (e *executor) schedule(
 	// performChecks determines whether constraint checks must be performed
 	// This may be false when the Constraint API was used to enforce constraints.
 	performChecks bool,
+	callbackReq ...*execution.ScheduleRequest,
 ) (*ulid.ULID, *sv2.Metadata, error) {
 	if req.AppID == uuid.Nil {
 		return nil, nil, fmt.Errorf("app ID is required to schedule a run")
 	}
 
-	ctx, span := e.conditionalTracer.NewSpan(ctx, "executor.schedule", req.AccountID, req.WorkspaceID, req.Function.ID)
+	req = cloneScheduleRequest(req)
+	if len(callbackReq) > 0 && callbackReq[0] != nil {
+		*callbackReq[0] = cloneScheduleRequest(req)
+	}
+
+	ctx, span := e.conditionalTracer.NewUserSpan(ctx, "executor.schedule", req.AccountID, req.WorkspaceID, req.Function.ID)
 	defer span.End()
 
 	l := e.log.With(
@@ -997,8 +1117,8 @@ func (e *executor) schedule(
 	// NOTE: From this point, we are guaranteed to operate within user constraints.
 
 	if req.Function.Debounce != nil && !req.PreventDebounce {
-		ctx, span := e.conditionalTracer.NewSpan(ctx, "executor.Debounce", req.AccountID, req.WorkspaceID, req.Function.ID)
-		err := e.debouncer.Debounce(ctx, debounce.DebounceItem{
+		ctx, span := e.conditionalTracer.NewUserSpan(ctx, "executor.Debounce", req.AccountID, req.WorkspaceID, req.Function.ID)
+		_, err := e.debouncer.Debounce(ctx, debounce.DebounceItem{
 			AccountID:        req.AccountID,
 			WorkspaceID:      req.WorkspaceID,
 			AppID:            req.AppID,
@@ -1020,6 +1140,9 @@ func (e *executor) schedule(
 
 	if req.Context == nil {
 		req.Context = map[string]any{}
+	}
+	if req.URL != "" {
+		req.Context["url"] = req.URL
 	}
 
 	// Normalization
@@ -1115,6 +1238,10 @@ func (e *executor) schedule(
 	carrier := itrace.NewTraceCarrier(itrace.WithTraceCarrierSpanID(&spanID))
 	itrace.UserTracer().Propagator().Inject(ctx, propagation.MapCarrier(carrier.Context))
 	config.SetFunctionTrace(carrier)
+	reqSnapshot := cloneScheduleRequest(req)
+	if len(callbackReq) > 0 && callbackReq[0] != nil {
+		*callbackReq[0] = reqSnapshot
+	}
 
 	metadata := sv2.Metadata{
 		ID: sv2.ID{
@@ -1147,7 +1274,7 @@ func (e *executor) schedule(
 	// Some scenarios are happy path (e.g.  queue idempotency) and some are sad
 	// path (e.g. Executor borked)
 	sendSpans := func() {
-		_, span := e.conditionalTracer.NewSpan(ctx, "executor.schedule.send_spans", req.AccountID, req.WorkspaceID, req.Function.ID)
+		_, span := e.conditionalTracer.NewUserSpan(ctx, "executor.schedule.send_spans", req.AccountID, req.WorkspaceID, req.Function.ID)
 		defer span.End()
 
 		if runSpanRef != nil {
@@ -1278,7 +1405,7 @@ func (e *executor) schedule(
 	}
 
 	if req.OriginalRunID != nil && req.FromStep != nil && req.FromStep.StepID != "" {
-		if err := reconstruct(ctx, e.traceReader, req, &newState); err != nil {
+		if _, err := reconstruct(ctx, e.traceReader, req, &newState); err != nil {
 			return nil, nil, fmt.Errorf("error reconstructing input state: %w", err)
 		}
 	}
@@ -1288,7 +1415,7 @@ func (e *executor) schedule(
 	// Check if the function should be skipped (paused, draining, backlog limit)
 	// Only check if not already marked as skipped (e.g., by singleton)
 	if skipReason == enums.SkipReasonNone {
-		_, span := e.conditionalTracer.NewSpan(ctx, "executor.schedule.skipped", req.AccountID, req.WorkspaceID, req.Function.ID)
+		_, span := e.conditionalTracer.NewUserSpan(ctx, "executor.schedule.skipped", req.AccountID, req.WorkspaceID, req.Function.ID)
 		skipReason = e.skipped(ctx, req)
 		span.End()
 	}
@@ -1296,7 +1423,7 @@ func (e *executor) schedule(
 	// Create run state if not skipped
 	var stateCreated bool
 	if skipReason == enums.SkipReasonNone {
-		ctx, span := e.conditionalTracer.NewSpan(ctx, "executor.CreateState", req.AccountID, req.WorkspaceID, req.Function.ID)
+		ctx, span := e.conditionalTracer.NewUserSpan(ctx, "executor.CreateState", req.AccountID, req.WorkspaceID, req.Function.ID)
 		st, err := e.smv2.Create(ctx, newState)
 		span.End()
 
@@ -1448,7 +1575,7 @@ func (e *executor) schedule(
 	// If the function is being skipped, send spans and handle skip.
 	if skipReason != enums.SkipReasonNone {
 		sendSpans()
-		return e.handleFunctionSkipped(ctx, req, metadata, evts, skipReason)
+		return e.handleFunctionSkipped(ctx, reqSnapshot, metadata, evts, skipReason)
 	}
 
 	if req.BatchID == nil {
@@ -1540,7 +1667,7 @@ func (e *executor) schedule(
 	}
 
 	// Schedule for async functons (the default)
-	_, queueSpan := e.conditionalTracer.NewSpan(ctx, "executor.schedule.queue_enqueue", req.AccountID, req.WorkspaceID, req.Function.ID)
+	_, queueSpan := e.conditionalTracer.NewUserSpan(ctx, "executor.schedule.queue_enqueue", req.AccountID, req.WorkspaceID, req.Function.ID)
 	err = e.queue.Enqueue(ctx, item, at, queue.EnqueueOpts{})
 	queueSpan.End()
 
@@ -1640,8 +1767,23 @@ func (e *executor) schedule(
 	for _, e := range e.lifecycles {
 		go e.OnFunctionScheduled(context.WithoutCancel(ctx), metadata, item, req.Events)
 	}
+	metadataSnapshot := cloneMetadata(metadata)
+	e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+		l.OnFunctionScheduled(ctx, metadataSnapshot, reqSnapshot.Events)
+	})
 
 	return &metadata.ID.RunID, &metadata, nil
+}
+
+func parseBatchID(raw string) (ulid.ULID, error) {
+	if raw == "" {
+		return ulid.ULID{}, fmt.Errorf("batch append returned empty batch ID")
+	}
+	batchID, err := ulid.Parse(raw)
+	if err != nil {
+		return ulid.ULID{}, fmt.Errorf("invalid batch ID %q: %w", raw, err)
+	}
+	return batchID, nil
 }
 
 func (e *executor) updateInvokeSpanWithInvokedRunID(ctx context.Context, l logger.Logger, events []event.TrackedEvent, invokedRunID ulid.ULID) {
@@ -1700,6 +1842,12 @@ func (e *executor) updateInvokeSpanWithInvokedRunID(ctx context.Context, l logge
 }
 
 func (e *executor) handleFunctionSkipped(ctx context.Context, req execution.ScheduleRequest, metadata sv2.Metadata, evts []json.RawMessage, reason enums.SkipReason) (*ulid.ULID, *sv2.Metadata, error) {
+	reqSnapshot := cloneScheduleRequest(req)
+	metadataSnapshot := cloneMetadata(metadata)
+	e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+		l.OnFunctionSkipped(ctx, reqSnapshot, metadataSnapshot, reason)
+	})
+
 	for _, e := range e.lifecycles {
 		service.Go(
 			func() {
@@ -1716,7 +1864,7 @@ func (e *executor) handleFunctionSkipped(ctx context.Context, req execution.Sche
 // Execute loads a workflow and the current run state, then executes the
 // function's step via the necessary driver.
 func (e *executor) Execute(ctx context.Context, id state.Identifier, item queue.Item, edge inngest.Edge) (*state.DriverResponse, error) {
-	conditionalTraceCtx, conditionalSpan := e.conditionalTracer.NewSpan(ctx, "executor.Execute", id.AccountID, id.WorkspaceID, id.WorkflowID)
+	conditionalTraceCtx, conditionalSpan := e.conditionalTracer.NewUserSpan(ctx, "executor.Execute", id.AccountID, id.WorkspaceID, id.WorkflowID)
 	defer conditionalSpan.End()
 
 	jobID := queue.JobIDFromContext(ctx)
@@ -1799,7 +1947,7 @@ func (e *executor) Execute(ctx context.Context, id state.Identifier, item queue.
 		ctx = state.WithGroupID(ctx, uuid.New().String())
 	}
 
-	_, span := e.conditionalTracer.NewSpan(conditionalTraceCtx, "executor.LoadMetadata", id.AccountID, id.WorkspaceID, id.WorkflowID)
+	_, span := e.conditionalTracer.NewUserSpan(conditionalTraceCtx, "executor.LoadMetadata", id.AccountID, id.WorkspaceID, id.WorkflowID)
 	md, err := e.smv2.LoadMetadata(ctx, sv2.ID{
 		RunID:      id.RunID,
 		FunctionID: id.WorkflowID,
@@ -1821,7 +1969,7 @@ func (e *executor) Execute(ctx context.Context, id state.Identifier, item queue.
 		}
 	}
 
-	_, span = e.conditionalTracer.NewSpan(conditionalTraceCtx, "executor.LoadFunction", id.AccountID, id.WorkspaceID, id.WorkflowID)
+	_, span = e.conditionalTracer.NewUserSpan(conditionalTraceCtx, "executor.LoadFunction", id.AccountID, id.WorkspaceID, id.WorkflowID)
 	ef, err := e.fl.LoadFunction(ctx, md.ID.Tenant.EnvID, md.ID.FunctionID)
 	span.End()
 	if err != nil {
@@ -1844,7 +1992,7 @@ func (e *executor) Execute(ctx context.Context, id state.Identifier, item queue.
 		}
 	}
 
-	_, span = e.conditionalTracer.NewSpan(conditionalTraceCtx, "executor.LoadEvents", id.AccountID, id.WorkspaceID, id.WorkflowID)
+	_, span = e.conditionalTracer.NewUserSpan(conditionalTraceCtx, "executor.LoadEvents", id.AccountID, id.WorkspaceID, id.WorkflowID)
 	events, err := e.smv2.LoadEvents(ctx, md.ID)
 	span.End()
 	if err != nil {
@@ -2016,7 +2164,7 @@ func (e *executor) Execute(ctx context.Context, id state.Identifier, item queue.
 	}
 
 	return util.CritT(ctx, "run step", func(ctx context.Context) (*state.DriverResponse, error) {
-		_, span = e.conditionalTracer.NewSpan(conditionalTraceCtx, "executor.run", id.AccountID, id.WorkspaceID, id.WorkflowID)
+		_, span = e.conditionalTracer.NewUserSpan(conditionalTraceCtx, "executor.run", id.AccountID, id.WorkspaceID, id.WorkflowID)
 		// Track how long it took us from the queue item job starting -> calling run.
 		instance.trackLatencyHistogram(ctx, "queue_to_run_start", nil)
 		resp, err := e.run(ctx, &instance)
@@ -2413,6 +2561,9 @@ func (e *executor) checkCancellation(ctx context.Context, md sv2.Metadata, evts 
 
 	// Wait for result to be available within deadline and return, or continue processing asynchronously
 	deadline := 100 * time.Millisecond
+	if e.cancellationCheckDeadline > 0 {
+		deadline = e.cancellationCheckDeadline
+	}
 
 	// Create buffered channel to allow sending even without receiver
 	// but block receive until message is ready
@@ -3113,6 +3264,9 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 			for _, e := range e.lifecycles {
 				e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, []json.RawMessage{})
 			}
+			e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+				l.OnRunCancelled(ctx, id, r)
+			})
 		} else {
 			l.Info("cancel: no-op, state already deleted",
 				"skip_lifecycle_hooks", r.SkipLifecycleHooks,
@@ -3142,6 +3296,9 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 			for _, e := range e.lifecycles {
 				e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, []json.RawMessage{})
 			}
+			e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+				l.OnRunCancelled(ctx, id, r)
+			})
 		}
 		return nil
 	}
@@ -3181,6 +3338,9 @@ func (e *executor) Cancel(ctx context.Context, id sv2.ID, r execution.CancelRequ
 		for _, e := range e.lifecycles {
 			e.OnFunctionCancelled(context.WithoutCancel(ctx), md, r, evts)
 		}
+		e.runEventLifecycles(ctx, func(ctx context.Context, l execution.EventLifecycleListener) {
+			l.OnRunCancelled(ctx, id, r)
+		})
 	}
 
 	return nil
@@ -3249,6 +3409,9 @@ func (e *executor) ResumePauseTimeout(ctx context.Context, pause state.Pause, r 
 		// If there are no parallel steps ongoing, we must enqueue the next SDK ping to continue on with
 		// execution.
 		jobID := fmt.Sprintf("%s-%s-timeout", md.IdempotencyKey(), pause.DataKey)
+		if pause.ParallelCoalesceKey != "" && pause.ParallelMode != enums.ParallelModeRace {
+			jobID = fmt.Sprintf("%s-%s-discover", md.ID.RunID, pause.ParallelCoalesceKey)
+		}
 		nextItem := queue.Item{
 			JobID: &jobID,
 			// Add a new group ID for the child;  this will be a new step.
@@ -3417,6 +3580,9 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 			// NOTE: This has an "-event" prefix so that it does not conflict
 			// with the timeout job ID.
 			jobID := fmt.Sprintf("%s-%s-event", md.IdempotencyKey(), pause.DataKey)
+			if pause.ParallelCoalesceKey != "" && pause.ParallelMode != enums.ParallelModeRace {
+				jobID = fmt.Sprintf("%s-%s-discover", md.ID.RunID, pause.ParallelCoalesceKey)
+			}
 			nextItem := queue.Item{
 				JobID: &jobID,
 				// Add a new group ID for the child;  this will be a new step.
@@ -3465,6 +3631,15 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 			}
 
 			if itemAlreadyExists {
+				if pause.ParallelCoalesceKey != "" && pause.ParallelMode != enums.ParallelModeRace {
+					e.log.Debug("discovery enqueue after pause resume deduped via coalesce key",
+						"run_id", md.ID.RunID.String(),
+						"job_id", jobID,
+						"coalesce_key", pause.ParallelCoalesceKey,
+						"parallel_mode", pause.ParallelMode,
+					)
+				}
+				// Another handler enqueued the discovery item; let it emit the span.
 				nextStepSpan.Drop()
 			}
 			_ = nextStepSpan.Send()
@@ -3505,16 +3680,20 @@ func (e *executor) Resume(ctx context.Context, pause state.Pause, r execution.Re
 		}
 
 		// And dequeue the timeout job to remove unneeded work from the queue, etc.
-		if q, ok := e.queue.(queue.QueueManager); ok {
+		if e.shards != nil {
 			// timeout jobs are enqueued to the workflow partition (see handleGeneratorWaitForEvent)
 			// this is _not_ a system partition and lives on the account shard, which we need to retrieve
-			shard, err := e.shards.Resolve(ctx, md.ID.Tenant.AccountID, nil)
+			shard, err := e.shards.Resolve(ctx, queue.Scope{
+				AccountID:  md.ID.Tenant.AccountID,
+				EnvID:      md.ID.Tenant.EnvID,
+				FunctionID: md.ID.FunctionID,
+			}, nil)
 			if err != nil {
 				return fmt.Errorf("could not find shard for pause timeout item for account %q: %w", md.ID.Tenant.AccountID, err)
 			}
 
 			jobID := fmt.Sprintf("%s-%s", md.IdempotencyKey(), pause.DataKey)
-			err = q.Dequeue(ctx, shard, queue.QueueItem{
+			err = e.queue.Dequeue(ctx, shard.Name(), queue.QueueItem{
 				ID:         queue.HashID(ctx, jobID),
 				FunctionID: md.ID.FunctionID,
 				Data: queue.Item{
@@ -3601,6 +3780,13 @@ func (e *executor) HandleGeneratorResponse(ctx context.Context, i *runInstance, 
 
 	groups := opGroups(resp.Generator)
 
+	// One handling timestamp for the whole response: handlers run
+	// concurrently below, so per-handler clocks would give parallel opcodes
+	// distinct span queue times and a nondeterministic trace order.
+	handledAt := e.now()
+	groups.PriorityGroup.HandledAt = handledAt
+	groups.OtherGroup.HandledAt = handledAt
+
 	// Save pending step IDs so that SaveStep can atomically track which
 	// parallel branches are still outstanding.  When the last branch
 	// completes, SaveStep returns hasPendingSteps=false and a single
@@ -3611,8 +3797,12 @@ func (e *executor) HandleGeneratorResponse(ctx context.Context, i *runInstance, 
 	// pending set every step completion saw hasPendingSteps=false and
 	// enqueued its own discovery step, causing the final sequential step
 	// after a parallel group to execute more than once.
-	if hasPlanOp(resp.Generator) {
-		if err := e.smv2.SavePending(ctx, i.md.ID, groups.NonLazyIDs()); err != nil {
+	nonLazyIDs := groups.NonLazyIDs()
+	if hasPlanOp(resp.Generator) && len(nonLazyIDs) > 1 && i.md.ShouldCoalesceParallelism(resp) {
+		ck := computeParallelCoalesceKey(i.md.ID.RunID.String(), nonLazyIDs)
+		groups.PriorityGroup.ParallelCoalesceKey = ck
+		groups.OtherGroup.ParallelCoalesceKey = ck
+		if err := e.smv2.SavePending(ctx, i.md.ID, nonLazyIDs); err != nil {
 			return fmt.Errorf("error saving pending steps: %w", err)
 		}
 	}
@@ -3641,7 +3831,7 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 			}()
 			iCopy := *i
 			iCopy.item.GroupID = cop.groupID
-			return e.HandleGenerator(ctx, &iCopy, cop.gen)
+			return e.handleGenerator(ctx, &iCopy, cop.gen, group)
 		})
 	}
 
@@ -3652,7 +3842,7 @@ func (e *executor) handleGeneratorGroup(ctx context.Context, i *runInstance, gro
 					e.log.Error("panic in handleBatchInvokeFunctions", "error", r, "stack", string(debug.Stack()))
 				}
 			}()
-			return e.handleBatchInvokeFunctions(ctx, i, invokeOps)
+			return e.handleBatchInvokeFunctions(ctx, i, invokeOps, group)
 		})
 	}
 
@@ -3709,6 +3899,28 @@ func (e *executor) classifyGroupOpcodes(i *runInstance, group OpcodeGroup) ([]ba
 }
 
 func (e *executor) HandleGenerator(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode) error {
+	return e.handleGenerator(ctx, runCtx, gen)
+}
+
+// opcodeHandledAt returns the time async-opcode handlers stamp as their step
+// span's queue time: the group's shared handling time when the opcode arrived
+// in an SDK response (keeping parallel opcodes' trace order deterministic),
+// else the handler's own clock (e.g. opcodes fed via the checkpoint API).
+func (e *executor) opcodeHandledAt(group OpcodeGroup) time.Time {
+	if !group.HandledAt.IsZero() {
+		return group.HandledAt
+	}
+	return e.now()
+}
+
+func firstOpcodeGroup(groups []OpcodeGroup) OpcodeGroup {
+	if len(groups) == 0 {
+		return OpcodeGroup{}
+	}
+	return groups[0]
+}
+
+func (e *executor) handleGenerator(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, groups ...OpcodeGroup) error {
 	// Grab the edge that triggered this step execution.
 	lifecycleItem := runCtx.LifecycleItem()
 	edge, ok := lifecycleItem.Payload.(queue.PayloadEdge)
@@ -3735,19 +3947,19 @@ func (e *executor) HandleGenerator(ctx context.Context, runCtx execution.RunCont
 	case enums.OpcodeStepError:
 		return e.handleStepError(ctx, runCtx, gen, edge)
 	case enums.OpcodeStepPlanned:
-		return e.handleGeneratorStepPlanned(ctx, runCtx, gen, edge)
+		return e.handleGeneratorStepPlanned(ctx, runCtx, gen, edge, groups...)
 	case enums.OpcodeSleep:
-		return e.handleGeneratorSleep(ctx, runCtx, gen, edge)
+		return e.handleGeneratorSleep(ctx, runCtx, gen, edge, firstOpcodeGroup(groups))
 	case enums.OpcodeWaitForEvent:
-		return e.handleGeneratorWaitForEvent(ctx, runCtx, gen, edge)
+		return e.handleGeneratorWaitForEvent(ctx, runCtx, gen, edge, firstOpcodeGroup(groups))
 	case enums.OpcodeInvokeFunction:
-		return e.handleGeneratorInvokeFunction(ctx, runCtx, gen, edge)
+		return e.handleGeneratorInvokeFunction(ctx, runCtx, gen, edge, groups...)
 	case enums.OpcodeAIGateway:
-		return e.handleGeneratorAIGateway(ctx, runCtx, gen, edge)
+		return e.handleGeneratorAIGateway(ctx, runCtx, gen, edge, groups...)
 	case enums.OpcodeGateway:
 		return e.handleGeneratorGateway(ctx, runCtx, gen, edge)
 	case enums.OpcodeWaitForSignal:
-		return e.handleGeneratorWaitForSignal(ctx, runCtx, gen, edge)
+		return e.handleGeneratorWaitForSignal(ctx, runCtx, gen, edge, firstOpcodeGroup(groups))
 	case enums.OpcodeRunComplete:
 		return e.handleGeneratorFunctionFinished(ctx, runCtx, gen, edge)
 	case enums.OpcodeSyncRunComplete:
@@ -3824,7 +4036,7 @@ func (e *executor) restartDiscovery(ctx context.Context, i *runInstance) error {
 	)
 }
 
-func (e *executor) maybeEnqueueDiscoveryStep(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge, groupID string, hasPendingSteps bool) error {
+func (e *executor) maybeEnqueueDiscoveryStep(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge, groupID string, hasPendingSteps bool, coalesceKey ...*string) error {
 	// Enqueue the next discovery step to continue execution.
 	nextEdge := inngest.Edge{
 		Outgoing: gen.ID,             // Going from the current step
@@ -3832,7 +4044,12 @@ func (e *executor) maybeEnqueueDiscoveryStep(ctx context.Context, runCtx executi
 	}
 
 	now := e.now()
-	jobID := fmt.Sprintf("%s-%s", runCtx.Metadata().IdempotencyKey(), gen.ID)
+	var jobID string
+	if len(coalesceKey) > 0 && coalesceKey[0] != nil && *coalesceKey[0] != "" && gen.ParallelMode() != enums.ParallelModeRace {
+		jobID = fmt.Sprintf("%s-%s-discover", runCtx.Metadata().ID.RunID, *coalesceKey[0])
+	} else {
+		jobID = fmt.Sprintf("%s-%s", runCtx.Metadata().IdempotencyKey(), gen.ID)
+	}
 
 	nextItem := queue.Item{
 		JobID:                 &jobID,
@@ -3848,6 +4065,9 @@ func (e *executor) maybeEnqueueDiscoveryStep(ctx context.Context, runCtx executi
 		Payload:               queue.PayloadEdge{Edge: nextEdge},
 		Metadata:              make(map[string]any),
 		ParallelMode:          gen.ParallelMode(),
+	}
+	if len(coalesceKey) > 0 && coalesceKey[0] != nil && *coalesceKey[0] != "" {
+		nextItem.ParallelCoalesceKey = coalesceKey[0]
 	}
 
 	if shouldEnqueueDiscovery(hasPendingSteps, gen.ParallelMode()) {
@@ -3982,6 +4202,7 @@ func (e *executor) enqueueLazyOpFallback(
 		edge,
 		groupID,
 		hasPendingSteps,
+		runCtx.LifecycleItem().ParallelCoalesceKey,
 	)
 }
 
@@ -4051,6 +4272,7 @@ func (e *executor) handleGeneratorStep(ctx context.Context, runCtx execution.Run
 		edge,
 		groupID,
 		hasPendingSteps,
+		runCtx.LifecycleItem().ParallelCoalesceKey,
 	)
 
 	// NOTE: Default topics are not yet implemented and are a V2 realtime feature.
@@ -4292,7 +4514,8 @@ func (e *executor) handleGeneratorSyncFunctionFinished(ctx context.Context, runC
 	return err
 }
 
-func (e *executor) handleGeneratorStepPlanned(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge) error {
+func (e *executor) handleGeneratorStepPlanned(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge, groups ...OpcodeGroup) error {
+	group := firstOpcodeGroup(groups)
 	nextEdge := inngest.Edge{
 		// Planned generator IDs are the same as the actual OpcodeStep IDs.
 		// We can't set edge.Edge.Outgoing here because the step hasn't yet ran.
@@ -4336,6 +4559,10 @@ func (e *executor) handleGeneratorStepPlanned(ctx context.Context, runCtx execut
 		Metadata:     make(map[string]any),
 		ParallelMode: gen.ParallelMode(),
 	}
+	if group.ParallelCoalesceKey != "" {
+		ck := group.ParallelCoalesceKey
+		nextItem.ParallelCoalesceKey = &ck
+	}
 
 	md := runCtx.Metadata()
 	lifecycleItem := runCtx.LifecycleItem()
@@ -4358,7 +4585,8 @@ func (e *executor) handleGeneratorStepPlanned(ctx context.Context, runCtx execut
 	}
 
 	attrs := tracing.GeneratorAttrs(&gen)
-	tracing.AddQueueTimestampAttrs(attrs, runCtx.LifecycleItem())
+	handledAt := e.opcodeHandledAt(group)
+	tracing.AddTimingAttrs(attrs, handledAt, handledAt, time.Time{}, time.Time{})
 
 	span, err := e.tracerProvider.CreateDroppableSpan(
 		ctx,
@@ -4395,7 +4623,7 @@ func (e *executor) handleGeneratorStepPlanned(ctx context.Context, runCtx execut
 
 // handleSleep handles the sleep opcode, ensuring that we enqueue the function to rerun
 // at the correct time.
-func (e *executor) handleGeneratorSleep(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge) error {
+func (e *executor) handleGeneratorSleep(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge, group OpcodeGroup) error {
 	dur, err := gen.SleepDuration()
 	if err != nil {
 		return err
@@ -4432,11 +4660,11 @@ func (e *executor) handleGeneratorSleep(ctx context.Context, runCtx execution.Ru
 		Metadata:              make(map[string]any),
 		ParallelMode:          gen.ParallelMode(),
 	}
-
 	lifecycleItem := runCtx.LifecycleItem()
 	metadata := runCtx.Metadata()
 	attrs := tracing.GeneratorAttrs(&gen)
-	tracing.AddQueueTimestampAttrs(attrs, runCtx.LifecycleItem())
+	handledAt := e.opcodeHandledAt(group)
+	tracing.AddTimingAttrs(attrs, handledAt, handledAt, time.Time{}, time.Time{})
 	meta.AddAttr(attrs, meta.Attrs.DynamicStatus, inngestgo.Ptr(enums.StepStatusSleeping))
 
 	// Create a new span that we'll use to record the sleep as complete.
@@ -4688,7 +4916,8 @@ func (e *executor) handleGeneratorGateway(ctx context.Context, runCtx execution.
 	return err
 }
 
-func (e *executor) handleGeneratorAIGateway(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge) error {
+func (e *executor) handleGeneratorAIGateway(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge, groups ...OpcodeGroup) error {
+	group := firstOpcodeGroup(groups)
 	start := e.now()
 	gen.Timing.A = start.UnixNano()
 
@@ -4863,6 +5092,9 @@ func (e *executor) handleGeneratorAIGateway(ctx context.Context, runCtx executio
 		Incoming: edge.Edge.Incoming, // And re-calling the incoming function in a loop
 	}
 	jobID := fmt.Sprintf("%s-%s", runCtx.Metadata().IdempotencyKey(), gen.ID)
+	if group.ParallelCoalesceKey != "" && gen.ParallelMode() != enums.ParallelModeRace {
+		jobID = fmt.Sprintf("%s-%s-discover", runCtx.Metadata().ID.RunID, group.ParallelCoalesceKey)
+	}
 	now := e.now()
 	nextItem := queue.Item{
 		JobID:                 &jobID,
@@ -4878,6 +5110,10 @@ func (e *executor) handleGeneratorAIGateway(ctx context.Context, runCtx executio
 		Payload:               queue.PayloadEdge{Edge: nextEdge},
 		Metadata:              make(map[string]any),
 		ParallelMode:          gen.ParallelMode(),
+	}
+	if group.ParallelCoalesceKey != "" {
+		ck := group.ParallelCoalesceKey
+		nextItem.ParallelCoalesceKey = &ck
 	}
 
 	if shouldEnqueueDiscovery(hasPendingSteps, runCtx.ParallelMode()) {
@@ -4931,7 +5167,7 @@ func (e *executor) handleGeneratorAIGateway(ctx context.Context, runCtx executio
 	return err
 }
 
-func (e *executor) handleGeneratorWaitForSignal(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge) error {
+func (e *executor) handleGeneratorWaitForSignal(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge, group OpcodeGroup) error {
 	opts, err := gen.SignalOpts()
 	if err != nil {
 		return fmt.Errorf("unable to parse signal opts: %w", err)
@@ -5000,10 +5236,10 @@ func (e *executor) handleGeneratorWaitForSignal(ctx context.Context, runCtx exec
 		Metadata:     make(map[string]any),
 		ParallelMode: gen.ParallelMode(),
 	}
-
 	lifecycleItem := runCtx.LifecycleItem()
 	attrs := tracing.GeneratorAttrs(&gen)
-	tracing.AddQueueTimestampAttrs(attrs, lifecycleItem)
+	handledAt := e.opcodeHandledAt(group)
+	tracing.AddTimingAttrs(attrs, handledAt, handledAt, time.Time{}, time.Time{})
 	meta.AddAttr(attrs, meta.Attrs.DynamicStatus, inngestgo.Ptr(enums.StepStatusWaiting))
 
 	span, err := e.tracerProvider.CreateDroppableSpan(
@@ -5134,7 +5370,7 @@ type batchInvokeItem struct {
 //  2. Writes each pause individually with per-pause retry
 //  3. Enqueues timeout + publishes event per-item (interleaved)
 //  4. Fires lifecycle hooks
-func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstance, inputs []batchInvokeInput) error {
+func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstance, inputs []batchInvokeInput, group OpcodeGroup) error {
 	if e.handleInvokeEvent == nil {
 		return fmt.Errorf("no handleSendingEvent function specified")
 	}
@@ -5148,7 +5384,7 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 	eventName := event.FnFinishedName
 	pauseIdx := pauses.Index{WorkspaceID: i.md.ID.Tenant.EnvID, EventName: eventName}
 
-	items, err := e.buildBatchInvokeItems(ctx, i, inputs, edge, eventName, lifecycleItem)
+	items, err := e.buildBatchInvokeItems(ctx, i, inputs, edge, eventName, lifecycleItem, group)
 	if err != nil {
 		return err
 	}
@@ -5177,12 +5413,12 @@ func (e *executor) handleBatchInvokeFunctions(ctx context.Context, i *runInstanc
 }
 
 // buildBatchInvokeItems pre-computes all data structures for a batch of invoke opcodes (no I/O).
-func (e *executor) buildBatchInvokeItems(ctx context.Context, i *runInstance, inputs []batchInvokeInput, edge queue.PayloadEdge, eventName string, lifecycleItem queue.Item) ([]batchInvokeItem, error) {
-	now := e.now()
+func (e *executor) buildBatchInvokeItems(ctx context.Context, i *runInstance, inputs []batchInvokeInput, edge queue.PayloadEdge, eventName string, lifecycleItem queue.Item, group OpcodeGroup) ([]batchInvokeItem, error) {
+	now := e.opcodeHandledAt(group)
 	items := make([]batchInvokeItem, 0, len(inputs))
 
 	for _, input := range inputs {
-		item, err := e.buildSingleInvokeItem(ctx, i, input, edge, eventName, lifecycleItem, now)
+		item, err := e.buildSingleInvokeItem(ctx, i, input, edge, eventName, lifecycleItem, now, group)
 		if err != nil {
 			dropUnprocessedSpans(items, 0)
 			return nil, err
@@ -5194,7 +5430,7 @@ func (e *executor) buildBatchInvokeItems(ctx context.Context, i *runInstance, in
 }
 
 // buildSingleInvokeItem constructs a batchInvokeItem for one invoke opcode.
-func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, input batchInvokeInput, edge queue.PayloadEdge, eventName string, lifecycleItem queue.Item, now time.Time) (batchInvokeItem, error) {
+func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, input batchInvokeInput, edge queue.PayloadEdge, eventName string, lifecycleItem queue.Item, now time.Time, group OpcodeGroup) (batchInvokeItem, error) {
 	gen := input.gen
 	groupID := input.groupID
 
@@ -5249,7 +5485,7 @@ func (e *executor) buildSingleInvokeItem(ctx context.Context, i *runInstance, in
 
 	pause := e.buildInvokePause(i, gen, edge, groupID, pauseID, opcode, eventName, strExpr, correlationID, evt, opts, carrier, expires, now)
 	nextItem := e.buildInvokeTimeoutItem(i, gen, groupID, pauseID, pause)
-	span := e.createInvokeStepSpan(ctx, i, gen, evt, pause, &nextItem, lifecycleItem, now)
+	span := e.createInvokeStepSpan(ctx, i, gen, evt, pause, &nextItem, lifecycleItem, now, group)
 
 	return batchInvokeItem{
 		gen:     gen,
@@ -5324,7 +5560,13 @@ func (e *executor) buildInvokeTimeoutItem(i *runInstance, gen state.GeneratorOpc
 }
 
 // createInvokeStepSpan creates the droppable span for a batch invoke item.
-func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen state.GeneratorOpcode, evt event.BaseTrackedEvent, pause state.Pause, nextItem *queue.Item, lifecycleItem queue.Item, now time.Time) *tracing.DroppableSpan {
+func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen state.GeneratorOpcode, evt event.BaseTrackedEvent, pause state.Pause, nextItem *queue.Item, lifecycleItem queue.Item, now time.Time, group OpcodeGroup) *tracing.DroppableSpan {
+	attrs := tracing.GeneratorAttrs(&gen)
+	handledAt := e.opcodeHandledAt(group)
+	tracing.AddTimingAttrs(attrs, handledAt, handledAt, time.Time{}, time.Time{})
+	meta.AddAttr(attrs, meta.Attrs.StepInvokeTriggerEventID, &evt.ID)
+	meta.AddAttr(attrs, meta.Attrs.DynamicStatus, inngestgo.Ptr(enums.StepStatusInvoking))
+
 	span, err := e.tracerProvider.CreateDroppableSpan(
 		ctx,
 		meta.SpanNameStep,
@@ -5336,9 +5578,7 @@ func (e *executor) createInvokeStepSpan(ctx context.Context, i *runInstance, gen
 			Metadata:    &i.md,
 			QueueItem:   nextItem,
 			Parent:      tracing.RunSpanRefFromMetadata(&i.md),
-			Attributes: tracing.GeneratorAttrs(&gen).Merge(
-				meta.NewAttrSet(meta.Attr(meta.Attrs.StepInvokeTriggerEventID, &evt.ID)),
-			),
+			Attributes:  attrs,
 		},
 	)
 	if err != nil {
@@ -5557,9 +5797,13 @@ func (e *executor) publishBatchEvents(ctx context.Context, items []batchInvokeIt
 	return nil
 }
 
-func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge) error {
+func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge, groups ...OpcodeGroup) error {
 	if e.handleInvokeEvent == nil {
 		return fmt.Errorf("no handleSendingEvent function specified")
+	}
+	group := OpcodeGroup{}
+	if len(groups) > 0 {
+		group = groups[0]
 	}
 
 	opts, err := gen.InvokeFunctionOpts()
@@ -5607,6 +5851,18 @@ func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx exe
 		SourceFnID:      runCtx.Metadata().ID.FunctionID.String(),
 		SourceFnVersion: runCtx.Metadata().Config.FunctionVersion,
 	})
+	sessionsMetrics := evt.Event.Meta.ResolveSessions()
+	metrics.IncrEventSessionsResolvedCounter(
+		ctx,
+		"invoke_executor",
+		sessionsMetrics.Manual,
+		sessionsMetrics.Propagated,
+		sessionsMetrics.Nulling,
+		metrics.CounterOpt{PkgName: pkgName},
+	)
+	if err := evt.Event.Meta.Sessions.Validate(); err != nil {
+		return execError{err: fmt.Errorf("invalid step.invoke sessions: %w", err), final: true}
+	}
 
 	internalEvtID := evt.GetInternalID().String()
 	pause := state.Pause{
@@ -5651,11 +5907,17 @@ func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx exe
 			PauseID: pauseID,
 			Pause:   pause,
 		},
-		Metadata:     make(map[string]any),
-		ParallelMode: gen.ParallelMode(),
+		Metadata:            make(map[string]any),
+		ParallelMode:        gen.ParallelMode(),
+		ParallelCoalesceKey: inngestgo.Ptr(group.ParallelCoalesceKey),
+	}
+	if group.ParallelCoalesceKey != "" {
+		ck := group.ParallelCoalesceKey
+		nextItem.ParallelCoalesceKey = &ck
 	}
 	attrs := tracing.GeneratorAttrs(&gen)
-	tracing.AddQueueTimestampAttrs(attrs, runCtx.LifecycleItem())
+	handledAt := e.opcodeHandledAt(group)
+	tracing.AddTimingAttrs(attrs, handledAt, handledAt, time.Time{}, time.Time{})
 	// Always correlate the triggering event ID with the invoked step.
 	meta.AddAttr(attrs, meta.Attrs.StepInvokeTriggerEventID, &evt.ID)
 	meta.AddAttr(attrs, meta.Attrs.DynamicStatus, inngestgo.Ptr(enums.StepStatusInvoking))
@@ -5743,7 +6005,7 @@ func (e *executor) handleGeneratorInvokeFunction(ctx context.Context, runCtx exe
 	return err
 }
 
-func (e *executor) handleGeneratorWaitForEvent(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge) error {
+func (e *executor) handleGeneratorWaitForEvent(ctx context.Context, runCtx execution.RunContext, gen state.GeneratorOpcode, edge queue.PayloadEdge, group OpcodeGroup) error {
 	opts, err := gen.WaitForEventOpts()
 	if err != nil {
 		return fmt.Errorf("unable to parse wait for event opts: %w", err)
@@ -5880,7 +6142,8 @@ func (e *executor) handleGeneratorWaitForEvent(ctx context.Context, runCtx execu
 		ParallelMode: gen.ParallelMode(),
 	}
 	attrs := tracing.GeneratorAttrs(&gen)
-	tracing.AddQueueTimestampAttrs(attrs, runCtx.LifecycleItem())
+	handledAt := e.opcodeHandledAt(group)
+	tracing.AddTimingAttrs(attrs, handledAt, handledAt, time.Time{}, time.Time{})
 	meta.AddAttr(attrs, meta.Attrs.DynamicStatus, inngestgo.Ptr(enums.StepStatusWaiting))
 
 	lifecycleItem := runCtx.LifecycleItem()

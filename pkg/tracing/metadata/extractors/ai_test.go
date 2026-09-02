@@ -94,9 +94,9 @@ func TestAIMetadataExtractor_OpenAISpan(t *testing.T) {
 	assert.Equal(t, 97.0, data["output_tokens"], "Should extract output tokens")
 
 	// Verify model and operation data
-	assert.Equal(t, "gpt-4", data["model"], "Should extract request model")
+	assert.Equal(t, "gpt-4", data["request_model"], "Should extract request model")
 	assert.Equal(t, "chat", data["operation_name"], "Should extract operation name")
-	assert.Equal(t, "openai", data["system"], "Should extract AI system")
+	assert.Equal(t, "openai", data["provider"], "Should extract AI provider")
 }
 
 func TestAIMetadataExtractor_NonAISpan(t *testing.T) {
@@ -251,11 +251,12 @@ func TestExtractAIOutputMetadata_VercelAISDK(t *testing.T) {
 	assert.Equal(t, 429.0, data["output_tokens"], "Should extract output tokens")
 	assert.Equal(t, 440.0, data["total_tokens"], "Should extract total tokens")
 
-	// Verify model
-	assert.Equal(t, "gpt-4-turbo-2024-04-09", data["model"], "Should extract model from response.modelId")
+	// Verify request model
+	assert.Equal(t, "gpt-4-turbo", data["request_model"], "Should extract request model from request.modelId")
+	assert.Equal(t, "gpt-4-turbo-2024-04-09", data["response_model"], "Should extract response model from response.modelId")
 
-	// Verify system
-	assert.Equal(t, "vercel-ai", data["system"], "Should set system to vercel-ai")
+	// Verify provider
+	assert.Equal(t, "vercel-ai", data["provider"], "Should set provider to vercel-ai")
 
 	// Verify latency (from openai-processing-ms header)
 	assert.Equal(t, 24314.0, data["latency_ms"], "Should extract latency from OpenAI header")
@@ -335,6 +336,203 @@ func TestExtractAIOutputMetadata_InvalidJSON(t *testing.T) {
 	md, err := ExtractAIOutputMetadata([]byte("not valid json"), 1000)
 	require.NoError(t, err)
 	assert.Nil(t, md, "Invalid JSON should return nil")
+}
+
+func TestBackfillEstimatedCostInValues(t *testing.T) {
+	t.Parallel()
+
+	valuesOf := func(v map[string]any) metadata.Values {
+		values := metadata.Values{}
+		for k, val := range v {
+			b, err := json.Marshal(val)
+			require.NoError(t, err)
+			values[k] = b
+		}
+		return values
+	}
+
+	costOf := func(t *testing.T, values metadata.Values) *float64 {
+		raw, ok := values["estimated_cost"]
+		if !ok {
+			return nil
+		}
+		var cost *float64
+		require.NoError(t, json.Unmarshal(raw, &cost))
+		return cost
+	}
+
+	cases := []struct {
+		name      string
+		values    map[string]any
+		wantCost  bool
+		wantExact *float64
+	}{
+		{
+			name: "backfills from response model when cost absent",
+			values: map[string]any{
+				"input_tokens":   int64(1_000_000),
+				"output_tokens":  int64(1_000_000),
+				"request_model":  "gpt-4o-request-snapshot",
+				"response_model": "gpt-4o",
+			},
+			wantCost:  true,
+			wantExact: util.ToPtr(12.5),
+		},
+		{
+			name: "falls back to request model when response model absent",
+			values: map[string]any{
+				"input_tokens":  int64(1_000_000),
+				"output_tokens": int64(1_000_000),
+				"request_model": "gpt-4o",
+			},
+			wantCost:  true,
+			wantExact: util.ToPtr(12.5),
+		},
+		{
+			name: "leaves an existing non-null cost untouched",
+			values: map[string]any{
+				"input_tokens":   int64(1_000_000),
+				"output_tokens":  int64(1_000_000),
+				"request_model":  "gpt-4o",
+				"estimated_cost": 42.0,
+			},
+			wantCost:  true,
+			wantExact: util.ToPtr(42.0),
+		},
+		{
+			name: "overwrites an explicit null cost",
+			values: map[string]any{
+				"input_tokens":   int64(1_000_000),
+				"output_tokens":  int64(1_000_000),
+				"request_model":  "gpt-4o",
+				"estimated_cost": nil,
+			},
+			wantCost:  true,
+			wantExact: util.ToPtr(12.5),
+		},
+		{
+			name: "no model means no cost",
+			values: map[string]any{
+				"input_tokens":  int64(500),
+				"output_tokens": int64(500),
+			},
+			wantCost: false,
+		},
+		{
+			name: "unpriced model means no cost",
+			values: map[string]any{
+				"input_tokens":  int64(500),
+				"output_tokens": int64(500),
+				"request_model": "some-unlisted-finetune",
+			},
+			wantCost: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			values := valuesOf(tc.values)
+			BackfillEstimatedCostInValues(values)
+
+			cost := costOf(t, values)
+			if !tc.wantCost {
+				assert.Nil(t, cost)
+				return
+			}
+			require.NotNil(t, cost)
+			if tc.wantExact != nil {
+				assert.Equal(t, *tc.wantExact, *cost)
+			}
+		})
+	}
+}
+
+func TestFindPricingBySegment(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		model     string
+		wantMatch bool
+		// wantPricing, when set, is asserted against the exact pricing entry
+		// that a specific known model key resolves to, verifying which key
+		// matched rather than just that some entry did.
+		wantPricing *ModelPricing
+	}{
+		{
+			name:      "exact match resolves without trimming",
+			model:     "gpt-4o",
+			wantMatch: true,
+			wantPricing: &ModelPricing{
+				InputPerToken:  modelPricing["gpt-4o"].InputPerToken,
+				OutputPerToken: modelPricing["gpt-4o"].OutputPerToken,
+			},
+		},
+		{
+			name:      "one segment trimmed to reach an exact match",
+			model:     "gpt-4-turbo-2024-04-09-preview",
+			wantMatch: true,
+			wantPricing: &ModelPricing{
+				InputPerToken:  modelPricing["gpt-4-turbo-2024-04-09"].InputPerToken,
+				OutputPerToken: modelPricing["gpt-4-turbo-2024-04-09"].OutputPerToken,
+			},
+		},
+		{
+			name:      "multiple segments trimmed to reach an exact match",
+			model:     "gpt-4-turbo-2024-04-09-preview-canary",
+			wantMatch: true,
+			wantPricing: &ModelPricing{
+				InputPerToken:  modelPricing["gpt-4-turbo-2024-04-09"].InputPerToken,
+				OutputPerToken: modelPricing["gpt-4-turbo-2024-04-09"].OutputPerToken,
+			},
+		},
+		{
+			name:      "shares a dash-delimited segment prefix but must not over-match",
+			model:     "gpt-5.7-newmodel",
+			wantMatch: false,
+		},
+		{
+			name:      "trailing segment may itself contain a dot",
+			model:     "gpt-5-mini.preview",
+			wantMatch: true,
+			wantPricing: &ModelPricing{
+				InputPerToken:  modelPricing["gpt-5"].InputPerToken,
+				OutputPerToken: modelPricing["gpt-5"].OutputPerToken,
+			},
+		},
+		{
+			name:      "no dashes and no exact match",
+			model:     "unknownmodel",
+			wantMatch: false,
+		},
+		{
+			name:      "empty string has no match",
+			model:     "",
+			wantMatch: false,
+		},
+	}
+
+	// Sanity-check the fixture assumptions this test relies on, so a failure
+	// here points at a stale embedded snapshot rather than the matching logic.
+	require.Contains(t, modelPricing, "gpt-4o")
+	require.Contains(t, modelPricing, "gpt-4-turbo-2024-04-09")
+	require.Contains(t, modelPricing, "gpt-5")
+	require.NotContains(t, modelPricing, "gpt-5.7-newmodel")
+	require.NotContains(t, modelPricing, "gpt-5.7")
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			pricing, ok := findPricingBySegment(tc.model)
+			require.Equal(t, tc.wantMatch, ok)
+			if tc.wantPricing != nil {
+				assert.Equal(t, *tc.wantPricing, pricing)
+			}
+		})
+	}
 }
 
 func TestExtractAIOutputMetadata_TypicalStepOutput(t *testing.T) {

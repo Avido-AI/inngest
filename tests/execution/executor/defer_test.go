@@ -680,8 +680,9 @@ func TestDeferAdd(t *testing.T) {
 		ctx := infra.ctx
 
 		const (
-			plannedStepID = "planned-step"
-			deferStepID   = "defer-add-step"
+			plannedStepID  = "planned-step"
+			plannedStepID2 = "planned-step-2"
+			deferStepID    = "defer-add-step"
 		)
 
 		spy := &pendingCapturingState{RunService: infra.smv2}
@@ -695,6 +696,7 @@ func TestDeferAdd(t *testing.T) {
 				RequestVersion: 2,
 				Generator: []*state.GeneratorOpcode{
 					{Op: enums.OpcodeStepPlanned, ID: plannedStepID, Name: plannedStepID},
+					{Op: enums.OpcodeStepPlanned, ID: plannedStepID2, Name: plannedStepID2},
 					{
 						Op: enums.OpcodeDeferAdd,
 						ID: deferStepID,

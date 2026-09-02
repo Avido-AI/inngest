@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -25,10 +26,12 @@ type Manager interface {
 	QueueSnapshotManager
 
 	AppManager
+	GetAppFunctionCounts(ctx context.Context, appIDs []uuid.UUID) (map[uuid.UUID]int, error)
 	FunctionRunManager
 	EventManager
 	HistoryReader
 	HistoryWriter
+	GetRuns(ctx context.Context, opt GetTraceRunOpt) ([]*TraceRun, error)
 
 	// Trace / dev only
 	TraceReadWriter

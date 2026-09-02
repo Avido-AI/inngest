@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -193,6 +194,35 @@ func WithBacklogNormalizationConcurrency(limit int64) QueueOpt {
 	return func(q *QueueOptions) {
 		q.backlogNormalizeConcurrency = limit
 	}
+}
+
+func WithPartitionBacklogSizeConcurrency(limit int64) QueueOpt {
+	return func(q *QueueOptions) {
+		q.partitionBacklogSizeConcurrency = limit
+	}
+}
+
+func (o QueueOptions) PartitionBacklogSizeConcurrency() int64 {
+	if o.partitionBacklogSizeConcurrency <= 0 {
+		return defaultPartitionBacklogSizeConcurrency
+	}
+	return o.partitionBacklogSizeConcurrency
+}
+
+// WithPausedRequeueExtension overrides how far into the future a paused
+// partition is requeued once it is confirmed paused in the database. When not
+// set (or non-positive), PartitionPausedRequeueExtension is used.
+func WithPausedRequeueExtension(d time.Duration) QueueOpt {
+	return func(q *QueueOptions) {
+		q.pausedRequeueExtension = d
+	}
+}
+
+func (o QueueOptions) PausedRequeueExtension() time.Duration {
+	if o.pausedRequeueExtension <= 0 {
+		return PartitionPausedRequeueExtension
+	}
+	return o.pausedRequeueExtension
 }
 
 func WithPeekConcurrencyMultiplier(m int64) QueueOpt {
@@ -446,6 +476,14 @@ type QueueOptions struct {
 	PeekEWMALen int
 	// queueKindMapping stores a map of job kind => queue names
 	queueKindMapping        map[string]string
+	queueProducer           Producer
+	queueConsumer           Consumer
+	queueRunReader          RunQueueReader
+	queueStatusReader       QueueStatusReader
+	queuePartitionReader    QueuePartitionReader
+	queueBacklogReader      QueueBacklogReader
+	queueItemReader         QueueItemReader
+	queueAttemptResetter    AttemptResetter
 	disableFifoForFunctions map[string]struct{}
 	disableFifoForAccounts  map[string]struct{}
 	peekSizeForFunctions    map[string]int64
@@ -481,10 +519,16 @@ type QueueOptions struct {
 
 	shadowContinuationLimit uint
 
-	shadowPeekMin               int64
-	shadowPeekMax               int64
-	backlogRefillLimit          int64
-	backlogNormalizeConcurrency int64
+	shadowPeekMin                   int64
+	shadowPeekMax                   int64
+	backlogRefillLimit              int64
+	backlogNormalizeConcurrency     int64
+	partitionBacklogSizeConcurrency int64
+
+	// pausedRequeueExtension is how far into the future a paused partition is
+	// requeued when it is confirmed paused in the database. Falls back to
+	// PartitionPausedRequeueExtension when unset.
+	pausedRequeueExtension time.Duration
 
 	NormalizeRefreshItemCustomConcurrencyKeys NormalizeRefreshItemCustomConcurrencyKeysFn
 	RefreshItemThrottle                       RefreshItemThrottleFn
@@ -602,6 +646,50 @@ func WithEnableJobPromotion(enable bool) QueueOpt {
 	}
 }
 
+func WithQueueProducer(producer Producer) QueueOpt {
+	return func(q *QueueOptions) {
+		q.queueProducer = producer
+	}
+}
+
+func WithQueueConsumer(consumer Consumer) QueueOpt {
+	return func(q *QueueOptions) {
+		q.queueConsumer = consumer
+	}
+}
+
+// WithQueueRunReader overrides the queue's default run reader.
+func WithQueueRunReader(reader RunQueueReader) QueueOpt {
+	return func(q *QueueOptions) { q.queueRunReader = reader }
+}
+
+// WithQueueStatusReader overrides the queue's default status reader.
+func WithQueueStatusReader(reader QueueStatusReader) QueueOpt {
+	return func(q *QueueOptions) { q.queueStatusReader = reader }
+}
+
+// WithQueuePartitionReader overrides the queue's default partition reader.
+func WithQueuePartitionReader(reader QueuePartitionReader) QueueOpt {
+	return func(q *QueueOptions) { q.queuePartitionReader = reader }
+}
+
+// WithQueueBacklogReader overrides the queue's default backlog reader.
+func WithQueueBacklogReader(reader QueueBacklogReader) QueueOpt {
+	return func(q *QueueOptions) { q.queueBacklogReader = reader }
+}
+
+// WithQueueItemReader overrides the queue's default item reader.
+func WithQueueItemReader(reader QueueItemReader) QueueOpt {
+	return func(q *QueueOptions) { q.queueItemReader = reader }
+}
+
+// WithQueueAttemptResetter overrides the queue's default shard-backed attempt resetter.
+func WithQueueAttemptResetter(resetter AttemptResetter) QueueOpt {
+	return func(q *QueueOptions) {
+		q.queueAttemptResetter = resetter
+	}
+}
+
 func WithCapacityManager(capacityManager constraintapi.CapacityManager) QueueOpt {
 	return func(q *QueueOptions) {
 		q.CapacityManager = capacityManager
@@ -685,19 +773,17 @@ type ShadowContinuation struct {
 	Count      uint
 }
 
-// ProcessItem references the queue partition and queue item to be processed by a worker.
-// both items need to be passed to a worker as both items are needed to generate concurrency
-// keys to extend leases and dequeue.
+// ProcessItem references the queue item and scanner-provided metadata to be processed by a worker.
 type ProcessItem struct {
-	P QueuePartition
 	I QueueItem
 
-	// PCtr represents the number of times the partition has been continued.
-	PCtr uint
+	Priority      uint
+	ContinueCount uint
 
 	CapacityLease *CapacityLease
 
 	ConditionalTraceCtx context.Context
+	result              *dispatchedItemHandle
 }
 
 type capacityLease struct {
@@ -782,13 +868,14 @@ func NewQueueOptions(
 		PartitionPausedGetter: func(ctx context.Context, fnID uuid.UUID) PartitionPausedInfo {
 			return PartitionPausedInfo{}
 		},
-		PeekMin:                     DefaultQueuePeekMin,
-		PeekMax:                     DefaultQueuePeekMax,
-		PeekSizeExponent:            7,
-		shadowPeekMin:               ShadowPartitionPeekMinBacklogs,
-		shadowPeekMax:               ShadowPartitionPeekMaxBacklogs,
-		backlogRefillLimit:          BacklogRefillHardLimit,
-		backlogNormalizeConcurrency: defaultBacklogNormalizeConcurrency,
+		PeekMin:                         DefaultQueuePeekMin,
+		PeekMax:                         DefaultQueuePeekMax,
+		PeekSizeExponent:                7,
+		shadowPeekMin:                   ShadowPartitionPeekMinBacklogs,
+		shadowPeekMax:                   ShadowPartitionPeekMaxBacklogs,
+		backlogRefillLimit:              BacklogRefillHardLimit,
+		backlogNormalizeConcurrency:     defaultBacklogNormalizeConcurrency,
+		partitionBacklogSizeConcurrency: defaultPartitionBacklogSizeConcurrency,
 		runMode: QueueRunMode{
 			Sequential:                        true,
 			Scavenger:                         true,
@@ -862,11 +949,32 @@ func (q *queueProcessor) configureQueueRoles() {
 	q.roles = filterQueueRoles(q.QueueOptions, q.roles)
 }
 
+// configureScannerRoles appends roles declared by the selected scanner.
+// Registration happens after shard selection and before role goroutines start,
+// which also supports dynamically assigned shard groups.
+func (q *queueProcessor) configureScannerRoles(scanner QueueScanner) error {
+	provider, ok := scanner.(QueueScannerRoleProvider)
+	if !ok {
+		return nil
+	}
+	provided := filterQueueRoles(q.QueueOptions, provider.QueueScannerRoles())
+	existing := make(map[string]struct{}, len(q.roles)+len(provided))
+	for _, role := range q.roles {
+		existing[role.Name()] = struct{}{}
+	}
+	for _, role := range provided {
+		name := role.Name()
+		if _, ok := existing[name]; ok {
+			return fmt.Errorf("queue scanner role %q is already configured", name)
+		}
+		existing[name] = struct{}{}
+	}
+	q.roles = append(q.roles, provided...)
+	return nil
+}
+
 func (q *queueProcessor) defaultQueueRoles() []QueueRole {
 	roles := []QueueRole{}
-	if includeSequentialRole(q.QueueOptions) {
-		roles = append(roles, NewSequentialRole())
-	}
 	if q.runMode.Scavenger {
 		roles = append(roles, NewScavengerRole())
 	}

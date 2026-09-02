@@ -2,7 +2,9 @@ package extractors
 
 import (
 	"bytes"
+	"embed"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/url"
@@ -24,12 +26,12 @@ const (
 type AIMetadata struct {
 	InputTokens   int64  `json:"input_tokens"`
 	OutputTokens  int64  `json:"output_tokens"`
-	Model         string `json:"model"`
-	System        string `json:"system"`
+	RequestModel  string `json:"request_model"`
+	Provider      string `json:"provider"`
 	OperationName string `json:"operation_name"`
 
 	// Response identity. ResponseModel is the model that served the request (may
-	// differ from the requested Model, e.g. a dated snapshot). FinishReasons is
+	// differ from the RequestModel, e.g. a dated snapshot). FinishReasons is
 	// stored raw per emitter — note OpenAI's native "tool_calls" is emitted as
 	// the singular "tool_call" by some instrumentations.
 	ResponseModel string   `json:"response_model,omitempty"`
@@ -39,6 +41,22 @@ type AIMetadata struct {
 	LatencyMs     *int64   `json:"latency_ms,omitempty"`
 	TotalTokens   *int64   `json:"total_tokens,omitempty"`
 	EstimatedCost *float64 `json:"estimated_cost,omitempty"`
+
+	// Granular token usage. Cache semantics differ by provider: OpenAI reports
+	// cached tokens as a subset of InputTokens, whereas Anthropic reports them
+	// additively — values are stored raw and left unreconciled.
+	CacheReadTokens     *int64 `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens *int64 `json:"cache_creation_tokens,omitempty"`
+	ReasoningTokens     *int64 `json:"reasoning_tokens,omitempty"`
+
+	// Request parameters. Pointers so an explicit zero (e.g. temperature 0 or
+	// seed 0) is distinguishable from an absent attribute.
+	Temperature      *float64 `json:"temperature,omitempty"`
+	TopP             *float64 `json:"top_p,omitempty"`
+	MaxTokens        *int64   `json:"max_tokens,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	Seed             *int64   `json:"seed,omitempty"`
 }
 
 func (ms AIMetadata) Kind() metadata.Kind {
@@ -94,16 +112,17 @@ func ExtractAIGatewayMetadata(req aigateway.Request, respStatus int, resp []byte
 	}
 
 	aiMd := &AIMetadata{
-		Model:         parsedInput.Model,
-		System:        req.Format,
+		RequestModel:  parsedInput.Model,
+		ResponseModel: parsedOutput.Model,
+		Provider:      req.Format,
 		OperationName: "",
 
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		TotalTokens:   &totalTokens,
-		EstimatedCost: EstimateCost(parsedInput.Model, inputTokens, outputTokens),
-		LatencyMs:     latencyMs,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  &totalTokens,
+		LatencyMs:    latencyMs,
 	}
+	backfillEstimatedCost(aiMd)
 
 	return []metadata.Structured{
 		aiMd,
@@ -195,13 +214,15 @@ func ExtractAIOutputMetadata(output []byte, stepDurationMs int64) ([]metadata.St
 		return nil, nil
 	}
 
-	// get model name, try response.modelId first, then request.body.model
-	var model string
+	var requestModel string
+	var responseModel string
 	if firstStep != nil {
 		if firstStep.Response != nil && firstStep.Response.ModelID != "" {
-			model = firstStep.Response.ModelID
-		} else if firstStep.Request != nil && firstStep.Request.Body.Model != "" {
-			model = firstStep.Request.Body.Model
+			responseModel = firstStep.Response.ModelID
+		}
+
+		if firstStep.Request != nil && firstStep.Request.Body.Model != "" {
+			requestModel = firstStep.Request.Body.Model
 		}
 	}
 
@@ -227,80 +248,142 @@ func ExtractAIOutputMetadata(output []byte, stepDurationMs int64) ([]metadata.St
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
 		TotalTokens:   &totalTokens,
-		Model:         model,
-		System:        "vercel-ai",
+		RequestModel:  requestModel,
+		ResponseModel: responseModel,
+		Provider:      "vercel-ai",
 		LatencyMs:     latencyMs,
-		EstimatedCost: EstimateCost(model, inputTokens, outputTokens),
 	}
+	backfillEstimatedCost(aiMd)
 
 	return []metadata.Structured{aiMd}, nil
 }
 
-// ModelPricing contains input/output pricing per 1M tokens in USD
+// ModelPricing contains input/output pricing per token in USD.
 type ModelPricing struct {
-	InputPer1M  float64
-	OutputPer1M float64
+	InputPerToken  float64
+	OutputPerToken float64
 }
 
-// modelPricing is the exact match pricing table - prices in USD per 1M tokens
-// Source: https://openai.com/pricing, https://anthropic.com/pricing, https://ai.google.dev/pricing
-var modelPricing = map[string]ModelPricing{
-	"gpt-5.2":     {1.75, 14.00},
-	"gpt-5.1":     {1.25, 10.00},
-	"gpt-5":       {1.25, 10.00},
-	"gpt-5-mini":  {0.25, 2.00},
-	"gpt-5-nano":  {0.05, 0.40},
-	"gpt-5.2-pro": {21.00, 168.00},
-	"gpt-5-pro":   {15.00, 120.00},
+//go:embed model_prices.json
+var modelPricesFile embed.FS
 
-	"gpt-4.1":      {2.00, 8.00},
-	"gpt-4.1-mini": {0.40, 1.60},
-	"gpt-4.1-nano": {0.10, 0.40},
+// modelPriceEntry mirrors the fields we need from LiteLLM's
+// model_prices_and_context_window.json (https://github.com/BerriAI/litellm,
+// MIT licensed outside its enterprise/ directory), the community-maintained
+// source of model cost data that tools like tokencost also republish. Costs
+// are USD per token. Refresh the embedded snapshot with
+// scripts/update-model-prices.sh.
+type modelPriceEntry struct {
+	InputCostPerToken  *float64 `json:"input_cost_per_token"`
+	OutputCostPerToken *float64 `json:"output_cost_per_token"`
+}
 
-	"gpt-4o":      {2.50, 10.00},
-	"gpt-4o-mini": {0.15, 0.60},
-	"gpt-4-turbo": {10.00, 30.00},
+// modelPricingPlaceholderKey is a documentation-only placeholder entry
+// present in the upstream file (a template showing every possible field,
+// with dummy zero-value costs) - it isn't a real model and must be excluded.
+const modelPricingPlaceholderKey = "sample_spec"
 
-	"o1":      {15.00, 60.00},
-	"o1-pro":  {150.00, 600.00},
-	"o1-mini": {1.10, 4.40},
-	"o3":      {2.00, 8.00},
-	"o3-pro":  {20.00, 80.00},
-	"o3-mini": {1.10, 4.40},
-	"o4-mini": {1.10, 4.40},
+// modelPricing is the exact-match pricing table, keyed by lowercase model
+// name, in USD per token. It's parsed at init time from the embedded
+// model_prices.json snapshot.
+var modelPricing = mustLoadModelPricing()
 
-	"claude-opus-4-5":   {5.00, 25.00},
-	"claude-opus-4-1":   {15.00, 75.00},
-	"claude-opus-4":     {15.00, 75.00},
-	"claude-sonnet-4-5": {3.00, 15.00},
-	"claude-sonnet-4":   {3.00, 15.00},
-	"claude-haiku-4-5":  {1.00, 5.00},
+func mustLoadModelPricing() map[string]ModelPricing {
+	raw, err := modelPricesFile.ReadFile("model_prices.json")
+	if err != nil {
+		panic(fmt.Errorf("extractors: reading embedded model_prices.json: %w", err))
+	}
 
-	"claude-haiku-3-5": {0.80, 4.00},
+	var entries map[string]modelPriceEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		panic(fmt.Errorf("extractors: parsing embedded model_prices.json: %w", err))
+	}
 
-	"claude-3-haiku": {0.25, 1.25},
+	pricing := make(map[string]ModelPricing, len(entries))
+	for model, entry := range entries {
+		if model == modelPricingPlaceholderKey {
+			continue
+		}
+		if entry.InputCostPerToken == nil || entry.OutputCostPerToken == nil {
+			// Non-token-priced entries (image/audio/embedding models, etc.)
+			// aren't usable for our per-token cost estimate.
+			continue
+		}
+		if *entry.InputCostPerToken == 0 && *entry.OutputCostPerToken == 0 {
+			// A model priced at exactly zero for both input and output is
+			// almost always an unfilled upstream placeholder, not a
+			// genuinely free model - excluding it avoids a real model's
+			// usage silently costing nothing.
+			continue
+		}
+		pricing[strings.ToLower(model)] = ModelPricing{
+			InputPerToken:  *entry.InputCostPerToken,
+			OutputPerToken: *entry.OutputCostPerToken,
+		}
+	}
 
-	"gemini-3-pro-preview":   {2.00, 12.00},
-	"gemini-3-flash-preview": {0.50, 3.00},
+	return pricing
+}
 
-	"gemini-2.5-pro":        {1.25, 10.00},
-	"gemini-2.5-flash":      {0.30, 2.50},
-	"gemini-2.5-flash-lite": {0.10, 0.40},
+// estimatedCostForTokens prefers the response model (the model that actually
+// served the request) for cost estimation, falling back to the requested
+// model.
+func estimatedCostForTokens(responseModel, requestModel string, inputTokens, outputTokens int64) *float64 {
+	costModel := responseModel
+	if costModel == "" {
+		costModel = requestModel
+	}
+	return EstimateCost(costModel, inputTokens, outputTokens)
+}
 
-	"gemini-2.0-flash":      {0.10, 0.40},
-	"gemini-2.0-flash-lite": {0.075, 0.30},
+// backfillEstimatedCost sets md.EstimatedCost from model + token usage only
+// when it isn't already populated — so an extractor that already supplies
+// its own EstimatedCost (e.g. a provider-reported cost) is never
+// overwritten. Every AIMetadata construction site should call this instead
+// of computing cost inline, so the response-model-preferred-over-request-model
+// rule lives in one place.
+func backfillEstimatedCost(md *AIMetadata) {
+	if md.EstimatedCost != nil {
+		return
+	}
+	md.EstimatedCost = estimatedCostForTokens(md.ResponseModel, md.RequestModel, md.InputTokens, md.OutputTokens)
+}
 
-	"mistral-large-latest":  {4.00, 12.00},
-	"mistral-medium-latest": {2.70, 8.10},
-	"mistral-small-latest":  {1.00, 3.00},
-	"open-mistral-7b":       {0.25, 0.25},
-	"open-mixtral-8x7b":     {0.70, 0.70},
-	"open-mixtral-8x22b":    {2.00, 6.00},
+// BackfillEstimatedCostInValues fills an "estimated_cost" entry into raw
+// "inngest.ai" metadata values when one isn't already present. Unlike
+// backfillEstimatedCost, this operates on untyped metadata.Values — the shape
+// AI metadata takes when it's submitted directly by an SDK or API caller
+// (e.g. inngest.metadata.update or the AddRunMetadata API) rather than
+// produced by the extractor functions above, so it never passes through an
+// AIMetadata struct at all.
+func BackfillEstimatedCostInValues(values metadata.Values) {
+	if values == nil {
+		return
+	}
 
-	"command-r-plus": {3.00, 15.00},
-	"command-r":      {0.50, 1.50},
-	"command":        {1.00, 2.00},
-	"command-light":  {0.30, 0.60},
+	if raw, ok := values["estimated_cost"]; ok {
+		var existing *float64
+		if err := json.Unmarshal(raw, &existing); err == nil && existing != nil {
+			return
+		}
+	}
+
+	var inputTokens, outputTokens int64
+	_ = json.Unmarshal(values["input_tokens"], &inputTokens)
+	_ = json.Unmarshal(values["output_tokens"], &outputTokens)
+
+	var responseModel, requestModel string
+	_ = json.Unmarshal(values["response_model"], &responseModel)
+	_ = json.Unmarshal(values["request_model"], &requestModel)
+
+	cost := estimatedCostForTokens(responseModel, requestModel, inputTokens, outputTokens)
+	if cost == nil {
+		return
+	}
+
+	if b, err := json.Marshal(cost); err == nil {
+		values["estimated_cost"] = b
+	}
 }
 
 // EstimateCost calculates the estimated cost in USD for the given model and token counts
@@ -311,19 +394,14 @@ func EstimateCost(model string, inputTokens, outputTokens int64) *float64 {
 
 	modelLower := strings.ToLower(model)
 
-	// try exact match first
-	pricing, ok := modelPricing[modelLower]
+	pricing, ok := findPricingBySegment(modelLower)
 	if !ok {
-		// try prefix match, find the longest matching prefix
-		pricing, ok = findPricingByPrefix(modelLower)
-		if !ok {
-			return nil
-		}
+		return nil
 	}
 
-	// Calculate cost: (tokens / 1M) * price_per_1M
-	inputCost := (float64(inputTokens) / 1_000_000) * pricing.InputPer1M
-	outputCost := (float64(outputTokens) / 1_000_000) * pricing.OutputPer1M
+	// Calculate cost: tokens * price_per_token
+	inputCost := float64(inputTokens) * pricing.InputPerToken
+	outputCost := float64(outputTokens) * pricing.OutputPerToken
 	totalCost := inputCost + outputCost
 
 	// Round to 6 decimal places
@@ -332,24 +410,21 @@ func EstimateCost(model string, inputTokens, outputTokens int64) *float64 {
 	return &rounded
 }
 
-// findPricingByPrefix finds the pricing for a model by matching the longest prefix.
-func findPricingByPrefix(model string) (ModelPricing, bool) {
-	var bestMatch string
-	var bestPricing ModelPricing
-
-	for key, pricing := range modelPricing {
-		if strings.HasPrefix(model, key) {
-			// Keep the longest matching prefix
-			if len(key) > len(bestMatch) {
-				bestMatch = key
-				bestPricing = pricing
-			}
+// findPricingBySegment finds pricing for a model by exact match, falling back
+// to progressively dropping trailing "-"-delimited segments (e.g.
+// "a-b-c-date" tries "a-b-c-date", then "a-b-c", then "a-b", then "a") until
+// an exact match is found. This avoids substring-prefix false positives, e.g.
+// "gpt-5.7-newmodel" must not match a pricing entry for "gpt-5.6-luna".
+func findPricingBySegment(model string) (ModelPricing, bool) {
+	for {
+		if pricing, ok := modelPricing[model]; ok {
+			return pricing, true
 		}
-	}
 
-	if bestMatch == "" {
-		return ModelPricing{}, false
+		idx := strings.LastIndex(model, "-")
+		if idx == -1 {
+			return ModelPricing{}, false
+		}
+		model = model[:idx]
 	}
-
-	return bestPricing, true
 }

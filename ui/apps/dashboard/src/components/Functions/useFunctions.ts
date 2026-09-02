@@ -5,9 +5,12 @@ import { useClient } from 'urql';
 import { useEnvironment } from '@/components/Environments/environment-context';
 import { GetFunctionUsageDocument, GetFunctionsDocument } from '@/gql/graphql';
 
+import { concurrencyLimitReachedBySlot } from './concurrency';
+
 type QueryVariables = {
   archived: boolean;
   nameSearch: string | null;
+  appIDs: string[] | null;
   cursor: number | null;
 };
 
@@ -15,7 +18,7 @@ export function useFunctions() {
   const envID = useEnvironment().id;
   const client = useClient();
   return useCallback(
-    async ({ cursor, archived, nameSearch }: QueryVariables) => {
+    async ({ cursor, archived, nameSearch, appIDs }: QueryVariables) => {
       const result = await client
         .query(
           GetFunctionsDocument,
@@ -25,6 +28,7 @@ export function useFunctions() {
             pageSize: 50,
             archived,
             search: nameSearch,
+            appIDs,
           },
           { requestPolicy: 'network-only' },
         )
@@ -107,9 +111,15 @@ export function useFunctionVolume() {
         ? Math.round((dailyFailureCount / dailyFinishedCount) * 10000) / 100
         : 0;
 
-      // Creates an array of objects containing the start and failure count for each usage slot (1 hour)
+      const concurrencyLimitReached = concurrencyLimitReachedBySlot(
+        workflow.dailyStarts.data,
+        workflow.concurrencyLimitReached.data,
+      );
+
+      // Creates an array of objects containing the start and failure count for each usage slot.
       const dailyVolumeSlots = workflow.dailyStarts.data.map(
         (usageSlot, index) => ({
+          concurrencyLimitReached: concurrencyLimitReached[index] ?? false,
           startCount: usageSlot.count,
           failureCount: workflow.dailyFailures.data[index]?.count ?? 0,
         }),

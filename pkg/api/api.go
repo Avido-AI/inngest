@@ -18,6 +18,7 @@ import (
 	"github.com/inngest/inngest/pkg/headers"
 	"github.com/inngest/inngest/pkg/logger"
 	"github.com/inngest/inngest/pkg/publicerr"
+	"github.com/inngest/inngest/pkg/telemetry/metrics"
 	itrace "github.com/inngest/inngest/pkg/telemetry/trace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -66,7 +67,7 @@ func NewAPI(o Options) (chi.Router, error) {
 		AllowOriginFunc:  func(r *http.Request, origin string) bool { return true },
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
-		ExposedHeaders:   []string{"Link"},
+		ExposedHeaders:   []string{"Link", "Mcp-Session-Id"},
 		AllowCredentials: false,
 		MaxAge:           60 * 60, // 1 hour
 	})
@@ -240,28 +241,19 @@ func (a API) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 
-			if evt.IsInternal() {
-				err := fmt.Errorf("event name is reserved for internal use: %s", evt.Name)
-				return err
-			}
-
-			// External event (i.e. doesn't have the "inngest/" prefix) data
-			// must not have internal metadata since it can cause issues. For
-			// example, if an invoked function's event data is forwarded into a
-			// new event then it may accidentally fulfill the invocation
-			delete(evt.Data, "_inngest")
-
 			ts := time.Now()
-			if evt.Timestamp == 0 {
-				evt.Timestamp = ts.UnixMilli()
-			}
-			if evt.User == nil {
-				evt.User = map[string]any{}
-			}
-
-			if err := evt.Validate(ctx); err != nil {
+			sessionsMetrics, err := event.NormalizeInbound(ctx, &evt, ts)
+			if err != nil {
 				return err
 			}
+			metrics.IncrEventSessionsResolvedCounter(
+				ctx,
+				"ingest",
+				sessionsMetrics.Manual,
+				sessionsMetrics.Propagated,
+				sessionsMetrics.Nulling,
+				metrics.CounterOpt{PkgName: metricsPkgName},
+			)
 
 			ctx, span := itrace.UserTracer().Provider().
 				Tracer(consts.OtelScopeEvent).
@@ -343,6 +335,24 @@ func (a API) Invoke(w http.ResponseWriter, r *http.Request) {
 		FnID:  slug,
 	}
 	evt := event.NewInvocationEvent(newInvOpts)
+
+	// Merge the two session layers before the event is handled. The merge
+	// reports the pre-merge state of both layers for adoption metrics.
+	sessionsMetrics := evt.Event.Meta.ResolveSessions()
+	metrics.IncrEventSessionsResolvedCounter(
+		r.Context(),
+		"invoke_http",
+		sessionsMetrics.Manual,
+		sessionsMetrics.Propagated,
+		sessionsMetrics.Nulling,
+		metrics.CounterOpt{PkgName: metricsPkgName},
+	)
+
+	// Validate after the merge
+	if err := evt.Event.Validate(r.Context()); err != nil {
+		_ = publicerr.WriteHTTP(w, publicerr.Wrap(err, 400, "Invalid invocation event"))
+		return
+	}
 
 	seed := event.SeededIDFromString(
 		r.Header.Get(headers.HeaderEventIDSeed),

@@ -1,9 +1,6 @@
 /**
  * RunDetailsV4 - Run details page using the composable TimelineBar.
  * Feature: 001-composable-timeline-bar
- *
- * This component mirrors RunDetailsV3's interface but uses the V4 Timeline
- * component for the timeline visualization.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -303,7 +300,6 @@ export const RunDetailsV4 = ({
               run={nullishToLazy(runData)}
               runID={runID}
               standalone={standalone}
-              result={resultData}
               isDurableEndpoint={runData?.isDurableEndpoint}
               readOnly={readOnly}
             />

@@ -1,8 +1,7 @@
 import { useEffect, useState, type JSX } from 'react';
 import { RiArrowRightSLine } from '@remixicon/react';
 
-import { AITrace } from '../AI/AITrace';
-import { parseAIOutput } from '../AI/utils';
+import { looksLikeAIOutput } from '../AI/utils';
 import { Button } from '../Button/Button';
 import {
   CodeElement,
@@ -15,14 +14,14 @@ import {
 import { Pill } from '../Pill/Pill';
 import { RerunModal } from '../Rerun/RerunModal';
 import { ScoresAttrs } from '../RunDetails/ScoresAttrs';
-import { useShared } from '../SharedContext/SharedContext';
 import { useGetTraceResult } from '../SharedContext/useGetTraceResult';
 import { usePathCreator } from '../SharedContext/usePathCreator';
 import { getStatusBackgroundClass, getStatusTextClass } from '../Status/statusClasses';
 import { Time } from '../Time';
-import type { SpanMetadataKind } from '../generated';
+import { KindInngestAI, type SpanMetadataKind } from '../generated';
 import { usePrettyErrorBody, usePrettyJson, usePrettyShortError } from '../hooks/usePrettyJson';
 import { toMaybeDate } from '../utils/date';
+import { AIMetadataNudge } from './AIMetadata';
 import { ErrorInfo } from './ErrorInfo';
 import { IO } from './IO';
 import { MetadataAttrs } from './MetadataAttrs';
@@ -179,7 +178,6 @@ export const StepInfo = ({
   debug?: boolean;
   isDurableEndpoint?: boolean;
 }) => {
-  const { cloud } = useShared();
   const [expanded, setExpanded] = useState(true);
   const [rerunModalOpen, setRerunModalOpen] = useState(false);
   const { runID, trace } = selectedStep;
@@ -210,13 +208,17 @@ export const StepInfo = ({
     stepInfo: trace.stepInfo,
   });
 
-  const aiOutput = result?.data ? parseAIOutput(result.data) : undefined;
   const prettyInput = usePrettyJson(result?.input ?? '') || (result?.input ?? '');
   const prettyOutput = usePrettyJson(result?.data ?? '') || (result?.data ?? '');
   const prettyErrorBody = usePrettyErrorBody(result?.error);
   const prettyShortError = usePrettyShortError(result?.error);
-  const showRerunFromStep =
-    !isDurableEndpoint && !debug && runID && trace.stepID && (!cloud || prettyInput);
+  const showRerunFromStep = !isDurableEndpoint && !debug && runID && trace.stepID;
+  const editableInput =
+    trace.stepOp === 'RUN' || trace.stepOp === 'AI_GATEWAY' || Boolean(result?.input);
+
+  const showAINudge =
+    Boolean(result?.data && looksLikeAIOutput(result.data)) &&
+    !trace.metadata?.some((md) => md.kind === KindInngestAI);
 
   const responseHeaderMetadata = trace.metadata?.filter(
     (md) => md.kind === 'inngest.response_headers'
@@ -323,6 +325,7 @@ export const StepInfo = ({
               runID={runID}
               stepID={trace.stepID!}
               input={prettyInput || result?.input || ''}
+              editableInput={editableInput}
             />
           </>
         )}
@@ -388,10 +391,10 @@ export const StepInfo = ({
               <IDElement>{trace.debugRunID}</IDElement>
             </ElementWrapper>
           )}
-
-          {aiOutput && <AITrace aiOutput={aiOutput} />}
         </div>
       )}
+
+      {expanded && showAINudge && <AIMetadataNudge />}
 
       {trace.isUserland && trace.userlandSpan ? (
         <div className="flex-1">

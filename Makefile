@@ -47,12 +47,14 @@ gen: ## Run all code generators
 
 .PHONY: protobuf
 protobuf: ## Generate protobuf files
-	buf generate
+	# HttpBody uses the upstream Go package and cannot share the source-relative annotations output directory.
+	buf generate --exclude-path proto/third_party/google/api/httpbody.proto
 	buf generate --path proto/api/v2 --template proto/api/v2/buf.gen.yaml
 	buf generate --path proto/connect/v1 --template proto/connect/v1/buf.gen.yaml
 	buf generate --path proto/debug/v1 --template proto/debug/v1/buf.gen.yaml
 	buf generate --path proto/state/v2 --template proto/state/v2/buf.gen.yaml
 	buf generate --path proto/constraintapi/v1 --template proto/constraintapi/v1/buf.gen.yaml
+	buf generate --path proto/queue/v1 --template proto/queue/v1/buf.gen.yaml
 	go generate ./...
 	go mod tidy
 
@@ -63,7 +65,7 @@ queries: ## Generate sqlc queries
 	# `go install ...@version` fail. This version must match the `sqlc vX.Y.Z`
 	# header in the generated files under pkg/cqrs/base_cqrs/sqlc/**.
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
-	sqlc generate
+	"$${GOBIN:-$$(go env GOPATH)/bin}/sqlc" generate
 
 .PHONY: schema-dump
 schema-dump: ## Dump SQLite and Postgres schema files from migrations

@@ -105,11 +105,15 @@ type checkpointAPI struct {
 
 func NewCheckpointAPI(o Opts) CheckpointAPI {
 	c := checkpoint.New(checkpoint.Opts{
-		State:                        o.State,
-		FnReader:                     o.FunctionReader,
-		Executor:                     o.Executor,
-		TracerProvider:               o.TracerProvider,
-		Queue:                        o.Queue,
+		State:          o.State,
+		FnReader:       o.FunctionReader,
+		Executor:       o.Executor,
+		TracerProvider: o.TracerProvider,
+		Queue: checkpointQueue{
+			Producer:        o.QueueProducer,
+			QueueItemReader: o.QueueItemReader,
+			AttemptResetter: o.AttemptResetter,
+		},
 		MetricsProvider:              o.CheckpointOpts.CheckpointMetrics,
 		BackoffFunc:                  o.CheckpointOpts.BackoffFunc,
 		AllowStepMetadata:            o.CheckpointOpts.AllowStepMetadata,
@@ -237,6 +241,7 @@ func (a checkpointAPI) CheckpointNewRun(w http.ResponseWriter, r *http.Request) 
 			EnvID:     auth.WorkspaceID(),
 			Steps:     input.Steps,
 			Metadata:  md,
+			Function:  &fn,
 		})
 		if err != nil {
 			logger.StdlibLogger(ctx).Error("error checkpointing sync steps", "error", err)

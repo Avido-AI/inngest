@@ -14,14 +14,16 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardFunctionsRouteRouteImport } from './routes/_dashboard/functions/route'
 import { Route as DashboardRunsIndexRouteImport } from './routes/_dashboard/runs/index'
 import { Route as DashboardRunIndexRouteImport } from './routes/_dashboard/run/index'
-import { Route as DashboardMcpIndexRouteImport } from './routes/_dashboard/mcp/index'
 import { Route as DashboardEventsIndexRouteImport } from './routes/_dashboard/events/index'
 import { Route as DashboardEventIndexRouteImport } from './routes/_dashboard/event/index'
 import { Route as DashboardAppsIndexRouteImport } from './routes/_dashboard/apps/index'
 import { Route as DashboardAppsOnboardingRouteRouteImport } from './routes/_dashboard/apps/_onboarding/route'
+import { Route as DashboardMcpSetupIndexRouteImport } from './routes/_dashboard/mcp/setup/index'
 import { Route as DashboardFunctionsConfigIndexRouteImport } from './routes/_dashboard/functions/config/index'
 import { Route as DashboardDebuggerFunctionIndexRouteImport } from './routes/_dashboard/debugger/function/index'
 import { Route as DashboardAppsAppIndexRouteImport } from './routes/_dashboard/apps/app/index'
+import { Route as DashboardAiScoresIndexRouteImport } from './routes/_dashboard/ai/scores/index'
+import { Route as DashboardAiExperimentsIndexRouteImport } from './routes/_dashboard/ai/experiments/index'
 import { Route as DashboardAppsOnboardingChooseTemplateRouteImport } from './routes/_dashboard/apps/_onboarding/choose-template'
 import { Route as DashboardAppsOnboardingChooseFrameworkRouteImport } from './routes/_dashboard/apps/_onboarding/choose-framework'
 
@@ -49,11 +51,6 @@ const DashboardRunIndexRoute = DashboardRunIndexRouteImport.update({
   path: '/run/',
   getParentRoute: () => DashboardRoute,
 } as any)
-const DashboardMcpIndexRoute = DashboardMcpIndexRouteImport.update({
-  id: '/mcp/',
-  path: '/mcp/',
-  getParentRoute: () => DashboardRoute,
-} as any)
 const DashboardEventsIndexRoute = DashboardEventsIndexRouteImport.update({
   id: '/events/',
   path: '/events/',
@@ -75,6 +72,11 @@ const DashboardAppsOnboardingRouteRoute =
     path: '/apps',
     getParentRoute: () => DashboardRoute,
   } as any)
+const DashboardMcpSetupIndexRoute = DashboardMcpSetupIndexRouteImport.update({
+  id: '/mcp/setup/',
+  path: '/mcp/setup/',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardFunctionsConfigIndexRoute =
   DashboardFunctionsConfigIndexRouteImport.update({
     id: '/config/',
@@ -92,6 +94,17 @@ const DashboardAppsAppIndexRoute = DashboardAppsAppIndexRouteImport.update({
   path: '/apps/app/',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardAiScoresIndexRoute = DashboardAiScoresIndexRouteImport.update({
+  id: '/ai/scores/',
+  path: '/ai/scores/',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardAiExperimentsIndexRoute =
+  DashboardAiExperimentsIndexRouteImport.update({
+    id: '/ai/experiments/',
+    path: '/ai/experiments/',
+    getParentRoute: () => DashboardRoute,
+  } as any)
 const DashboardAppsOnboardingChooseTemplateRoute =
   DashboardAppsOnboardingChooseTemplateRouteImport.update({
     id: '/choose-template',
@@ -112,14 +125,16 @@ export interface FileRoutesByFullPath {
   '/apps/': typeof DashboardAppsIndexRoute
   '/event/': typeof DashboardEventIndexRoute
   '/events/': typeof DashboardEventsIndexRoute
-  '/mcp/': typeof DashboardMcpIndexRoute
   '/run/': typeof DashboardRunIndexRoute
   '/runs/': typeof DashboardRunsIndexRoute
   '/apps/choose-framework': typeof DashboardAppsOnboardingChooseFrameworkRoute
   '/apps/choose-template': typeof DashboardAppsOnboardingChooseTemplateRoute
+  '/ai/experiments/': typeof DashboardAiExperimentsIndexRoute
+  '/ai/scores/': typeof DashboardAiScoresIndexRoute
   '/apps/app/': typeof DashboardAppsAppIndexRoute
   '/debugger/function/': typeof DashboardDebuggerFunctionIndexRoute
   '/functions/config/': typeof DashboardFunctionsConfigIndexRoute
+  '/mcp/setup/': typeof DashboardMcpSetupIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -127,14 +142,16 @@ export interface FileRoutesByTo {
   '/apps': typeof DashboardAppsIndexRoute
   '/event': typeof DashboardEventIndexRoute
   '/events': typeof DashboardEventsIndexRoute
-  '/mcp': typeof DashboardMcpIndexRoute
   '/run': typeof DashboardRunIndexRoute
   '/runs': typeof DashboardRunsIndexRoute
   '/apps/choose-framework': typeof DashboardAppsOnboardingChooseFrameworkRoute
   '/apps/choose-template': typeof DashboardAppsOnboardingChooseTemplateRoute
+  '/ai/experiments': typeof DashboardAiExperimentsIndexRoute
+  '/ai/scores': typeof DashboardAiScoresIndexRoute
   '/apps/app': typeof DashboardAppsAppIndexRoute
   '/debugger/function': typeof DashboardDebuggerFunctionIndexRoute
   '/functions/config': typeof DashboardFunctionsConfigIndexRoute
+  '/mcp/setup': typeof DashboardMcpSetupIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -145,14 +162,16 @@ export interface FileRoutesById {
   '/_dashboard/apps/': typeof DashboardAppsIndexRoute
   '/_dashboard/event/': typeof DashboardEventIndexRoute
   '/_dashboard/events/': typeof DashboardEventsIndexRoute
-  '/_dashboard/mcp/': typeof DashboardMcpIndexRoute
   '/_dashboard/run/': typeof DashboardRunIndexRoute
   '/_dashboard/runs/': typeof DashboardRunsIndexRoute
   '/_dashboard/apps/_onboarding/choose-framework': typeof DashboardAppsOnboardingChooseFrameworkRoute
   '/_dashboard/apps/_onboarding/choose-template': typeof DashboardAppsOnboardingChooseTemplateRoute
+  '/_dashboard/ai/experiments/': typeof DashboardAiExperimentsIndexRoute
+  '/_dashboard/ai/scores/': typeof DashboardAiScoresIndexRoute
   '/_dashboard/apps/app/': typeof DashboardAppsAppIndexRoute
   '/_dashboard/debugger/function/': typeof DashboardDebuggerFunctionIndexRoute
   '/_dashboard/functions/config/': typeof DashboardFunctionsConfigIndexRoute
+  '/_dashboard/mcp/setup/': typeof DashboardMcpSetupIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -163,14 +182,16 @@ export interface FileRouteTypes {
     | '/apps/'
     | '/event/'
     | '/events/'
-    | '/mcp/'
     | '/run/'
     | '/runs/'
     | '/apps/choose-framework'
     | '/apps/choose-template'
+    | '/ai/experiments/'
+    | '/ai/scores/'
     | '/apps/app/'
     | '/debugger/function/'
     | '/functions/config/'
+    | '/mcp/setup/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -178,14 +199,16 @@ export interface FileRouteTypes {
     | '/apps'
     | '/event'
     | '/events'
-    | '/mcp'
     | '/run'
     | '/runs'
     | '/apps/choose-framework'
     | '/apps/choose-template'
+    | '/ai/experiments'
+    | '/ai/scores'
     | '/apps/app'
     | '/debugger/function'
     | '/functions/config'
+    | '/mcp/setup'
   id:
     | '__root__'
     | '/'
@@ -195,14 +218,16 @@ export interface FileRouteTypes {
     | '/_dashboard/apps/'
     | '/_dashboard/event/'
     | '/_dashboard/events/'
-    | '/_dashboard/mcp/'
     | '/_dashboard/run/'
     | '/_dashboard/runs/'
     | '/_dashboard/apps/_onboarding/choose-framework'
     | '/_dashboard/apps/_onboarding/choose-template'
+    | '/_dashboard/ai/experiments/'
+    | '/_dashboard/ai/scores/'
     | '/_dashboard/apps/app/'
     | '/_dashboard/debugger/function/'
     | '/_dashboard/functions/config/'
+    | '/_dashboard/mcp/setup/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -247,13 +272,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRunIndexRouteImport
       parentRoute: typeof DashboardRoute
     }
-    '/_dashboard/mcp/': {
-      id: '/_dashboard/mcp/'
-      path: '/mcp'
-      fullPath: '/mcp/'
-      preLoaderRoute: typeof DashboardMcpIndexRouteImport
-      parentRoute: typeof DashboardRoute
-    }
     '/_dashboard/events/': {
       id: '/_dashboard/events/'
       path: '/events'
@@ -282,6 +300,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAppsOnboardingRouteRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/_dashboard/mcp/setup/': {
+      id: '/_dashboard/mcp/setup/'
+      path: '/mcp/setup'
+      fullPath: '/mcp/setup/'
+      preLoaderRoute: typeof DashboardMcpSetupIndexRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/_dashboard/functions/config/': {
       id: '/_dashboard/functions/config/'
       path: '/config'
@@ -301,6 +326,20 @@ declare module '@tanstack/react-router' {
       path: '/apps/app'
       fullPath: '/apps/app/'
       preLoaderRoute: typeof DashboardAppsAppIndexRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/_dashboard/ai/scores/': {
+      id: '/_dashboard/ai/scores/'
+      path: '/ai/scores'
+      fullPath: '/ai/scores/'
+      preLoaderRoute: typeof DashboardAiScoresIndexRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/_dashboard/ai/experiments/': {
+      id: '/_dashboard/ai/experiments/'
+      path: '/ai/experiments'
+      fullPath: '/ai/experiments/'
+      preLoaderRoute: typeof DashboardAiExperimentsIndexRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/_dashboard/apps/_onboarding/choose-template': {
@@ -358,11 +397,13 @@ interface DashboardRouteChildren {
   DashboardAppsIndexRoute: typeof DashboardAppsIndexRoute
   DashboardEventIndexRoute: typeof DashboardEventIndexRoute
   DashboardEventsIndexRoute: typeof DashboardEventsIndexRoute
-  DashboardMcpIndexRoute: typeof DashboardMcpIndexRoute
   DashboardRunIndexRoute: typeof DashboardRunIndexRoute
   DashboardRunsIndexRoute: typeof DashboardRunsIndexRoute
+  DashboardAiExperimentsIndexRoute: typeof DashboardAiExperimentsIndexRoute
+  DashboardAiScoresIndexRoute: typeof DashboardAiScoresIndexRoute
   DashboardAppsAppIndexRoute: typeof DashboardAppsAppIndexRoute
   DashboardDebuggerFunctionIndexRoute: typeof DashboardDebuggerFunctionIndexRoute
+  DashboardMcpSetupIndexRoute: typeof DashboardMcpSetupIndexRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
@@ -372,11 +413,13 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAppsIndexRoute: DashboardAppsIndexRoute,
   DashboardEventIndexRoute: DashboardEventIndexRoute,
   DashboardEventsIndexRoute: DashboardEventsIndexRoute,
-  DashboardMcpIndexRoute: DashboardMcpIndexRoute,
   DashboardRunIndexRoute: DashboardRunIndexRoute,
   DashboardRunsIndexRoute: DashboardRunsIndexRoute,
+  DashboardAiExperimentsIndexRoute: DashboardAiExperimentsIndexRoute,
+  DashboardAiScoresIndexRoute: DashboardAiScoresIndexRoute,
   DashboardAppsAppIndexRoute: DashboardAppsAppIndexRoute,
   DashboardDebuggerFunctionIndexRoute: DashboardDebuggerFunctionIndexRoute,
+  DashboardMcpSetupIndexRoute: DashboardMcpSetupIndexRoute,
 }
 
 const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
