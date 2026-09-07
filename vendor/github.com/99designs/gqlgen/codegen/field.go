@@ -41,6 +41,10 @@ type Field struct {
 	HasHaser         bool   // Whether a haser method is available (e.g., HasName())
 	HaserMethodName  string // Name of the haser method
 	Batch            bool   // Enable batch resolver for this field
+	// SubscriptionContextField mirrors the global subscription_context_field config
+	// option, resolved once at build time so UsesSubscriptionContext and the methods
+	// that depend on it stay nullary instead of threading the flag through the call chain.
+	SubscriptionContextField bool
 }
 
 func (b *builder) buildField(obj *Object, field *ast.FieldDefinition) (*Field, error) {
@@ -50,12 +54,13 @@ func (b *builder) buildField(obj *Object, field *ast.FieldDefinition) (*Field, e
 	}
 
 	f := Field{
-		FieldDefinition: field,
-		Object:          obj,
-		Directives:      dirs,
-		GoFieldName:     templates.ToGo(field.Name),
-		GoFieldType:     GoFieldVariable,
-		GoReceiverName:  "obj",
+		FieldDefinition:          field,
+		Object:                   obj,
+		Directives:               dirs,
+		GoFieldName:              templates.ToGo(field.Name),
+		GoFieldType:              GoFieldVariable,
+		GoReceiverName:           "obj",
+		SubscriptionContextField: b.Config.SubscriptionContextField,
 	}
 
 	if field.DefaultValue != nil {
@@ -82,19 +87,28 @@ func (b *builder) buildField(obj *Object, field *ast.FieldDefinition) (*Field, e
 		log.Println(err.Error())
 	}
 
-	// Set Batch flag from config (independent of resolver setting)
-	f.Batch = b.Config.Resolver.Batch.Enabled
+	// Set Batch flag from config (independent of resolver setting).
+	// Global batch applies only to fields that already need a resolver; explicit
+	// per-field batch settings in models yaml or @goField(batch:) take priority.
+	explicitBatch := false
 	if fieldCfg, ok := b.Config.Models[obj.Name]; ok {
 		if fieldEntry, ok := fieldCfg.Fields[field.Name]; ok && fieldEntry.Batch != nil {
 			f.Batch = *fieldEntry.Batch
+			explicitBatch = true
 		}
 	}
+	unsupportedBatchReason := b.Config.BatchResolverUnsupportedReason(obj.Name, obj.Definition)
+	supportsBatch := unsupportedBatchReason == ""
+	if !explicitBatch && b.Config.Resolver.Batch.Enabled && supportsBatch && f.IsResolver {
+		f.Batch = true
+	}
 	if f.Batch {
-		if f.Object.Root {
+		if !supportsBatch {
 			return nil, fmt.Errorf(
-				"batch resolver is not supported for root field %s.%s",
+				"batch resolver is not supported for field %s.%s: %s",
 				obj.Name,
 				field.Name,
+				unsupportedBatchReason,
 			)
 		}
 		// batch resolvers are always user-provided
@@ -103,7 +117,7 @@ func (b *builder) buildField(obj *Object, field *ast.FieldDefinition) (*Field, e
 
 	if f.IsResolver && b.Config.ResolversAlwaysReturnPointers && !f.TypeReference.IsPtr() &&
 		f.TypeReference.IsStruct() {
-		f.TypeReference = b.Binder.PointerTo(f.TypeReference)
+		f.TypeReference = b.Binder.ReplaceWithPointer(f.TypeReference)
 	}
 
 	return &f, nil
@@ -374,7 +388,7 @@ func (b *builder) findBindStructTagTarget(in types.Type, name string) (types.Obj
 }
 
 func (b *builder) findBindMethodTarget(in types.Type, name string) (types.Object, error) {
-	switch t := in.(type) {
+	switch t := types.Unalias(in).(type) {
 	case *types.Named:
 		if _, ok := t.Underlying().(*types.Interface); ok {
 			return b.findBindMethodTarget(t.Underlying(), name)
@@ -412,7 +426,7 @@ func (b *builder) findBindMethoderTarget(
 }
 
 func (b *builder) findBindFieldTarget(in types.Type, name string) (types.Object, error) {
-	switch t := in.(type) {
+	switch t := types.Unalias(in).(type) {
 	case *types.Named:
 		return b.findBindFieldTarget(t.Underlying(), name)
 	case *types.Struct:
@@ -440,7 +454,7 @@ func (b *builder) findBindEmbedsTarget(
 	name string,
 	autoBindGetterHaser bool,
 ) (types.Object, error) {
-	switch t := in.(type) {
+	switch t := types.Unalias(in).(type) {
 	case *types.Named:
 		return b.findBindEmbedsTarget(t.Underlying(), name, autoBindGetterHaser)
 	case *types.Struct:
@@ -514,7 +528,7 @@ func (b *builder) findBindInterfaceEmbedsTarget(
 func (b *builder) findBindHaserMethod(in types.Type, name string) (types.Object, error) {
 	haserName := "Has" + name
 
-	switch t := in.(type) {
+	switch t := types.Unalias(in).(type) {
 	case *types.Named:
 		if _, ok := t.Underlying().(*types.Interface); ok {
 			return b.findBindHaserMethod(t.Underlying(), name)
@@ -560,6 +574,56 @@ func (b *builder) findBindHaserMethod(in types.Type, name string) (types.Object,
 
 func (f *Field) HasDirectives() bool {
 	return len(f.ImplDirectives()) > 0
+}
+
+// UsesSubscriptionContext reports whether this field is on the Subscription
+// root type and is annotated with @subscriptionContext, or the global
+// subscription_context_field option is enabled. Codegen uses this to
+// emit a resolver returning <-chan graphql.Event[T] instead of <-chan T, and
+// to thread per-event context into the AroundResponses interceptor chain.
+// Returns false for non-subscription fields even if they carry the directive.
+func (f *Field) UsesSubscriptionContext() bool {
+	if !f.Object.Stream {
+		return false
+	}
+	if f.SubscriptionContextField {
+		return true
+	}
+	for _, d := range f.FieldDefinition.Directives {
+		if d.Name == config.DirSubscriptionContext {
+			return true
+		}
+	}
+	return false
+}
+
+// MarshalerReturnType returns the Go type that the generated field-exec
+// function for this field returns. A normal field returns a graphql.Marshaler
+// directly; a subscription stream field returns a func yielding one marshaler
+// per event; and a stream field annotated @subscriptionContext additionally
+// yields a per-event context (see [Field.UsesSubscriptionContext]).
+func (f *Field) MarshalerReturnType() string {
+	if !f.Object.Stream {
+		return "graphql.Marshaler"
+	}
+	if f.UsesSubscriptionContext() {
+		return "func(ctx context.Context) (context.Context, graphql.Marshaler)"
+	}
+	return "func(ctx context.Context) graphql.Marshaler"
+}
+
+// ResolveFieldFunc returns the name of the graphql runtime helper the generated
+// executor calls to resolve this field: ResolveField for normal fields,
+// ResolveFieldStream for subscription streams, and
+// ResolveFieldStreamWithEventContext for streams annotated @subscriptionContext.
+func (f *Field) ResolveFieldFunc() string {
+	if !f.Object.Stream {
+		return "ResolveField"
+	}
+	if f.UsesSubscriptionContext() {
+		return "ResolveFieldStreamWithEventContext"
+	}
+	return "ResolveFieldStream"
 }
 
 func (f *Field) DirectiveObjName() string {
@@ -834,7 +898,12 @@ func (f *Field) ShortResolverSignature(ft *goast.FuncType) string {
 
 	result := templates.CurrentImports.LookupType(f.TypeReference.GO)
 	if f.Object.Stream {
-		result = "<-chan " + result
+		if f.UsesSubscriptionContext() {
+			gqlPkg := templates.CurrentImports.Lookup("github.com/99designs/gqlgen/graphql")
+			result = fmt.Sprintf("<-chan %s.Event[%s]", gqlPkg, result)
+		} else {
+			result = "<-chan " + result
+		}
 	}
 	// Named return.
 	var namedV, namedE string
@@ -921,7 +990,7 @@ func (f *Field) fieldArgExpression(
 		arg.TypeReference.GO,
 	) + ")"
 
-	if iface, ok := arg.TypeReference.GO.(*types.Interface); ok && iface.Empty() {
+	if iface, ok := types.Unalias(arg.TypeReference.GO).(*types.Interface); ok && iface.Empty() {
 		tmp = fmt.Sprintf(`
 				func () any {
 					if fc.Args["%s"] == nil {

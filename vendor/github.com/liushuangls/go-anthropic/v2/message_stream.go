@@ -12,8 +12,11 @@ import (
 )
 
 var (
-	eventPrefix                   = []byte("event:")
-	dataPrefix                    = []byte("data:")
+	eventPrefix = []byte("event:")
+	dataPrefix  = []byte("data:")
+	// commentPrefix marks an SSE comment line (e.g. proxy keep-alives). Per the
+	// SSE spec these must be ignored.
+	commentPrefix                 = []byte(":")
 	ErrTooManyEmptyStreamMessages = errors.New("stream has sent too many empty messages")
 )
 
@@ -184,6 +187,11 @@ func (c *Client) CreateMessagesStream(
 		if len(noSpaceLine) == 0 {
 			continue
 		}
+		// SSE comment lines (proxy keep-alives) must be ignored without
+		// counting against the empty-message budget.
+		if bytes.HasPrefix(noSpaceLine, commentPrefix) {
+			continue
+		}
 		if bytes.HasPrefix(noSpaceLine, eventPrefix) {
 			event = bytes.TrimSpace(bytes.TrimPrefix(noSpaceLine, eventPrefix))
 			continue
@@ -193,6 +201,9 @@ func (c *Client) CreateMessagesStream(
 				data      = bytes.TrimPrefix(noSpaceLine, dataPrefix)
 				eventType = MessagesEvent(event)
 			)
+			// A genuine SSE data event was received; reset the lifetime
+			// empty-message counter so healthy long streams are never aborted.
+			emptyMessageCount = 0
 			switch eventType {
 			case MessagesEventError:
 				var eventData ErrorResponse
@@ -202,7 +213,10 @@ func (c *Client) CreateMessagesStream(
 				if request.OnError != nil {
 					request.OnError(eventData)
 				}
-				return response, eventData.Error
+				if eventData.Error != nil {
+					return response, eventData.Error
+				}
+				return response, fmt.Errorf("stream error event with no error detail")
 			case MessagesEventPing:
 				var d MessagesEventPingData
 				if err := json.Unmarshal(data, &d); err != nil {
@@ -266,9 +280,22 @@ func (c *Client) CreateMessagesStream(
 				}
 				if len(response.Content) > d.Index {
 					stopContent = response.Content[d.Index]
-					if stopContent.Type == MessagesContentTypeToolUse {
-						if stopContent.PartialJson != nil {
-							stopContent.Input = json.RawMessage(*stopContent.PartialJson)
+					switch stopContent.Type {
+					case MessagesContentTypeToolUse:
+						if stopContent.PartialJson != nil &&
+							stopContent.MessageContentToolUse != nil {
+							stopContent.MessageContentToolUse.Input = json.RawMessage(
+								*stopContent.PartialJson,
+							)
+						}
+						stopContent.PartialJson = nil
+						response.Content[d.Index] = stopContent
+					case MessagesContentTypeServerToolUse:
+						if stopContent.PartialJson != nil &&
+							stopContent.MessageContentServerToolUse != nil {
+							stopContent.MessageContentServerToolUse.Input = json.RawMessage(
+								*stopContent.PartialJson,
+							)
 						}
 						stopContent.PartialJson = nil
 						response.Content[d.Index] = stopContent
@@ -289,6 +316,15 @@ func (c *Client) CreateMessagesStream(
 				response.StopReason = d.Delta.StopReason
 				response.StopSequence = d.Delta.StopSequence
 				response.Usage.OutputTokens = d.Usage.OutputTokens
+				// The final message_delta also reports cumulative server tool
+				// usage (e.g. web-search request counts) and cache creation
+				// details that are only present here; merge them when set.
+				if d.Usage.ServerToolUse != nil {
+					response.Usage.ServerToolUse = d.Usage.ServerToolUse
+				}
+				if d.Usage.CacheCreation != (MessageUsageCacheCreation{}) {
+					response.Usage.CacheCreation = d.Usage.CacheCreation
+				}
 				continue
 			case MessagesEventMessageStop:
 				var d MessagesEventMessageStopData
@@ -298,6 +334,10 @@ func (c *Client) CreateMessagesStream(
 				if request.OnMessageStop != nil {
 					request.OnMessageStop(d)
 				}
+				continue
+			default:
+				// Unknown or future event type. Per the SSE spec it must be
+				// ignored rather than counted against the empty-message budget.
 				continue
 			}
 		}
@@ -316,8 +356,14 @@ func growMessageContent(content []MessageContent, index int) []MessageContent {
 	return content
 }
 
+// maxStreamContentBlockIndex caps the content block index accepted from the
+// wire. The index is attacker/server controlled; an absurdly large value would
+// otherwise force growMessageContent to allocate a gigantic slice (OOM) or
+// panic in makeslice. Real responses never approach this bound.
+const maxStreamContentBlockIndex = 100000
+
 func validateMessageContentIndex(index int) error {
-	if index < 0 {
+	if index < 0 || index > maxStreamContentBlockIndex {
 		return fmt.Errorf("invalid content block index: %d", index)
 	}
 	return nil
