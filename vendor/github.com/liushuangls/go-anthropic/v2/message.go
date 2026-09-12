@@ -16,26 +16,29 @@ const (
 type MessagesContentType string
 
 const (
-	MessagesContentTypeText             MessagesContentType = "text"
-	MessagesContentTypeTextDelta        MessagesContentType = "text_delta"
-	MessagesContentTypeImage            MessagesContentType = "image"
-	MessagesContentTypeToolResult       MessagesContentType = "tool_result"
-	MessagesContentTypeToolUse          MessagesContentType = "tool_use"
-	MessagesContentTypeInputJsonDelta   MessagesContentType = "input_json_delta"
-	MessagesContentTypeDocument         MessagesContentType = "document"
-	MessagesContentTypeCitationsDelta   MessagesContentType = "citations_delta"
-	MessagesContentTypeThinking         MessagesContentType = "thinking"
-	MessagesContentTypeThinkingDelta    MessagesContentType = "thinking_delta"
-	MessagesContentTypeSignatureDelta   MessagesContentType = "signature_delta"
-	MessagesContentTypeRedactedThinking MessagesContentType = "redacted_thinking"
+	MessagesContentTypeText                MessagesContentType = "text"
+	MessagesContentTypeTextDelta           MessagesContentType = "text_delta"
+	MessagesContentTypeImage               MessagesContentType = "image"
+	MessagesContentTypeToolResult          MessagesContentType = "tool_result"
+	MessagesContentTypeToolUse             MessagesContentType = "tool_use"
+	MessagesContentTypeInputJsonDelta      MessagesContentType = "input_json_delta"
+	MessagesContentTypeDocument            MessagesContentType = "document"
+	MessagesContentTypeCitationsDelta      MessagesContentType = "citations_delta"
+	MessagesContentTypeThinking            MessagesContentType = "thinking"
+	MessagesContentTypeThinkingDelta       MessagesContentType = "thinking_delta"
+	MessagesContentTypeSignatureDelta      MessagesContentType = "signature_delta"
+	MessagesContentTypeRedactedThinking    MessagesContentType = "redacted_thinking"
+	MessagesContentTypeServerToolUse       MessagesContentType = "server_tool_use"
+	MessagesContentTypeWebSearchToolResult MessagesContentType = "web_search_tool_result"
 )
 
 type CitationType string
 
 const (
-	CitationTypeCharLocation CitationType = "char_location"
-	CitationTypePageNumber   CitationType = "page_number"
-	CitationTypeBlockIndex   CitationType = "block_index"
+	CitationTypeCharLocation            CitationType = "char_location"
+	CitationTypePageLocation            CitationType = "page_location"
+	CitationTypeBlockIndex              CitationType = "block_index"
+	CitationTypeWebSearchResultLocation CitationType = "web_search_result_location"
 )
 
 type ThinkingType string
@@ -53,6 +56,7 @@ const (
 	MessagesStopReasonMaxTokens    MessagesStopReason = "max_tokens"
 	MessagesStopReasonStopSequence MessagesStopReason = "stop_sequence"
 	MessagesStopReasonToolUse      MessagesStopReason = "tool_use"
+	MessagesStopReasonPauseTurn    MessagesStopReason = "pause_turn"
 	MessagesStopRefusal            MessagesStopReason = "refusal"
 )
 
@@ -85,10 +89,15 @@ type DocumentCitations struct {
 }
 
 type MessagesRequest struct {
+	// Model is required by the direct Anthropic API, but on Vertex AI and
+	// Bedrock the model is carried in the URL and MUST NOT appear in the body.
+	// Those adapters blank it via SetAnthropicVersion/SetModel, so it must stay
+	// omitempty — otherwise an empty "model" leaks into the body and Vertex
+	// rejects the request with `model: Extra inputs are not permitted`.
 	Model            Model     `json:"model,omitempty"`
 	AnthropicVersion string    `json:"anthropic_version,omitempty"`
 	Messages         []Message `json:"messages"`
-	MaxTokens        int       `json:"max_tokens,omitempty"`
+	MaxTokens        int       `json:"max_tokens"`
 
 	System        string              `json:"-"`
 	MultiSystem   []MessageSystemPart `json:"-"`
@@ -212,8 +221,16 @@ const (
 	CacheControlTypeEphemeral CacheControlType = "ephemeral"
 )
 
+type CacheControlTTL string
+
+const (
+	CacheControlTTL5m CacheControlTTL = "5m"
+	CacheControlTTL1h CacheControlTTL = "1h"
+)
+
 type MessageCacheControl struct {
 	Type CacheControlType `json:"type"`
+	TTL  CacheControlTTL  `json:"ttl,omitempty"`
 }
 
 type Citation struct {
@@ -226,13 +243,18 @@ type Citation struct {
 	StartCharIndex *int `json:"start_char_index,omitempty"`
 	EndCharIndex   *int `json:"end_char_index,omitempty"`
 
-	// For page_number citations
-	StartPage *int `json:"start_page,omitempty"`
-	EndPage   *int `json:"end_page,omitempty"`
+	// For page_location citations
+	StartPage *int `json:"start_page_number,omitempty"`
+	EndPage   *int `json:"end_page_number,omitempty"`
 
 	// For block_index citations
 	StartBlockIndex *int `json:"start_block_index,omitempty"`
 	EndBlockIndex   *int `json:"end_block_index,omitempty"`
+
+	// For web_search_result_location citations
+	EncryptedIndex *string `json:"encrypted_index,omitempty"`
+	Url            *string `json:"url,omitempty"`
+	Title          *string `json:"title,omitempty"`
 }
 
 type MessageContent struct {
@@ -245,6 +267,10 @@ type MessageContent struct {
 	*MessageContentToolResult
 
 	*MessageContentToolUse
+
+	*MessageContentWebSearchToolResult
+
+	*MessageContentServerToolUse
 
 	PartialJson *string `json:"partial_json,omitempty"`
 
@@ -269,8 +295,77 @@ type MessageContent struct {
 	*MessageContentRedactedThinking
 }
 
+// MarshalJSON implements custom JSON marshaling for MessageContent.
+//
+// MessageContent embeds several pointer structs (tool_use, server_tool_use,
+// tool_result, web_search_tool_result) that declare overlapping JSON field
+// names — for example both MessageContentToolResult and
+// MessageContentWebSearchToolResult define "tool_use_id" and "content", and
+// both MessageContentToolUse and MessageContentServerToolUse define "id",
+// "name" and "input". Go's encoding/json drops fields that are ambiguous across
+// embedded structs at the same depth, which would silently strip "tool_use_id",
+// "content", "id", "name" and "input" from the wire payload.
+//
+// To produce a correct payload we marshal the base struct (which omits the
+// ambiguous fields) and then merge back the fields of whichever embedded tool
+// struct is actually populated. Blocks without an ambiguous embedded struct
+// (text, image, document, thinking, …) are marshaled exactly as before.
+func (m MessageContent) MarshalJSON() ([]byte, error) {
+	type Alias MessageContent
+	base, err := json.Marshal(Alias(m))
+	if err != nil {
+		return nil, err
+	}
+
+	var extra any
+	switch {
+	case m.MessageContentToolResult != nil:
+		extra = m.MessageContentToolResult
+	case m.MessageContentToolUse != nil:
+		extra = m.MessageContentToolUse
+	case m.MessageContentServerToolUse != nil:
+		extra = m.MessageContentServerToolUse
+	case m.MessageContentWebSearchToolResult != nil:
+		extra = m.MessageContentWebSearchToolResult
+	}
+
+	if extra == nil {
+		// No ambiguous embedded struct; preserve the original encoding.
+		return base, nil
+	}
+
+	merged := map[string]json.RawMessage{}
+	if err := json.Unmarshal(base, &merged); err != nil {
+		return nil, err
+	}
+
+	extraBytes, err := json.Marshal(extra)
+	if err != nil {
+		return nil, err
+	}
+	extraFields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(extraBytes, &extraFields); err != nil {
+		return nil, err
+	}
+	for k, v := range extraFields {
+		merged[k] = v
+	}
+
+	return json.Marshal(merged)
+}
+
 // UnmarshalJSON implements custom JSON unmarshaling for MessageContent
 func (m *MessageContent) UnmarshalJSON(data []byte) error {
+	// First, unmarshal to get the type field
+	type TypeOnly struct {
+		Type MessagesContentType `json:"type"`
+	}
+	var typeCheck TypeOnly
+	if err := json.Unmarshal(data, &typeCheck); err != nil {
+		return err
+	}
+
+	// Create an alias to avoid infinite recursion
 	type Alias MessageContent
 	aux := &struct {
 		Citations []Citation `json:"citations"`
@@ -278,12 +373,61 @@ func (m *MessageContent) UnmarshalJSON(data []byte) error {
 	}{
 		Alias: (*Alias)(m),
 	}
+
+	// Unmarshal into the alias
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
 
-	// Copy Citations from aux to m
+	// Copy citations
 	m.Citations = aux.Citations
+
+	// Based on type, create and populate the appropriate embedded struct
+	switch typeCheck.Type {
+	case MessagesContentTypeToolUse:
+		var toolUse MessageContentToolUse
+		if err := json.Unmarshal(data, &toolUse); err != nil {
+			return err
+		}
+		m.MessageContentToolUse = &toolUse
+
+	case MessagesContentTypeServerToolUse:
+		var serverToolUse MessageContentServerToolUse
+		if err := json.Unmarshal(data, &serverToolUse); err != nil {
+			return err
+		}
+		m.MessageContentServerToolUse = &serverToolUse
+
+	case MessagesContentTypeToolResult:
+		var toolResult MessageContentToolResult
+		if err := json.Unmarshal(data, &toolResult); err != nil {
+			return err
+		}
+		m.MessageContentToolResult = &toolResult
+
+	case MessagesContentTypeWebSearchToolResult:
+		var webSearchResult MessageContentWebSearchToolResult
+		if err := json.Unmarshal(data, &webSearchResult); err != nil {
+			return err
+		}
+		m.MessageContentWebSearchToolResult = &webSearchResult
+
+	case MessagesContentTypeThinking,
+		MessagesContentTypeThinkingDelta,
+		MessagesContentTypeSignatureDelta:
+		var thinking MessageContentThinking
+		if err := json.Unmarshal(data, &thinking); err != nil {
+			return err
+		}
+		m.MessageContentThinking = &thinking
+
+	case MessagesContentTypeRedactedThinking:
+		var redacted MessageContentRedactedThinking
+		if err := json.Unmarshal(data, &redacted); err != nil {
+			return err
+		}
+		m.MessageContentRedactedThinking = &redacted
+	}
 
 	return nil
 }
@@ -391,13 +535,38 @@ func NewToolUseMessageContent(toolUseID, name string, input json.RawMessage) Mes
 	}
 }
 
+func NewServerToolUseContent(toolUseID, name string, input json.RawMessage) MessageContent {
+	return MessageContent{
+		Type:                        MessagesContentTypeServerToolUse,
+		MessageContentServerToolUse: NewMessageContentServerToolUse(toolUseID, name, input),
+	}
+}
+
+func NewServerWebSearchToolResultContent(
+	toolUseID string,
+	content []WebSearchResult,
+) MessageContent {
+	return MessageContent{
+		Type: MessagesContentTypeWebSearchToolResult,
+		MessageContentWebSearchToolResult: NewMessageContentWebSearchToolResult(
+			toolUseID,
+			content,
+		),
+	}
+}
+
 func (m *MessageContent) SetCacheControl(ts ...CacheControlType) {
 	t := CacheControlTypeEphemeral
 	if len(ts) > 0 {
 		t = ts[0]
 	}
+	m.SetCacheControlTTL(t, "")
+}
+
+func (m *MessageContent) SetCacheControlTTL(t CacheControlType, ttl CacheControlTTL) {
 	m.CacheControl = &MessageCacheControl{
 		Type: t,
+		TTL:  ttl,
 	}
 }
 
@@ -427,14 +596,25 @@ func (m *MessageContent) MergeContentDelta(mc MessageContent) {
 	case MessagesContentTypeToolResult:
 		m.MessageContentToolResult = mc.MessageContentToolResult
 	case MessagesContentTypeToolUse:
-		m.MessageContentToolUse = &MessageContentToolUse{
-			ID:   mc.MessageContentToolUse.ID,
-			Name: mc.MessageContentToolUse.Name,
+		if mc.MessageContentToolUse != nil {
+			m.MessageContentToolUse = &MessageContentToolUse{
+				ID:   mc.MessageContentToolUse.ID,
+				Name: mc.MessageContentToolUse.Name,
+			}
 		}
+	case MessagesContentTypeServerToolUse:
+		if mc.MessageContentServerToolUse != nil {
+			m.MessageContentServerToolUse = &MessageContentServerToolUse{
+				ID:   mc.MessageContentServerToolUse.ID,
+				Name: mc.MessageContentServerToolUse.Name,
+			}
+		}
+	case MessagesContentTypeWebSearchToolResult:
+		m.MessageContentWebSearchToolResult = mc.MessageContentWebSearchToolResult
 	case MessagesContentTypeInputJsonDelta:
 		if m.PartialJson == nil {
 			m.PartialJson = mc.PartialJson
-		} else {
+		} else if mc.PartialJson != nil {
 			*m.PartialJson += *mc.PartialJson
 		}
 	case MessagesContentTypeCitationsDelta:
@@ -449,7 +629,7 @@ func (m *MessageContent) MergeContentDelta(mc MessageContent) {
 		MessagesContentTypeSignatureDelta:
 		if m.MessageContentThinking == nil {
 			m.MessageContentThinking = mc.MessageContentThinking
-		} else {
+		} else if mc.MessageContentThinking != nil {
 			m.MessageContentThinking.Thinking += mc.MessageContentThinking.Thinking
 			if mc.MessageContentThinking.Signature != "" {
 				m.MessageContentThinking.Signature = mc.MessageContentThinking.Signature
@@ -477,6 +657,43 @@ func NewMessageContentToolResult(
 			},
 		},
 		IsError: &isError,
+	}
+}
+
+type WebSearchResultType string
+
+const (
+	WebSearchResultTypeWebSearchResult WebSearchResultType = "web_search_result"
+)
+
+type WebSearchResult struct {
+	Type             WebSearchResultType `json:"type"`
+	Url              *string             `json:"url,omitempty"`
+	Title            *string             `json:"title,omitempty"`
+	EncryptedContent *string             `json:"encrypted_content,omitempty"`
+	PageAge          *string             `json:"page_age,omitempty"`
+}
+
+func NewWebSearchResult(url, title string) WebSearchResult {
+	return WebSearchResult{
+		Type:  WebSearchResultTypeWebSearchResult,
+		Url:   &url,
+		Title: &title,
+	}
+}
+
+type MessageContentWebSearchToolResult struct {
+	ToolUseID *string           `json:"tool_use_id,omitempty"`
+	Content   []WebSearchResult `json:"content,omitempty"`
+}
+
+func NewMessageContentWebSearchToolResult(
+	toolUseID string,
+	content []WebSearchResult,
+) *MessageContentWebSearchToolResult {
+	return &MessageContentWebSearchToolResult{
+		ToolUseID: &toolUseID,
+		Content:   content,
 	}
 }
 
@@ -521,13 +738,38 @@ func NewMessageContentToolUse(
 	}
 }
 
+func (c *MessageContentServerToolUse) UnmarshalInput(v any) error {
+	return json.Unmarshal(c.Input, v)
+}
+
+type MessageContentServerToolUse struct {
+	ID    string          `json:"id"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
+}
+
+func NewMessageContentServerToolUse(
+	toolUseId, name string,
+	input json.RawMessage,
+) *MessageContentServerToolUse {
+	if input == nil {
+		input = json.RawMessage(`{}`)
+	}
+
+	return &MessageContentServerToolUse{
+		ID:    toolUseId,
+		Name:  name,
+		Input: input,
+	}
+}
+
 func (c *MessageContentToolUse) UnmarshalInput(v any) error {
 	return json.Unmarshal(c.Input, v)
 }
 
 type MessageContentThinking struct {
-	Thinking  string `json:"thinking,omitempty"`
-	Signature string `json:"signature,omitempty"`
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature"`
 }
 
 type MessageContentRedactedThinking struct {
@@ -555,6 +797,10 @@ func (m MessagesResponse) GetFirstContentText() string {
 	return m.Content[0].GetText()
 }
 
+type ServerToolUsage struct {
+	WebSearchRequests int `json:"web_search_requests,omitempty"`
+}
+
 type MessagesUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
@@ -565,11 +811,27 @@ type MessagesUsage struct {
 	CacheReadInputTokens int `json:"cache_read_input_tokens,omitempty"`
 	// docs: https://platform.claude.com/docs/en/api/messages/create#message.usage + (resource) messages.cache_creation
 	CacheCreation MessageUsageCacheCreation `json:"cache_creation"`
+
+	ServerToolUse *ServerToolUsage `json:"server_tool_use,omitempty"`
 }
 
 type MessageUsageCacheCreation struct {
 	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
 	Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens"`
+}
+
+type UserLocationType string
+
+const (
+	UserLocationTypeApproximate = "approximate"
+)
+
+type UserLocation struct {
+	Type     UserLocationType `json:"type"`
+	City     string           `json:"city,omitempty"`
+	Region   string           `json:"region,omitempty"`
+	Country  string           `json:"country,omitempty"`
+	Timezone string           `json:"timezone,omitempty"`
 }
 
 type ToolDefinition struct {
@@ -596,6 +858,13 @@ type ToolDefinition struct {
 	DisplayHeightPx int `json:"display_height_px,omitempty"`
 	// DisplayNumber is an optional parameter of the Computer Use tool.
 	DisplayNumber *int `json:"display_number,omitempty"`
+
+	// Required for web search tool configuration.
+	MaxUses           *int          `json:"max_uses,omitempty"`
+	AllowedDomains    []string      `json:"allowed_domains,omitempty"`
+	BlockedDomains    []string      `json:"blocked_domains,omitempty"`
+	UserLocation      *UserLocation `json:"user_location,omitempty"`
+	ResponseInclusion *string       `json:"response_inclusion,omitempty"`
 }
 
 func NewComputerUseToolDefinition(
