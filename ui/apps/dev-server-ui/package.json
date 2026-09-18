@@ -27,7 +27,7 @@
   "dependencies": {
     "@headlessui/react": "^1.7.17",
     "@inngest/components": "workspace:*",
-    "@reduxjs/toolkit": "^1.9.0",
+    "@reduxjs/toolkit": "^2.11.0",
     "@remixicon/react": "^4.2.0",
     "@rtk-query/graphql-request-base-query": "^2.2.0",
     "@tanstack/react-query": "^5.66.5",
@@ -43,7 +43,7 @@
     "react-redux": "^9.0.0",
     "sonner": "^2.0.0",
     "srvx": "0.11.17",
-    "zod": "^4.4.0"
+    "zod": "^4.5.0"
   },
   "devDependencies": {
     "@graphql-codegen/cli": "7.1.3",
