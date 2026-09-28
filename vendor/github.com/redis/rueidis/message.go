@@ -130,11 +130,15 @@ func (r *RedisError) IsBusyGroup() bool {
 	return strings.HasPrefix(r.string(), "BUSYGROUP")
 }
 
-func newResult(val RedisMessage, err error) RedisResult {
+// NewResult returns a RedisResult with the provided RedisMessage and error. This is mostly useful for implementing
+// hooks or mocking.
+func NewResult(val RedisMessage, err error) RedisResult {
 	return RedisResult{val: val, err: err}
 }
 
-func newErrResult(err error) RedisResult {
+// NewErrorResult returns a RedisResult with the provided error. This is useful for implementing
+// hooks or mocking.
+func NewErrorResult(err error) RedisResult {
 	return RedisResult{err: err}
 }
 
@@ -1255,7 +1259,7 @@ func (m *RedisMessage) AsIntMap() (map[string]int64, error) {
 			v := m.values()[i+1]
 			if k.typ == typeBlobString || k.typ == typeSimpleString {
 				if len(v.string()) != 0 {
-					if r[k.string()], err = strconv.ParseInt(v.string(), 0, 64); err != nil {
+					if r[k.string()], err = strconv.ParseInt(v.string(), 10, 64); err != nil {
 						return nil, err
 					}
 				} else if v.typ == typeInteger || v.typ == typeNull {

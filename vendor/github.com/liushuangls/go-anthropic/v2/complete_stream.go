@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 )
@@ -72,6 +73,11 @@ func (c *Client) CreateCompleteStream(
 		if len(noSpaceLine) == 0 {
 			continue
 		}
+		// SSE comment lines (proxy keep-alives) must be ignored without
+		// counting against the empty-message budget.
+		if bytes.HasPrefix(noSpaceLine, commentPrefix) {
+			continue
+		}
 		if bytes.HasPrefix(noSpaceLine, eventPrefix) {
 			event = bytes.TrimSpace(bytes.TrimPrefix(noSpaceLine, eventPrefix))
 			continue
@@ -81,6 +87,9 @@ func (c *Client) CreateCompleteStream(
 				data      = bytes.TrimPrefix(noSpaceLine, dataPrefix)
 				eventType = CompleteEvent(event)
 			)
+			// A genuine SSE data event was received; reset the lifetime
+			// empty-message counter so healthy long streams are never aborted.
+			emptyMessageCount = 0
 			switch eventType {
 			case CompleteEventError:
 				var d ErrorResponse
@@ -90,7 +99,10 @@ func (c *Client) CreateCompleteStream(
 				if request.OnError != nil {
 					request.OnError(d)
 				}
-				return response, d.Error
+				if d.Error != nil {
+					return response, d.Error
+				}
+				return response, fmt.Errorf("stream error event with no error detail")
 			case CompleteEventPing:
 				var d CompleteStreamPingData
 				if err := json.Unmarshal(data, &d); err != nil {
@@ -113,6 +125,10 @@ func (c *Client) CreateCompleteStream(
 				response.StopReason = d.StopReason
 				response.Model = d.Model
 				response.Completion += d.Completion
+				continue
+			default:
+				// Unknown or future event type. Per the SSE spec it must be
+				// ignored rather than counted against the empty-message budget.
 				continue
 			}
 		}
