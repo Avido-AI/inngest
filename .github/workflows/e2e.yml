@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload devserver logs
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: devserver-logs-ts
           path: /tmp/devserver-logs-ts.txt
@@ -177,7 +177,7 @@ jobs:
 
       - name: Upload devserver logs
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: devserver-logs-golang-split-${{ matrix.index }}
           path: /tmp/dev-output.txt
@@ -270,7 +270,7 @@ jobs:
 
       - name: Upload devserver logs
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: devserver-logs-batch
           path: /tmp/dev-output.txt
@@ -362,7 +362,7 @@ jobs:
 
       - name: Upload devserver logs
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: devserver-logs-api
           path: /tmp/dev-output.txt
