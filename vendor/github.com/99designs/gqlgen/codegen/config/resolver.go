@@ -21,10 +21,22 @@ type ResolverConfig struct {
 	OmitTemplateComment bool                `yaml:"omit_template_comment,omitempty"`
 	ResolverTemplate    string              `yaml:"resolver_template,omitempty"`
 	PreserveResolver    bool                `yaml:"preserve_resolver,omitempty"`
+
+	// OmitResolverEmbedding declares the per-object resolver types with a named
+	// "r" field instead of embedding the root resolver, which speeds up
+	// compilation on large schemas.
+	//
+	// Enabling this is a source-breaking change for a project's own resolver
+	// bodies: dependencies are reached as "r.r.myService" rather than
+	// "r.myService".
+	OmitResolverEmbedding bool `yaml:"omit_resolver_embedding,omitempty"`
 }
 
-// ResolverBatchConfig enables batch resolver generation for all fields as if they
-// had @goField(batch: true). Individual fields can opt out with @goField(batch: false).
+// ResolverBatchConfig enables batch resolver generation for resolver fields as if they
+// had @goField(batch: true). Root types (Query, Mutation, Subscription), input objects,
+// and introspection types (__*) are always excluded. When federation is enabled, federation
+// _Service and Entity are also excluded. Global batch does not convert struct-bound fields
+// into resolvers. Individual fields can opt out with @goField(batch: false).
 type ResolverBatchConfig struct {
 	Enabled bool
 }

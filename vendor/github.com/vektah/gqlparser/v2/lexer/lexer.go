@@ -3,6 +3,7 @@ package lexer
 import (
 	"bytes"
 	"slices"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/vektah/gqlparser/v2/ast"
@@ -193,7 +194,7 @@ func (s *Lexer) ReadToken() (Token, error) {
 	s.endRunes--
 
 	if r < 0x0020 && r != 0x0009 && r != 0x000a && r != 0x000d {
-		return s.makeError(`Cannot contain the invalid character "\u%04d"`, r)
+		return s.makeError(`Cannot contain the invalid character "\u%04x"`, r)
 	}
 
 	if r == '\'' {
@@ -365,7 +366,7 @@ func (s *Lexer) readString() (Token, error) {
 			break
 		}
 		if r < 0x0020 && r != '\t' {
-			return s.makeError(`Invalid character within String: "\u%04d".`, r)
+			return s.makeError(`Invalid character within String: "\u%04x".`, r)
 		}
 		switch r {
 		default:
@@ -429,9 +430,20 @@ func (s *Lexer) readString() (Token, error) {
 						s.Input[s.end:s.end+5],
 					)
 				}
-				buf.WriteRune(r)
 				s.end += 6
 				s.endRunes += 6
+				// A leading surrogate followed by an escaped trailing surrogate
+				// is one code point, as in JSON.
+				if r >= 0xD800 && r < 0xDC00 && s.end+6 < inputLen {
+					next := s.Input[s.end : s.end+6]
+					r2, ok := unhex(next[2:])
+					if next[:2] == `\u` && ok && r2 >= 0xDC00 && r2 <= 0xDFFF {
+						r = utf16.DecodeRune(r, r2)
+						s.end += 6
+						s.endRunes += 6
+					}
+				}
+				buf.WriteRune(r)
 			} else {
 				switch escape {
 				case '"', '/', '\\':
@@ -505,7 +517,7 @@ func (s *Lexer) readBlockString() (Token, error) {
 
 		// SourceCharacter
 		if r < 0x0020 && r != '\t' && r != '\n' && r != '\r' {
-			return s.makeError(`Invalid character within String: "\u%04d".`, r)
+			return s.makeError(`Invalid character within String: "\u%04x".`, r)
 		}
 
 		switch {

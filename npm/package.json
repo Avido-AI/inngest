@@ -23,7 +23,7 @@
     "postinstall.js"
   ],
   "volta": {
-    "node": "24.17.0"
+    "node": "24.22.0"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",
@@ -32,7 +32,7 @@
     "tar": "^7.5.16"
   },
   "devDependencies": {
-    "@types/adm-zip": "0.5.8",
+    "@types/adm-zip": "0.6.0",
     "@types/debug": "4.1.13",
     "@types/node-fetch": "2.6.13",
     "typescript": "4.9.5"

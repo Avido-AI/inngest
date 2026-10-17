@@ -1,75 +1,129 @@
-# inngestgo
+## [v0.16.5] - 2026-10-02
 
-## 0.15.1
+### ⚙️ Miscellaneous Tasks
 
-### Patch Changes
+- *(stephttp)* Remove err from start
+## [v0.16.4] - 2026-10-02
 
-- ca9db1b: Add checkpointing to function syncs
+### 🚀 Features
 
-## 0.15.0
+- *(stephttp)* Add Start(), for durable endpoints without middleware (#264)
 
-### Minor Changes
+### ⚙️ Miscellaneous Tasks
 
-- a8c3db8: Add checkpointing
+- *(release)* V0.16.4 (#265)
+## [v0.16.3] - 2026-10-01
 
-## 0.14.4
+### 🚀 Features
 
-### Patch Changes
+- *(stephttp)* Re-introduce middleware in a nicer way (#262)
 
-- 2bc16f0: Protect connectHandler.state behind RWMutex
+### ⚙️ Miscellaneous Tasks
 
-## 0.14.3
+- *(release)* V0.16.3 (#263)
+## [v0.16.2] - 2026-10-01
 
-### Patch Changes
+### 🚀 Features
 
-- a2747b8: - [SYS-370] Adding Worker Concurrency - Go SDK
+- *(stephttp)* Checkpoint runs in background on success (#257)
+- *(stephttp)* Configuration change (#259)
 
-## 0.14.2
+### 🐛 Bug Fixes
 
-### Patch Changes
+- *(stephttp)* Durable endpoints improvements (#258)
+- *(realtime)* Pass the caller's context to publish requests (#255)
+- *(stephttp)* Content types, response limiting
 
-- e9c5f74: Fix serve URL overrides
+### ⚙️ Miscellaneous Tasks
 
-## 0.14.1
+- Fix changelog validation (#246)
+- *(release)* V0.16.2 (#253)
+## [v0.16.1] - 2026-08-28
 
-### Patch Changes
+### 🐛 Bug Fixes
 
-- b9dbde9: Add support for the `StepFailed` opcode, which denotes a permanent, non-retriable failure.
+- Send environment on signing-key API requests (#252)
+- Hydrate API-backed invocation state (#251)
 
-## 0.14.0
+### ⚙️ Miscellaneous Tasks
 
-### Minor Changes
+- *(connect)* Adding tests for lease nack (#248)
+- *(release)* V0.16.1 (#249)
+## [v0.16.0] - 2026-07-20
 
-- 097ebf2: Add support for steps in HTTP endpoints
+### 🚀 Features
 
-## 0.13.1
+- [**breaking**] Always enable authenticated syncs (#242)
+- [**breaking**] Strip details in unauthed response (#243)
+- [**breaking**] Disable unauthed syncs by default (#244)
 
-### Patch Changes
+### 🐛 Bug Fixes
 
-- f122af6: Add parallel mode option. Fix parallel step reporting when not targeted
-- 6c3b145: Fix SDK failing to reconnect when gateways are rotated
+- Signing key not required in cloud mode (#245)
 
-## 0.13.0
+### ⚙️ Miscellaneous Tasks
 
-### Minor Changes
+- Change 0-major semver logic (#239)
+- *(release)* V0.16.0 (#240)
 
-- f54d7a8: Add step.WaitForSignal
-- 4869295: Rename function options from Fn${Option} to Config${Option}
-- f54d7a8: Add step.WaitForSignal
+### 🛡️ Security
 
-### Patch Changes
+- Bump golang.org/x/net from 0.52.0 to 0.55.0 (#241)
+## [v0.15.3] - 2026-06-18
 
-- 36a3186: Add support for cancel mode in function singletons
+### 🐛 Bug Fixes
 
-## 0.12.0
+- Update github.com/inngest/inngest to v1.19.3 (#238)
 
-### Minor Changes
+### ⚙️ Miscellaneous Tasks
 
-- 4cf0281: Add support for function singletons
-- 9d45eaf: Connect: Reliability improvements
-- 7aec433: Update function configuration types to always use inngestgo.Fn imports
+- *(release)* V0.15.3 (#224)
+## [v0.15.2] - 2026-06-17
 
-### Patch Changes
+### 🚀 Features
 
-- 9373b31: Clean up request leases properly
-- c68c629: Change LoggerFromContext to not return an error
+- *(connect)* Configure heartbeat tolerance (#234)
+
+### 🐛 Bug Fixes
+
+- Add nil guard to Trigger.MarshalJSON to prevent panic (#212)
+- Ignore stale connect lease acks (#216)
+- *(connect)* Stale Connect websocket writes (#220)
+- *(connect)* Retire generation on ACK failure (#226)
+- *(connect)* Model drain and closing lifecycles (#231)
+- Mark event parse errors no-retry (#230)
+- *(connect)* Harden websocket lifecycle boundaries (#233)
+- Use range assertion for requestCount (#232)
+- Buffer initialConnectionDone and notifyConnectDoneChan to prevent deadlock (#221)
+- Assert we lock ops when checkpointing (#236)
+
+### 💼 Other
+
+- Improve SDK logging (#217)
+- Fix reporting synchronous durable endpoints runs (#219)
+
+### 🚜 Refactor
+
+- *(connect)* Add websocket generation lifecycle (#228)
+- *(connect)* Gate writes by lifecycle phase (#229)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* Adopt git-cliff release flow (#223)
+- *(middleware)* Export middleware package (#225)
+## [v0.14.1] - 2025-10-27
+
+### 🚀 Features
+
+- Step failed opcode (#183)
+## [v0.8.0] - 2025-03-06
+
+### 💼 Other
+
+- Convert timeout duration types to strings for (#74)
+## [v0.5.0] - 2023-11-02
+
+### 💼 Other
+
+- Add batch config for function opts (#10)
+## [v0.1.1] - 2021-05-11

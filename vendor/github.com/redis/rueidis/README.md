@@ -14,10 +14,12 @@ A fast Golang Redis client that does auto pipelining and supports server-assiste
 - [Generic Object Mapping with client-side caching](./om)
 - [Cache-Aside pattern with client-side caching](./rueidisaside)
 - [Distributed Locks with client-side caching](./rueidislock)
+- [Distributed Rate Limiting (GCRA & Fixed Window)](./rueidislimiter)
 - [Helpers for writing tests with rueidis mock](./mock)
 - [OpenTelemetry integration](./rueidisotel)
 - [Hooks and other integrations](./rueidishook)
 - [Go-redis like API adapter](./rueidiscompat) by [@418Coffee](https://github.com/418Coffee)
+- [Go-redis redis_rate parity adapter](./rueidiscompatrate)
 - Pub/Sub, Sharded Pub/Sub, Streams
 - Redis Cluster, Sentinel, RedisJSON, RedisBloom, RediSearch, RedisTimeseries, etc.
 - [Probabilistic Data Structures without Redis Stack](./rueidisprob)
@@ -337,7 +339,7 @@ Note that `client.Receive()` doesn't unsubscribe channels automatically when it 
 ```go
 ctx, cancel := context.WithCancel(context.Background())
 
-ctx = rueidis.WithOnReceiveReturnHook(context.Background(), func(err error, client rueidis.CommandClient) error {
+ctx = rueidis.WithOnReceiveReturnHook(ctx, func(err error, client rueidis.CommandClient) error {
   if errors.Is(err, context.Canceled) {
     // Send UNSUBSCRIBE command to the connection
     return client.Do(context.Background(), client.B().Unsubscribe().Channel("news").Build()).Error()
@@ -501,8 +503,20 @@ client, err := rueidis.NewClient(rueidis.ClientOption{
     SendToReplicas: func(cmd rueidis.Completed) bool {
         return cmd.IsReadOnly()
     },
+    ClusterOption: valkey.ClusterOption{
+        // Set this to periodically refresh the cluster topology.
+        // Without it, newly added or removed replicas won't be picked up,
+        // because the topology is only refreshed on MOVED/ASK errors or connection closures.
+        ShardsRefreshInterval: 10 * time.Second,
+    },
 })
+```
 
+Note that scaling the number of replicas on an existing shard (e.g. via ElastiCache modify-replication-group)
+neither moves slots nor closes existing connections, so without `ShardsRefreshInterval`
+the client never discovers the new replicas and continues reading the old shard.
+
+```golang
 // Connect to sentinels
 client, err := rueidis.NewClient(rueidis.ClientOption{
     InitAddress: []string{"127.0.0.1:26379", "127.0.0.1:26380", "127.0.0.1:26381"},
@@ -629,7 +643,7 @@ If an incorrect parser function is chosen, an errParse will be returned. Here's 
 // Attempt to parse the response. If a parsing error occurs, check if the error is a parse error and handle it.
 // Normally, you should fix the code by choosing the correct parser function.
 // For instance, use ToString() if the expected response is a string, or ToArray() if the expected response is an array as follows:
-if err := client.Do(ctx, client.B().Get().Key("k").Build()).ToArray(); IsParseErr(err) {
+if _, err := client.Do(ctx, client.B().Get().Key("k").Build()).ToArray(); rueidis.IsParseErr(err) {
     fmt.Println("Parsing error:", err)
 }
 ```

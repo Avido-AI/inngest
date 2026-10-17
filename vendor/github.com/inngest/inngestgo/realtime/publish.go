@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	"github.com/inngest/inngestgo/internal/sdkrequest"
+	"github.com/inngest/inngestgo/pkg/version"
 	"github.com/inngest/inngestgo/step"
 )
 
@@ -64,12 +65,16 @@ func PublishWithURL(ctx context.Context, apiUrl, channel, topic string, data []b
 	qp.Encode()
 	u := fmt.Sprintf("%s?%s", apiUrl, qp.Encode())
 
-	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", mgr.SigningKey()))
+	req.Header.Set("X-Inngest-SDK", fmt.Sprintf("go:v%s", version.SDKVersion))
+	if environment := mgr.Request().CallCtx.Env; environment != "" {
+		req.Header.Set("X-Inngest-Env", environment)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -77,7 +77,7 @@ func (c *singleClient) DoStream(ctx context.Context, cmd Completed) RedisResultS
 
 func (c *singleClient) DoMultiStream(ctx context.Context, multi ...Completed) MultiRedisResultStream {
 	if len(multi) == 0 {
-		return RedisResultStream{e: io.EOF}
+		return NewErrorResultStream(io.EOF)
 	}
 	s := c.conn.DoMultiStream(ctx, multi...)
 	for _, cmd := range multi {
@@ -269,10 +269,11 @@ func (c *dedicatedSingleClient) B() Builder {
 }
 
 func (c *dedicatedSingleClient) Do(ctx context.Context, cmd Completed) (resp RedisResult) {
+	cmds.ClearUnblockOnCancel(&cmd)
 	attempts := 1
 retry:
 	if err := c.check(); err != nil {
-		return newErrResult(err)
+		return NewErrorResult(err)
 	}
 	resp = c.wire.Do(ctx, cmd)
 	if c.retry && cmd.IsRetryable() && isRetryable(resp.Error(), c.wire, ctx) {

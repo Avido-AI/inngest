@@ -48,7 +48,7 @@ type Tsize_t = types.Size_t
 type syscallErrno = unix.Errno
 
 // // Keep these outside of the var block otherwise go generate will miss them.
-var X__stderrp = Xstdout
+var X__stderrp = Xstderr
 var X__stdinp = Xstdin
 var X__stdoutp = Xstdout
 var X__sF [3]stdio.FILE
@@ -261,10 +261,16 @@ func Xlocaltime(_ *TLS, timep uintptr) uintptr {
 	localtime.Ftm_mon = int32(t.Month() - 1)
 	localtime.Ftm_year = int32(t.Year() - 1900)
 	localtime.Ftm_wday = int32(t.Weekday())
-	localtime.Ftm_yday = int32(t.YearDay())
+	localtime.Ftm_yday = int32(t.YearDay() - 1)
 	localtime.Ftm_isdst = Bool32(isTimeDST(t))
+	_, off := t.Zone()
+	setGmtoff(&localtime.Ftm_gmtoff, off)
+	localtime.Ftm_zone = 0
 	return uintptr(unsafe.Pointer(&localtime))
 }
+
+// setGmtoff sets tm_gmtoff, a long, which is 32 bits wide on some of the targets of this OS.
+func setGmtoff[T ~int32 | ~int64](p *T, off int) { *p = T(off) }
 
 // struct tm *localtime_r(const time_t *timep, struct tm *result);
 func Xlocaltime_r(_ *TLS, timep, result uintptr) uintptr {
@@ -278,8 +284,11 @@ func Xlocaltime_r(_ *TLS, timep, result uintptr) uintptr {
 	(*time.Tm)(unsafe.Pointer(result)).Ftm_mon = int32(t.Month() - 1)
 	(*time.Tm)(unsafe.Pointer(result)).Ftm_year = int32(t.Year() - 1900)
 	(*time.Tm)(unsafe.Pointer(result)).Ftm_wday = int32(t.Weekday())
-	(*time.Tm)(unsafe.Pointer(result)).Ftm_yday = int32(t.YearDay())
+	(*time.Tm)(unsafe.Pointer(result)).Ftm_yday = int32(t.YearDay() - 1)
 	(*time.Tm)(unsafe.Pointer(result)).Ftm_isdst = Bool32(isTimeDST(t))
+	_, off := t.Zone()
+	setGmtoff(&(*time.Tm)(unsafe.Pointer(result)).Ftm_gmtoff, off)
+	(*time.Tm)(unsafe.Pointer(result)).Ftm_zone = 0
 	return result
 }
 
@@ -1388,20 +1397,30 @@ func Xabort(t *TLS) {
 	if __ccgo_strace {
 		trc("t=%v, (%v:)", t, origin(2))
 	}
-	panic(todo("")) //TODO
-	// if dmesgs {
-	// 	dmesg("%v:", origin(1))
-	// }
-	// p := Xcalloc(t, 1, types.Size_t(unsafe.Sizeof(signal.Sigaction{})))
-	// if p == 0 {
-	// 	panic("OOM")
-	// }
-
-	// (*signal.Sigaction)(unsafe.Pointer(p)).F__sigaction_u.F__sa_handler = signal.SIG_DFL
-	// Xsigaction(t, signal.SIGABRT, p, 0)
-	// Xfree(t, p)
-	// unix.Kill(unix.Getpid(), unix.Signal(signal.SIGABRT))
-	// panic(todo("unrechable"))
+	if dmesgs {
+		dmesg("%v:", origin(1))
+	}
+	// OpenBSD's Xabort was a stub, so C abort(3) didn't terminate by signal —
+	// callers such as SQLite's crash tests (writecrash.test) require the process to be
+	// killed BY A SIGNAL, so Tcl's exec reports "child killed: ..." rather than a Go
+	// panic's "child process exited abnormally".
+	//
+	// A faithful SIGABRT-based abort() is not reachable from pure-Go libc on openbsd:
+	//   - libc's own Xsigaction is an unimplemented stub, and openbsd's pinsyscalls(2)
+	//     makes the raw sys_sigaction / getthrid / thrkill syscalls return ENOSYS
+	//     through the generic indirect syscall path (only libc.so's pinned call sites
+	//     may issue them; verified: sigaction -> errno 78). So SIGABRT's disposition
+	//     cannot be reset to SIG_DFL, which means the Go runtime always catches a
+	//     delivered SIGABRT, prints a crash trace, and exits status 2 — again reported
+	//     as "exited abnormally", not "child killed".
+	//   - The only signal that cannot be caught, blocked or ignored is SIGKILL. It
+	//     terminates the process immediately and unconditionally by signal (no race, no
+	//     trace, no "SIGABRT" string leaking into the harness output). This is the best
+	//     abnormal-termination available here and is exactly what abort()'s callers in
+	//     the crash tests need. unix.Kill routes through libc.so, so unlike the raw
+	//     syscalls above it is not defeated by pinsyscalls.
+	unix.Kill(unix.Getpid(), unix.SIGKILL)
+	panic(todo("unrechable"))
 }
 
 // int fflush(FILE *stream);
@@ -1558,7 +1577,9 @@ func Xgetservbyname(t *TLS, name, proto uintptr) uintptr {
 	}
 	var protoent *gonetdb.Protoent
 	if proto != 0 {
-		protoent = gonetdb.GetProtoByName(GoString(proto))
+		if protoent = gonetdb.GetProtoByName(GoString(proto)); protoent == nil {
+			return 0
+		}
 	}
 	servent := gonetdb.GetServByName(GoString(name), protoent)
 	if servent == nil {
@@ -1568,68 +1589,47 @@ func Xgetservbyname(t *TLS, name, proto uintptr) uintptr {
 		return 0
 	}
 
-	Xfree(t, (*netdb.Servent)(unsafe.Pointer(&getservbynameStaticResult)).Fs_name)
-	if v := (*netdb.Servent)(unsafe.Pointer(&getservbynameStaticResult)).Fs_aliases; v != 0 {
-		for {
-			p := *(*uintptr)(unsafe.Pointer(v))
-			if p == 0 {
-				break
-			}
-
-			Xfree(t, p)
-			v += unsafe.Sizeof(uintptr(0))
+	// The result is static storage that owns its strings and the aliases
+	// array until the next call frees them, even after a failed call.
+	r := &getservbynameStaticResult
+	Xfree(t, r.Fs_name)
+	if v := r.Fs_aliases; v != 0 {
+		for p := v; *(*uintptr)(unsafe.Pointer(p)) != 0; p += unsafe.Sizeof(uintptr(0)) {
+			Xfree(t, *(*uintptr)(unsafe.Pointer(p)))
 		}
 		Xfree(t, v)
 	}
-	Xfree(t, (*netdb.Servent)(unsafe.Pointer(&getservbynameStaticResult)).Fs_proto)
-	cname, err := CString(servent.Name)
-	if err != nil {
-		getservbynameStaticResult = netdb.Servent{}
+	Xfree(t, r.Fs_proto)
+	*r = netdb.Servent{}
+	var err error
+	if r.Fs_name, err = CString(servent.Name); err != nil {
 		return 0
 	}
 
-	var protoname uintptr
-	if protoent != nil {
-		if protoname, err = CString(protoent.Name); err != nil {
-			Xfree(t, cname)
-			getservbynameStaticResult = netdb.Servent{}
-			return 0
-		}
+	if r.Fs_aliases = Xcalloc(t, types.Size_t(len(servent.Aliases)+1), types.Size_t(unsafe.Sizeof(uintptr(0)))); r.Fs_aliases == 0 {
+		return 0
 	}
-	var a []uintptr
-	for _, v := range servent.Aliases {
-		cs, err := CString(v)
+
+	for i, v := range servent.Aliases {
+		p, err := CString(v)
 		if err != nil {
-			for _, v := range a {
-				Xfree(t, v)
-			}
 			return 0
 		}
 
-		a = append(a, cs)
-	}
-	v := Xcalloc(t, types.Size_t(len(a)+1), types.Size_t(unsafe.Sizeof(uintptr(0))))
-	if v == 0 {
-		Xfree(t, cname)
-		Xfree(t, protoname)
-		for _, v := range a {
-			Xfree(t, v)
-		}
-		getservbynameStaticResult = netdb.Servent{}
-		return 0
-	}
-	for _, p := range a {
-		*(*uintptr)(unsafe.Pointer(v)) = p
-		v += unsafe.Sizeof(uintptr(0))
+		*(*uintptr)(unsafe.Pointer(r.Fs_aliases + uintptr(i)*unsafe.Sizeof(uintptr(0)))) = p
 	}
 
-	getservbynameStaticResult = netdb.Servent{
-		Fs_name:    cname,
-		Fs_aliases: v,
-		Fs_port:    int32(servent.Port),
-		Fs_proto:   protoname,
+	// servent.Protocol is nil only for a protocol missing from /etc/protocols.
+	var protoname string
+	if servent.Protocol != nil {
+		protoname = servent.Protocol.Name
 	}
-	return uintptr(unsafe.Pointer(&getservbynameStaticResult))
+	if r.Fs_proto, err = CString(protoname); err != nil {
+		return 0
+	}
+
+	r.Fs_port = int32(Xhtons(t, uint16(servent.Port)))
+	return uintptr(unsafe.Pointer(r))
 }
 
 func Xreaddir64(t *TLS, dir uintptr) uintptr {
@@ -1776,31 +1776,49 @@ func Xreaddir(t *TLS, dir uintptr) uintptr {
 	if __ccgo_strace {
 		trc("t=%v dir=%v, (%v:)", t, dir, origin(2))
 	}
-	if (*darwinDir)(unsafe.Pointer(dir)).eof {
-		return 0
-	}
+	for {
+		if (*darwinDir)(unsafe.Pointer(dir)).eof {
+			return 0
+		}
 
-	if (*darwinDir)(unsafe.Pointer(dir)).l == (*darwinDir)(unsafe.Pointer(dir)).h {
-		n, err := unix.Getdirentries((*darwinDir)(unsafe.Pointer(dir)).fd, (*darwinDir)(unsafe.Pointer(dir)).buf[:], nil)
-		// trc("must read: %v %v", n, err)
-		if n == 0 {
-			if err != nil && err != io.EOF {
-				if dmesgs {
-					dmesg("%v: %v FAIL", origin(1), err)
+		if (*darwinDir)(unsafe.Pointer(dir)).l == (*darwinDir)(unsafe.Pointer(dir)).h {
+			n, err := unix.Getdirentries((*darwinDir)(unsafe.Pointer(dir)).fd, (*darwinDir)(unsafe.Pointer(dir)).buf[:], nil)
+			// trc("must read: %v %v", n, err)
+			if n == 0 {
+				if err != nil && err != io.EOF {
+					if dmesgs {
+						dmesg("%v: %v FAIL", origin(1), err)
+					}
+					t.setErrno(err)
 				}
-				t.setErrno(err)
+				(*darwinDir)(unsafe.Pointer(dir)).eof = true
+				return 0
 			}
+
+			(*darwinDir)(unsafe.Pointer(dir)).l = 0
+			(*darwinDir)(unsafe.Pointer(dir)).h = n
+			// trc("new l %v, h %v", (*darwinDir)(unsafe.Pointer(dir)).l, (*darwinDir)(unsafe.Pointer(dir)).h)
+		}
+		de := dir + unsafe.Offsetof(darwinDir{}.buf) + uintptr((*darwinDir)(unsafe.Pointer(dir)).l)
+		reclen := int((*unix.Dirent)(unsafe.Pointer(de)).Reclen)
+		if reclen <= 0 || (*darwinDir)(unsafe.Pointer(dir)).l+reclen > (*darwinDir)(unsafe.Pointer(dir)).h {
+			// Malformed record, do not spin on it. Same as the bogus pointer/reclen
+			// checks in OpenBSD's _readdir_unlocked().
 			(*darwinDir)(unsafe.Pointer(dir)).eof = true
 			return 0
 		}
 
-		(*darwinDir)(unsafe.Pointer(dir)).l = 0
-		(*darwinDir)(unsafe.Pointer(dir)).h = n
-		// trc("new l %v, h %v", (*darwinDir)(unsafe.Pointer(dir)).l, (*darwinDir)(unsafe.Pointer(dir)).h)
+		(*darwinDir)(unsafe.Pointer(dir)).l += reclen
+		// getdirentries(2) reports entries of deleted files with d_fileno set to
+		// zero, readdir(3) must not return them. On FFS such a record survives an
+		// unlink whenever it is the first one in a directory block, so a directory
+		// larger than one block will otherwise show ghost entries.
+		if (*unix.Dirent)(unsafe.Pointer(de)).Fileno == 0 {
+			continue
+		}
+
+		return de
 	}
-	de := dir + unsafe.Offsetof(darwinDir{}.buf) + uintptr((*darwinDir)(unsafe.Pointer(dir)).l)
-	(*darwinDir)(unsafe.Pointer(dir)).l += int((*unix.Dirent)(unsafe.Pointer(de)).Reclen)
-	return de
 }
 
 type darwinDir struct {
@@ -2066,11 +2084,7 @@ func Xpthread_mutex_init(t *TLS, pMutex, pAttr uintptr) int32 {
 	if pAttr != 0 {
 		typ = int(X__ccgo_pthreadMutexattrGettype(t, pAttr))
 	}
-	mutexesMu.Lock()
-
-	defer mutexesMu.Unlock()
-
-	mutexes[pMutex] = newMutex(typ)
+	setMutex(pMutex, newMutex(typ))
 	return 0
 }
 

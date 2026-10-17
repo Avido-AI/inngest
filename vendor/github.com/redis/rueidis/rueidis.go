@@ -301,6 +301,25 @@ type SentinelOption struct {
 	Username   string
 	Password   string
 	ClientName string
+
+	// TopologyRefreshInterval, when > 0, periodically reconciles this client's
+	// targets with the sentinels, in addition to reacting to +switch-master
+	// PUB/SUB events. Zero disables it (the default); a negative value is
+	// rejected. A few seconds is a reasonable value; 5s works well. There is no
+	// benefit to a very small interval: it only adds load on the sentinels, and
+	// recovery just needs to catch a missed event, not react instantly.
+	//
+	// Enabling it is recommended. Sentinel topology tracking is otherwise
+	// purely event-driven, and unlike the cluster client the sentinel client
+	// has no reactive fallback: a demoted master stays alive so no connection
+	// closes (SetOnCloseHook never fires), and a replication role change causes
+	// no MOVED. A single missed +switch-master then binds the client to the old
+	// master until it is restarted, and periodic reconciliation is the only
+	// thing that recovers from it.
+	//
+	// It reconciles whichever targets the client uses: the master by default,
+	// the replica under ReplicaOnly, and both under SendToReplicas.
+	TopologyRefreshInterval time.Duration
 }
 
 // ClusterOption is the options for the redis cluster client.
@@ -318,6 +337,14 @@ type ClusterOption struct {
 
 	// PreferInitAddressRefresh only uses ClientOption.InitAddress nodes during cluster topology refresh.
 	PreferInitAddressRefresh bool
+
+	// PreferClusterShards uses CLUSTER SHARDS instead of CLUSTER SLOTS to refresh the cluster topology
+	// on servers with version >= 7 (by default CLUSTER SHARDS is only used on version >= 8).
+	// CLUSTER SHARDS reports the per-node "health" field, which lets the client drop nodes that are not
+	// online (e.g. LOADING during a failover) instead of routing to them.
+	// Enable this ONLY if your engine's CLUSTER SHARDS is fixed: Valkey >= 7.2.6 or Redis >= 8.0.
+	// Do NOT enable it on Redis 7.x: its CLUSTER SHARDS returns wrong topology after a failover.
+	PreferClusterShards bool
 }
 
 // StandaloneOption is the options for the standalone client.
@@ -483,6 +510,8 @@ type AuthCredentialsContext struct {
 type AuthCredentials struct {
 	Username string
 	Password string
+	// RefreshAfter schedules AuthCredentialsFn to be called again at this time.
+	RefreshAfter time.Time
 }
 
 // NewClient uses ClientOption to initialize the Client for both a cluster client and a single client.
@@ -531,23 +560,23 @@ func NewClient(option ClientOption) (client Client, err error) {
 	}
 	if option.Sentinel.MasterSet != "" {
 		option.PipelineMultiplex = singleClientMultiplex(option.PipelineMultiplex)
-		return newSentinelClient(&option, makeConn, newRetryer(option.RetryDelay))
+		return toClient(newSentinelClient(&option, makeConn, newRetryer(option.RetryDelay)))
 	}
 
 	if option.Standalone.EnableRedirect {
 		option.PipelineMultiplex = singleClientMultiplex(option.PipelineMultiplex)
-		return newStandaloneClient(&option, makeConn, newRetryer(option.RetryDelay))
+		return toClient(newStandaloneClient(&option, makeConn, newRetryer(option.RetryDelay)))
 	}
 	if len(option.Standalone.ReplicaAddress) > 0 {
 		if option.SendToReplicas == nil {
 			return nil, ErrNoSendToReplicas
 		}
 		option.PipelineMultiplex = singleClientMultiplex(option.PipelineMultiplex)
-		return newStandaloneClient(&option, makeConn, newRetryer(option.RetryDelay))
+		return toClient(newStandaloneClient(&option, makeConn, newRetryer(option.RetryDelay)))
 	}
 	if option.ForceSingleClient {
 		option.PipelineMultiplex = singleClientMultiplex(option.PipelineMultiplex)
-		return newSingleClient(&option, nil, makeConn, newRetryer(option.RetryDelay))
+		return toClient(newSingleClient(&option, nil, makeConn, newRetryer(option.RetryDelay)))
 	}
 	if client, err = newClusterClient(&option, makeConn, newRetryer(option.RetryDelay)); err != nil {
 		if client == (*clusterClient)(nil) {
@@ -555,7 +584,7 @@ func NewClient(option ClientOption) (client Client, err error) {
 		}
 		if len(option.InitAddress) == 1 && (err.Error() == redisErrMsgCommandNotAllow || strings.Contains(strings.ToUpper(err.Error()), "CLUSTER")) {
 			option.PipelineMultiplex = singleClientMultiplex(option.PipelineMultiplex)
-			client, err = newSingleClient(&option, client.(*clusterClient).single(), makeConn, newRetryer(option.RetryDelay))
+			client, err = toClient(newSingleClient(&option, client.(*clusterClient).single(), makeConn, newRetryer(option.RetryDelay)))
 		} else {
 			client.Close()
 			return nil, err
@@ -602,3 +631,14 @@ var (
 	// errConnExpired means the wrong connection that ClientOption.ConnLifetime had passed since connecting
 	errConnExpired = errors.New("connection is expired")
 )
+
+// toClient keeps a nil concrete client from escaping as a non-nil Client interface.
+func toClient[P interface {
+	*T
+	Client
+}, T any](c P, err error) (Client, error) {
+	if c == nil {
+		return nil, err
+	}
+	return c, err
+}

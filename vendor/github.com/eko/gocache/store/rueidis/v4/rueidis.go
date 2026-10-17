@@ -57,21 +57,43 @@ func (s *RueidisStore) GetWithTTL(ctx context.Context, key any) (any, time.Durat
 	res := s.client.DoCache(ctx, cmd, s.options.ClientSideCacheExpiration)
 	str, err := res.ToString()
 	if rueidis.IsRedisNil(err) {
+		return res, time.Duration(0), lib_store.NotFoundWithCause(err)
+	}
+
+	ttl, _ := s.GetTTL(ctx, key)
+	return str, ttl, err
+}
+
+func (s *RueidisStore) GetTTL(ctx context.Context, key any) (time.Duration, error) {
+	cmd := s.client.B().Ttl().Key(key.(string)).Cache()
+	res := s.client.DoCache(ctx, cmd, s.options.ClientSideCacheExpiration)
+	castResult, err := res.ToInt64()
+	if rueidis.IsRedisNil(err) {
 		err = lib_store.NotFoundWithCause(err)
 	}
-	return str, time.Duration(res.CacheTTL()) * time.Second, err
+
+	return time.Duration(castResult) * time.Second, err
 }
 
 // Set defines data in Redis for given key identifier
 func (s *RueidisStore) Set(ctx context.Context, key any, value any, options ...lib_store.Option) error {
 	opts := lib_store.ApplyOptionsWithDefault(s.options, options...)
 	ttl := int64(opts.Expiration.Seconds())
-	cmd := s.client.B().Set().Key(key.(string)).Value(value.(string)).ExSeconds(ttl).Build()
+	var cmd rueidis.Completed
+	switch v := value.(type) {
+	case string:
+		cmd = s.client.B().Set().Key(key.(string)).Value(v).ExSeconds(ttl).Build()
+
+	case []byte:
+		cmd = s.client.B().Set().Key(key.(string)).Value(rueidis.BinaryString(v)).ExSeconds(ttl).Build()
+
+	default:
+		return fmt.Errorf("value type not supported by Rueidis store: %T", value)
+	}
 	err := s.client.Do(ctx, cmd).Error()
 	if err != nil {
 		return err
 	}
-
 	if tags := opts.Tags; len(tags) > 0 {
 		s.setTags(ctx, key, tags)
 	}
